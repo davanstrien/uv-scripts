@@ -81,7 +81,7 @@ For few-shot text classification, the focused **[`setfit-on-jobs` skill](skills/
 | **dataset creation** | Turn PDFs / image URLs into Hub datasets | [`dataset-creation`](https://huggingface.co/datasets/uv-scripts/dataset-creation) · [`iiif-tiles`](https://huggingface.co/datasets/uv-scripts/iiif-tiles) |
 | **synthetic data** | Generate datasets with LLMs | [`synthetic-data`](https://huggingface.co/datasets/uv-scripts/synthetic-data) |
 | **inference** | Run any open LLM / VLM over a dataset | [`vllm`](https://huggingface.co/datasets/uv-scripts/vllm) · [`openai-oss`](https://huggingface.co/datasets/uv-scripts/openai-oss) · [`transformers-inference`](https://huggingface.co/datasets/uv-scripts/transformers-inference) |
-| **entity extraction** | NER / structured extraction over text | [`gliner`](https://huggingface.co/datasets/uv-scripts/gliner) |
+| **entity extraction** | Zero-shot NER (GLiNER) and schema-driven structured records (GLiFormer) over text, CPU-friendly | [`gliner`](https://huggingface.co/datasets/uv-scripts/gliner) |
 | ***…and more*** | *Training, evaluation, RAG indexing — migrating as they mature* | [`training`](https://huggingface.co/datasets/uv-scripts/training) · [`transformers-training`](https://huggingface.co/datasets/uv-scripts/transformers-training) |
 
 Most recipes now live in this repo; the rest link to the [`uv-scripts`](https://huggingface.co/uv-scripts) Hugging Face org where they run today, and migrate here over time. (each folder mirrors to its Hub dataset repo.)
