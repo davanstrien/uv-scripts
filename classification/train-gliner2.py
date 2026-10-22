@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.11,<3.14"
 # dependencies = [
-#     "gliner2[train]==2.0.0",
+#     "gliner2[train]==2.1.0",
 #     "protobuf",
 #     "sentencepiece",
 #     "datasets>=4.0.0,<6",
@@ -528,8 +528,8 @@ def resolve_precision(requested: str) -> str:
 def resolve_sampling_config(mode: str) -> SamplingConfig:
     """Pick the gliner2 training-time label augmentation.
 
-    "upstream" is gliner2 2.0.0's default SamplingConfig. For each classification task in each
-    training row, it replaces the real label names with "label 1", "label 2", ... half of the
+    "upstream" is gliner2's default SamplingConfig (unchanged from 2.0.0 to 2.1.0). For each
+    classification task in each training row, it replaces the real label names with "label 1", "label 2", ... half of the
     time (synthetic_label_prob=0.5), and drops a random share of up to half of the labels
     (remove_classification_label_prob=0.5; the true label is then put back only half of the
     time). That teaches a general zero-shot model to cope with unseen label sets.

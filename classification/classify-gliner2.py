@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.11,<3.14"
 # dependencies = [
-#     "gliner2[local]==2.0.0",
+#     "gliner2[local]==2.1.0",
 #     "protobuf",
 #     "sentencepiece",
 #     "datasets>=4.0.0,<6",

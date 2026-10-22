@@ -15,6 +15,18 @@ Each README command was run from the branch before merge (`t4-small`, 2026-09-23
 | classify zero-shot, `fancyzhx/ag_news` test, 4 labels | 7,600 rows labelled | 96 s | ~$0.02 |
 | train, `fancyzhx/ag_news`, `--max-train-samples 2000 --epochs 2` | 0.733 → 0.873 (2,000 test rows) | 137 s training, 298 s whole Job | ~$0.03 |
 
+Re-run after the bump to `gliner2` 2.1.0 (`t4-small`, seed 42, 2026-10-22), same BL books command:
+
+| Run | Fine-tuned (174 rows) | Training |
+|---|---|---|
+| 2.1.0, defaults | 0.902 | 145 s |
+| 2.1.0, `--label-augmentation off` | 0.937 | 135 s |
+| 2.0.0, `--label-augmentation off` | 0.931 | 135 s |
+| classify with an existing fine-tuned model, 2.1.0 | 500 rows in 13 s | – |
+
+Zero-shot is 0.793 in all three. One seed each, and five 2.0.0 seeds on this split ranged
+0.897–0.925, so these differences are within the noise.
+
 The ag_news README row (0.718 → 0.852) and this run (0.733 → 0.873) differ because the 2,000
 scored test rows are a different random sample. Expect roughly 0.72 → 0.85–0.87.
 
@@ -83,6 +95,9 @@ column names and first row (the worked example in the README).
 - Development top-1 in the owner's tags: base 0.695 / 0.686 (two seeds), small 0.653, zero-shot
   0.102. Always answering "text-generation" scores 0.320, so zero-shot is below a constant guess.
 - `--label-augmentation upstream` (gliner2's default) scored 0.664: turning it off added 2–3 points.
+  This was measured on `gliner2` 2.0.0. In that version, label augmentation sometimes trained the
+  real label as a negative (fixed in 2.1.0, [GLiNER2#187](https://github.com/fastino-ai/GLiNER2/pull/187)),
+  so the gap may be smaller on 2.1.0. Not re-measured; `off` is still the right choice for a fixed label set.
 - The two seeds differ by about 1 point, almost all of it on one owner's 33 near-identical
   datasets that the model labels tabular-regression or tabular-classification depending on the seed.
 - Owner tags are noisy: in a hand-checked sample, about 1 in 10 datasets was missing a tag that fits.
