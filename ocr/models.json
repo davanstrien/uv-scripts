@@ -340,6 +340,32 @@
     "image": "vllm/vllm-openai:v0.30.0",
     "notes": "Also runs lightonai/LightOnOCR-3-0.8B. Not LightOnOCR-3-1B (Pixtral arch, different pins). vLLM 0.30.0 pinned: upstream reports 0.27.1 loops."
   },
+  "lighton-ocr3-bucket.py": {
+    "model_id": "lightonai/LightOnOCR-3-4B",
+    "params": "4B (or 0.8B via --model)",
+    "backend": "vllm",
+    "task": "ocr",
+    "output": "one .md per image/PDF page in an output dir; --mode grounding adds a .json sidecar of layout blocks",
+    "license": "apache-2.0",
+    "languages": {
+      "evidence": "not-stated",
+      "notes": "LightOnOCR-3 cards give no language list (LightOnOCR-2 named 11)."
+    },
+    "support": "core",
+    "jobs": {
+      "image": "vllm/vllm-openai:v0.30.0",
+      "python": "/usr/bin/python3",
+      "env": {
+        "PYTHONPATH": "/usr/local/lib/python3.12/dist-packages"
+      },
+      "flavor": "a10g-small",
+      "secrets": [
+        "HF_TOKEN"
+      ]
+    },
+    "image": "vllm/vllm-openai:v0.30.0",
+    "notes": "Bucket sibling of lighton-ocr3.py (same model, prompt, sampling). Input/output: hf://buckets/... URLs via bucketbag v0.3.1 (no mount) or directories. Reads .jp2; resume-by-skip."
+  },
   "lighton-ocr2-server.py": {
     "model_id": "lightonai/LightOnOCR-2-1B",
     "params": "1B",

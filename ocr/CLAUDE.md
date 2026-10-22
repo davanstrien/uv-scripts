@@ -79,6 +79,7 @@ Legend: ✅ production-ready · ⚠️ works only with a required pinned image �
 | `deepseek-ocr-vllm.py` | ✅ | vLLM (stable) | l4x1 | `NGramPerReqLogitsProcessor` anti-repeat |
 | `deepseek-ocr2-vllm.py` | ✅ | vLLM (nightly) | l4x1 | arch needs nightly; `addict`+`matplotlib` deps |
 | `lighton-ocr2.py` | ✅ | vLLM | a100-large / l4x1 | resize 1540px; `--max-model-len` 16384 |
+| `lighton-ocr3-bucket.py` | ✅ | vLLM `:v0.30.0` | a10g-small | `hf://buckets/...` or dir → `.md` (+ `.json` blocks in grounding); bucket I/O via `bucketbag` v0.3.1 (no mount); `.jp2` via imagecodecs; resume-by-skip; failed pages write nothing |
 | `lighton-ocr3.py` | ✅ | vLLM `:v0.30.0` | a10g-small | 4B/0.8B Qwen3.5; resize 2048px; `--mode grounding` → `layout_blocks`; pinned upstream `lightonocr` client dep — see gotcha |
 | `paddleocr-vl-1.5.py` | ✅ | transformers | l4x1 | not vLLM (server-only upstream); single-image |
 | `paddleocr-vl-1.6.py` | ✅ | vLLM | l4x1 | smart-resize ~1M px; SOTA OmniDocBench |
@@ -210,6 +211,10 @@ archive URL, so post-processing matches upstream byte for byte. Sampling = model
 to the output column and the parsed blocks JSON to `--blocks-column`; the card says prompts other than
 `""`/`grounding` are out of distribution, so no custom prompt flag. Very small type after the 2048
 resize (≲15 px line height) can give empty or looping output; a higher `--longest-edge` helps some pages.
+**Bucket sibling** (`lighton-ocr3-bucket.py`): input/output are `hf://buckets/...` URLs (bucketbag: list → batched
+download → `put_files`) or directories. Use URLs for big buckets: a `-v` mount of `biglam/britannica` (~1 TB)
+sat in RUNNING with no log output for 21 min (2026-10-22), while the same pages via bucketbag ran fine.
+Prefixes get a trailing `/` (bucketbag matches string prefixes). A PDF counts as done once `page_001.md` exists.
 
 ### `lighton-ocr2.py`
 The original breakage was **not** vLLM — it was a dead `HF_HUB_ENABLE_HF_TRANSFER=1` (the `hf_transfer`
