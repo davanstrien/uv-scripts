@@ -79,6 +79,7 @@ Legend: ✅ production-ready · ⚠️ works only with a required pinned image �
 | `deepseek-ocr-vllm.py` | ✅ | vLLM (stable) | l4x1 | `NGramPerReqLogitsProcessor` anti-repeat |
 | `deepseek-ocr2-vllm.py` | ✅ | vLLM (nightly) | l4x1 | arch needs nightly; `addict`+`matplotlib` deps |
 | `lighton-ocr2.py` | ✅ | vLLM | a100-large / l4x1 | resize 1540px; `--max-model-len` 16384 |
+| `lighton-ocr3.py` | ✅ | vLLM `:v0.30.0` | a10g-small | 4B/0.8B Qwen3.5; resize 2048px; `--mode grounding` → `layout_blocks`; pinned upstream `lightonocr` client dep — see gotcha |
 | `paddleocr-vl-1.5.py` | ✅ | transformers | l4x1 | not vLLM (server-only upstream); single-image |
 | `paddleocr-vl-1.6.py` | ✅ | vLLM | l4x1 | smart-resize ~1M px; SOTA OmniDocBench |
 | `paddleocr-vl.py` | ✅ | vLLM | l4x1 | |
@@ -197,6 +198,17 @@ client's `hunyuan_tasks.py`) and sampling is card-locked (temp 0.0, rep-penalty 
 ### `glm-ocr.py`
 Chatty on blank pages / can emit degenerate repeats — that's **model quality, not a crash**; don't
 re-debug it as a recipe bug. (The actual historical crash was the `pyarrow<18` cap — see Conventions.)
+
+### `lighton-ocr3.py`
+Covers the two Qwen3.5 variants (`LightOnOCR-3-4B` default, `-0.8B`); **not** `LightOnOCR-3-1B`, which keeps
+the LightOnOCR-2 Pixtral arch (needs `transformers` ≤5.16 for `PixtralRotaryEmbedding`). Image pinned to
+**`vllm/vllm-openai:v0.30.0`** because upstream's `pyproject.toml` says vLLM 0.27.1 makes the models loop and
+0.30.0 is tested — loosen after re-checking outputs on a newer tag. Imports parser, `fit` (2048px) and
+`fix_escaped_dollars` from LightOn's own client (`lightonocr`, not on PyPI) via a commit-pinned GitHub
+archive URL, so post-processing matches upstream byte for byte. Sampling = official client (temp 0.2,
+**top_p 1.0** per `models.py`; the card's vLLM snippet says 0.9). Grounding mode writes `to_markdown(blocks)`
+to the output column and the parsed blocks JSON to `--blocks-column`; the card says prompts other than
+`""`/`grounding` are out of distribution, so no custom prompt flag.
 
 ### `lighton-ocr2.py`
 The original breakage was **not** vLLM — it was a dead `HF_HUB_ENABLE_HF_TRANSFER=1` (the `hf_transfer`
