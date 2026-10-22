@@ -47,6 +47,12 @@ Run on your own GPU (vLLM and torch come from the image on Jobs, so add them her
 
     uv run --with vllm==0.30.0 lighton-ocr3.py input-dataset output-dataset
 
+Small print: 2048 px suits most pages, but large scans with small type (e.g.
+newspapers) can drop below ~15 px line height after the resize, and the model then
+returns empty or looping output. On a 16-page Europeana newspaper sample, raising
+--longest-edge to 3072 fixed some of these pages; the densest pages also need a
+higher --max-tokens (and stay out of reach of one 4B pass).
+
 The image is pinned to vLLM 0.30.0 because LightOn's client reports that vLLM 0.27.1
 makes the models loop and 0.30.0 is the version they test. Loosen the pin once a newer
 vLLM is checked against the same outputs.
