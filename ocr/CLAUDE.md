@@ -208,11 +208,8 @@ the LightOnOCR-2 Pixtral arch (needs `transformers` ≤5.16 for `PixtralRotaryEm
 archive URL, so post-processing matches upstream byte for byte. Sampling = model card vLLM example
 (temp 0.2, **top_p 0.9**, max_tokens 4096); LightOn's client `models.py` uses top_p 1.0 instead. Grounding mode writes `to_markdown(blocks)`
 to the output column and the parsed blocks JSON to `--blocks-column`; the card says prompts other than
-`""`/`grounding` are out of distribution, so no custom prompt flag. Small print (2026-10-22, 16-page
-Europeana newspaper sample, 4B grounding): pages ≥ ~20 px line height after the 2048 resize matched the
-library OCR 0.89–0.99; below ~15 px two Fraktur pages came back **empty** and others looped. 3072 px
-fixed some (fi 0.28→0.79, de 0.77→0.87); dense pages exceed 8192 output tokens. Recommend
-`--longest-edge 3072 --max-tokens 8192` for newspapers; tiling is the open gap.
+`""`/`grounding` are out of distribution, so no custom prompt flag. Very small type after the 2048
+resize (≲15 px line height) can give empty or looping output; a higher `--longest-edge` helps some pages.
 
 ### `lighton-ocr2.py`
 The original breakage was **not** vLLM — it was a dead `HF_HUB_ENABLE_HF_TRANSFER=1` (the `hf_transfer`
