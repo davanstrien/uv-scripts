@@ -59,12 +59,12 @@ Modes:
   ([{label, bbox, text, continues}, ...]). Grounding adds about 25% output tokens.
 The card says other instructions are out of distribution, so there is no custom prompt.
 
-Settings follow LightOn's official client (lightonocr/models.py, render.py, client.py):
-pages are downscaled to 2048 px on the longest edge (the training render size; the
-processor does no further resizing), temperature 0.2, top_p 1.0, thinking disabled,
-and escaped dollar delimiters are repaired (`\\$x\\$` -> `$x$`) on every output. The
-card's vLLM example uses top_p 0.9; the client's 1.0 is used here because the client
-names it as the model card sampling for LightOnOCR-3.
+Sampling matches the model card's vLLM example: temperature 0.2, top_p 0.9,
+max_tokens 4096, thinking disabled. (LightOn's client defaults to top_p 1.0 for
+LightOnOCR-3; pass --top-p 1.0 to match it.) Pre- and post-processing follow the
+official client (lightonocr/render.py, client.py): pages are downscaled to 2048 px on
+the longest edge (the card's rendering tip; the processor does no further resizing),
+and escaped dollar delimiters are repaired (`\\$x\\$` -> `$x$`) on every output.
 """
 
 import argparse
@@ -105,10 +105,9 @@ logger = logging.getLogger(__name__)
 MODELS = ["lightonai/LightOnOCR-3-4B", "lightonai/LightOnOCR-3-0.8B"]
 DEFAULT_MODEL = MODELS[0]
 
-# Sampling from the official client: temperature 0.2 (client.py default) and top_p 1.0
-# (models.py Profile for LightOnOCR-3). max_tokens 4096 is the card's vLLM example.
+# Sampling from the model card's vLLM example (temperature 0.2, top_p 0.9, max_tokens 4096).
 DEFAULT_TEMPERATURE = 0.2
-DEFAULT_TOP_P = 1.0
+DEFAULT_TOP_P = 0.9
 DEFAULT_MAX_TOKENS = 4096
 
 
@@ -610,13 +609,13 @@ Examples:
         "--temperature",
         type=float,
         default=DEFAULT_TEMPERATURE,
-        help=f"Sampling temperature (default: {DEFAULT_TEMPERATURE}, official client)",
+        help=f"Sampling temperature (default: {DEFAULT_TEMPERATURE}, model card)",
     )
     parser.add_argument(
         "--top-p",
         type=float,
         default=DEFAULT_TOP_P,
-        help=f"Top-p (default: {DEFAULT_TOP_P}, official client for LightOnOCR-3)",
+        help=f"Top-p (default: {DEFAULT_TOP_P}, model card; LightOn's client uses 1.0)",
     )
     parser.add_argument(
         "--longest-edge",

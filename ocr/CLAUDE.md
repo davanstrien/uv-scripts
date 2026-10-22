@@ -205,8 +205,8 @@ the LightOnOCR-2 Pixtral arch (needs `transformers` ≤5.16 for `PixtralRotaryEm
 **`vllm/vllm-openai:v0.30.0`** because upstream's `pyproject.toml` says vLLM 0.27.1 makes the models loop and
 0.30.0 is tested — loosen after re-checking outputs on a newer tag. Imports parser, `fit` (2048px) and
 `fix_escaped_dollars` from LightOn's own client (`lightonocr`, not on PyPI) via a commit-pinned GitHub
-archive URL, so post-processing matches upstream byte for byte. Sampling = official client (temp 0.2,
-**top_p 1.0** per `models.py`; the card's vLLM snippet says 0.9). Grounding mode writes `to_markdown(blocks)`
+archive URL, so post-processing matches upstream byte for byte. Sampling = model card vLLM example
+(temp 0.2, **top_p 0.9**, max_tokens 4096); LightOn's client `models.py` uses top_p 1.0 instead. Grounding mode writes `to_markdown(blocks)`
 to the output column and the parsed blocks JSON to `--blocks-column`; the card says prompts other than
 `""`/`grounding` are out of distribution, so no custom prompt flag.
 
