@@ -37,11 +37,13 @@ Input:                          Output:
   /input/report.pdf       →      /output/report/page_001.md
   (3 pages)                       /output/report/page_002.md
                                   /output/report/page_003.md
+                                  /output/report/.complete
   /input/sub/photo.jpg    →      /output/sub/photo.md
 
-Files that already have their output are skipped, so re-running the same command
+Pages that already have their output are skipped, so re-running the same command
 resumes a stopped run (--overwrite redoes them). A page that fails writes nothing
-and is retried on the next run.
+and is retried on the next run. A PDF gets a `.complete` marker in its output folder
+once every page is written; until then, a re-run OCRs only its missing pages.
 
 Examples:
 
@@ -73,6 +75,7 @@ import os
 import sys
 import time
 from pathlib import Path
+from typing import NamedTuple
 
 import torch
 from bucketbag import batched_files, iter_keys, put_files
@@ -84,7 +87,6 @@ from lightonocr import (
     parse_blocks,
     to_markdown,
 )
-from lightonocr.render import render_pdf
 from PIL import Image
 from toolz import partition_all
 
@@ -175,12 +177,21 @@ def md_rel(rel: str, page: int | None = None) -> str:
     return f"{stem}/page_{page:03d}.md" if page else f"{stem}.md"
 
 
-def is_done(rel: str, existing: set[str], mode: str) -> bool:
-    # A PDF counts as done once its first page is written.
-    md = md_rel(rel, 1 if rel.lower().endswith(".pdf") else None)
+def marker_rel(rel: str) -> str:
+    """Written into a PDF's output folder once all its pages are written."""
+    return f"{Path(rel).with_suffix('')}/.complete"
+
+
+def page_done(md: str, existing: set[str], mode: str) -> bool:
     if md not in existing:
         return False
     return mode != "grounding" or md[: -len(".md")] + ".json" in existing
+
+
+def is_done(rel: str, existing: set[str], mode: str) -> bool:
+    if rel.lower().endswith(".pdf"):
+        return marker_rel(rel) in existing
+    return page_done(md_rel(rel), existing, mode)
 
 
 def iter_local_batches(source: str, rels: list[str], n: int):
@@ -209,11 +220,31 @@ def open_image(path: Path) -> Image.Image:
         return Image.fromarray(imagecodecs.imread(str(path))).convert("RGB")
 
 
-def load_pages(rel: str, path: Path, longest_edge: int) -> list[tuple[str, Image.Image]]:
-    """(output md path, resized page image) for one input; a PDF yields one per page."""
-    if rel.lower().endswith(".pdf"):
-        return [(md_rel(rel, n), page) for n, page in enumerate(render_pdf(path, longest_edge), 1)]
-    return [(md_rel(rel), fit(open_image(path), longest_edge))]
+class PageItem(NamedTuple):
+    rel: str  # input file
+    md: str | None  # output .md path; None for a marker-only item
+    image: Image.Image | None
+    last: bool  # last page still to do for a PDF: write its .complete marker after it
+
+
+def iter_pages(rel: str, path: Path, existing: set[str], mode: str, longest_edge: int):
+    """PageItems for the pages of one input that still need OCR. PDF pages render one at
+    a time (as lightonocr.render.render_pdf does), so a long PDF never sits in memory."""
+    if not rel.lower().endswith(".pdf"):
+        yield PageItem(rel, md_rel(rel), fit(open_image(path), longest_edge), False)
+        return
+    import pypdfium2 as pdfium
+
+    pdf = pdfium.PdfDocument(str(path))
+    todo = [n for n in range(1, len(pdf) + 1) if not page_done(md_rel(rel, n), existing, mode)]
+    if not todo:  # every page written by an earlier run: only the marker is missing
+        yield PageItem(rel, None, None, True)
+        return
+    for n in todo:
+        page = pdf[n - 1]
+        w, h = page.get_size()  # points
+        image = page.render(scale=longest_edge / max(w, h)).to_pil().convert("RGB")
+        yield PageItem(rel, md_rel(rel, n), image, n == todo[-1])
 
 
 def build_prompt(llm: LLM, mode: str) -> str:
@@ -284,7 +315,8 @@ Examples:
                         help="plain = markdown; grounding = markdown + .json layout blocks (default: plain)")
     parser.add_argument("--include", default=None,
                         help='Glob relative to the input, e.g. "**/*.jp2" (default: all images and PDFs)')
-    parser.add_argument("--batch-size", type=int, default=16, help="Files per batch (default: 16)")
+    parser.add_argument("--batch-size", type=int, default=16,
+                        help="Files downloaded, and pages sent to vLLM, per batch (default: 16)")
     parser.add_argument("--max-model-len", type=int, default=16384,
                         help="Max model context length (default: 16384)")
     parser.add_argument("--max-tokens", type=int, default=DEFAULT_MAX_TOKENS,
@@ -355,43 +387,55 @@ Examples:
     pages_done = 0
     errors = 0
     files_seen = 0
+    failed: set[str] = set()  # inputs with a page that failed: no .complete marker this run
+    open_errors: list[str] = []
+
+    def file_pages(batch):
+        for rel, path in batch:
+            try:
+                yield from iter_pages(rel, path, existing, args.mode, args.longest_edge)
+            except Exception as e:
+                logger.error(f"Failed to open {rel}: {e}")
+                failed.add(rel)
+                open_errors.append(rel)
+
     total_batches = (len(todo) + args.batch_size - 1) // args.batch_size
     for batch_num, batch in enumerate(iter_local_batches(args.input, todo, args.batch_size), 1):
         logger.info(f"Batch {batch_num}/{total_batches} ({files_seen}/{len(todo)} files done)")
         files_seen += len(batch)
 
-        pages = []
-        for rel, path in batch:
+        # Windows of at most --batch-size pages, rendered lazily.
+        for window in partition_all(args.batch_size, file_pages(batch)):
+            pages = [it for it in window if it.image is not None]
+            outputs = []
+            if pages:
+                try:
+                    outputs = llm.generate(
+                        [{"prompt": prompt, "multi_modal_data": {"image": it.image}} for it in pages],
+                        sampling_params,
+                    )
+                except Exception as e:
+                    # Write nothing: these pages are retried on the next run.
+                    logger.error(f"Batch {batch_num} failed: {e}")
+                    errors += len(pages)
+                    failed.update(it.rel for it in pages)
+                    continue
+
+            pairs = []
+            for it, output in zip(pages, outputs, strict=True):
+                pairs.extend(render_outputs(it.md, output.outputs[0].text, it.image.size, args.mode,
+                                            not args.no_fix_dollars, args.model))
+            # Markers last, so a stopped directory write never marks a PDF complete early.
+            pairs.extend((marker_rel(it.rel), "ok\n") for it in window if it.last and it.rel not in failed)
             try:
-                pages.extend(load_pages(rel, path, args.longest_edge))
+                write_outputs(args.output, pairs)
+                pages_done += len(pages)
             except Exception as e:
-                logger.error(f"Failed to open {rel}: {e}")
-                errors += 1
-        if not pages:
-            continue
+                logger.error(f"Writing batch {batch_num} failed: {e}")
+                errors += len(pages)
+                failed.update(it.rel for it in window)
 
-        try:
-            outputs = llm.generate(
-                [{"prompt": prompt, "multi_modal_data": {"image": img}} for _, img in pages],
-                sampling_params,
-            )
-        except Exception as e:
-            # Write nothing: these pages are retried on the next run.
-            logger.error(f"Batch {batch_num} failed: {e}")
-            errors += len(pages)
-            continue
-
-        pairs = []
-        for (md, img), output in zip(pages, outputs, strict=True):
-            pairs.extend(render_outputs(md, output.outputs[0].text, img.size, args.mode,
-                                        not args.no_fix_dollars, args.model))
-        try:
-            write_outputs(args.output, pairs)
-            pages_done += len(pages)
-        except Exception as e:
-            logger.error(f"Writing batch {batch_num} failed: {e}")
-            errors += len(pages)
-
+    errors += len(open_errors)
     elapsed = time.time() - start_time
     elapsed_str = f"{elapsed / 60:.1f} min" if elapsed > 60 else f"{elapsed:.1f}s"
     logger.info("=" * 50)

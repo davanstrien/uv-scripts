@@ -81,7 +81,7 @@ from typing import Any, Dict, Union
 
 import torch
 from datasets import load_dataset
-from huggingface_hub import DatasetCard, login
+from huggingface_hub import DatasetCard, hf_hub_download, login
 from lightonocr import (
     DEFAULT_LONGEST_EDGE,
     GROUNDING_PROMPT,
@@ -466,7 +466,7 @@ def main(
             if attempt > 1:
                 logger.warning("Disabling XET (fallback to HTTP upload)")
                 os.environ["HF_HUB_DISABLE_XET"] = "1"
-            dataset.push_to_hub(
+            commit_info = dataset.push_to_hub(
                 output_dataset,
                 private=private,
                 token=HF_TOKEN,
@@ -508,8 +508,19 @@ def main(
         split=split,
     )
 
+    # With --create-pr the data went to a PR branch; the card goes to the same branch.
+    revision = commit_info.pr_revision if create_pr else None
     card = DatasetCard(card_content)
-    card.push_to_hub(output_dataset, token=HF_TOKEN)
+    # Keep the configs/dataset_info metadata push_to_hub just wrote, or named configs
+    # (--config) stop loading.
+    pushed = DatasetCard.load(
+        hf_hub_download(output_dataset, "README.md", repo_type="dataset",
+                        revision=revision, token=HF_TOKEN)
+    )
+    for key in ("configs", "dataset_info"):
+        if pushed.data.get(key) is not None:
+            card.data[key] = pushed.data[key]
+    card.push_to_hub(output_dataset, token=HF_TOKEN, revision=revision)
 
     logger.info("Done! LightOnOCR-3 processing complete.")
     logger.info(

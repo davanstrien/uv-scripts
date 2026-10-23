@@ -214,7 +214,7 @@ resize (≲15 px line height) can give empty or looping output; a higher `--long
 **Bucket sibling** (`lighton-ocr3-bucket.py`): input/output are `hf://buckets/...` URLs (bucketbag: list → batched
 download → `put_files`) or directories. Use URLs for big buckets: a `-v` mount of `biglam/britannica` (~1 TB)
 sat in RUNNING with no log output for 21 min (2026-10-22), while the same pages via bucketbag ran fine.
-Prefixes get a trailing `/` (bucketbag matches string prefixes). A PDF counts as done once `page_001.md` exists.
+Prefixes get a trailing `/` (bucketbag matches string prefixes). A PDF counts as done once its `.complete` marker exists (written with its last page); a re-run without it OCRs only the missing pages. PDF pages render one at a time and go to vLLM in windows of `--batch-size` pages, so a long PDF never sits in memory.
 
 ### `lighton-ocr2.py`
 The original breakage was **not** vLLM — it was a dead `HF_HUB_ENABLE_HF_TRANSFER=1` (the `hf_transfer`
