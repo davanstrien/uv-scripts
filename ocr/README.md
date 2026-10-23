@@ -83,6 +83,7 @@ These are the maintained recipes. Each one has a tested `[tool.hf-jobs]` header,
 | [`tesseract-ocr.py`](https://huggingface.co/datasets/uv-scripts/ocr/blob/main/tesseract-ocr.py) | [Tesseract 5](https://github.com/tesseract-ocr/tesseract) | classical | Baseline plain text, no GPU, 100+ language packs (`--lang`) | Apache-2.0 | `cpu-upgrade` |
 | [`pp-ocrv6.py`](https://huggingface.co/datasets/uv-scripts/ocr/blob/main/pp-ocrv6.py) | [PP-OCRv6](https://huggingface.co/collections/PaddlePaddle/pp-ocrv6) | 1.5M–34.5M | Small detection + recognition pipeline, plain text, 48 languages | Apache-2.0 | `t4-small` |
 | [`surya-ocr.py`](https://huggingface.co/datasets/uv-scripts/ocr/blob/main/surya-ocr.py) | [Surya OCR 2](https://huggingface.co/datalab-to/surya-ocr-2) | 0.65B | Per-block HTML with boxes and reading order; layout and table tasks; PDFs | modified OpenRAIL-M | `a10g-small` |
+| [`lighton-ocr3.py`](https://huggingface.co/datasets/uv-scripts/ocr/blob/main/lighton-ocr3.py) | [LightOnOCR-3](https://huggingface.co/collections/lightonai/lightonocr-3) | 0.8B / 4B | 86.3 olmOCR-Bench (4B), 85.5 (0.8B); `--mode grounding` adds labelled layout boxes, image descriptions and chart tables | Apache-2.0 | `a10g-small` |
 | [`glm-ocr.py`](https://huggingface.co/datasets/uv-scripts/ocr/blob/main/glm-ocr.py) | [GLM-OCR](https://huggingface.co/zai-org/GLM-OCR) | 0.9B | 94.62 OmniDocBench v1.5 | MIT | `a10g-small` |
 | [`paddleocr-vl-1.6.py`](https://huggingface.co/datasets/uv-scripts/ocr/blob/main/paddleocr-vl-1.6.py) | [PaddleOCR-VL-1.6](https://huggingface.co/PaddlePaddle/PaddleOCR-VL-1.6) | 0.9B | 96.33 OmniDocBench v1.6; six task modes | Apache-2.0 | `a10g-small` |
 | [`ovis-ocr2.py`](https://huggingface.co/datasets/uv-scripts/ocr/blob/main/ovis-ocr2.py) | [OvisOCR2](https://huggingface.co/ATH-MaaS/OvisOCR2) | 0.9B | 96.58 OmniDocBench v1.6; LaTeX and HTML tables | Apache-2.0 | `a10g-small` |
@@ -100,7 +101,7 @@ These are the maintained recipes. Each one has a tested `[tool.hf-jobs]` header,
 
 Start with a model under 2B. Use a larger model only if the output of a small one is not good enough. Check the licence before you use a model: Surya and lift use a modified OpenRAIL-M licence (free for research, personal use and startups under $5M; no competitive use against Datalab's API), and the Hunyuan licence excludes the EU, the UK and South Korea.
 
-**Variants and tools:** `glm-ocr-bucket.py` and `surya-ocr-bucket.py` read images and PDFs from a Bucket and write one `.md` per page. `surya-ocr-bucket.py` also writes a `.json` sidecar with the layout blocks, resumes from existing JSON, and can mount or copy its input (`--io-mode mount|copy`); the dataset version, `surya-ocr.py`, keeps the blocks in a `surya_blocks` column. `lighton-ocr2-saturate.py` and `ovis-ocr2-saturate.py` are for large runs, and `ocr-vllm-judge.py` compares outputs ([Scaling up](#scaling-up)). `pp-doclayout.py` and `lfm2-extract.py` are described in [Structured extraction and layout](#structured-extraction-and-layout).
+**Variants and tools:** `glm-ocr-bucket.py`, `surya-ocr-bucket.py` and `lighton-ocr3-bucket.py` read images and PDFs from a Bucket and write one `.md` per page. `lighton-ocr3-bucket.py` also takes `hf://buckets/...` URLs for input and output directly, so it reads large buckets in batches through the Hub API without mounting them. It reads `.jp2`, skips pages that already have output (so a re-run resumes), and in `--mode grounding` writes a `.json` sidecar with the layout blocks. `surya-ocr-bucket.py` also writes a `.json` sidecar with the layout blocks, resumes from existing JSON, and can mount or copy its input (`--io-mode mount|copy`); the dataset version, `surya-ocr.py`, keeps the blocks in a `surya_blocks` column. `lighton-ocr2-saturate.py` and `ovis-ocr2-saturate.py` are for large runs, and `ocr-vllm-judge.py` compares outputs ([Scaling up](#scaling-up)). `pp-doclayout.py` and `lfm2-extract.py` are described in [Structured extraction and layout](#structured-extraction-and-layout).
 
 Which model is best depends on your documents. The public olmOCR-Bench leaderboard is one command away:
 
@@ -169,6 +170,7 @@ Most dataset recipes also record the model and settings in an `inference_info` c
 | `glm-ocr.py` | `--task ocr\|formula\|table` |
 | `paddleocr-vl-1.6.py` | `--task-mode ocr\|table\|formula\|chart\|spotting\|seal` |
 | `ovis-ocr2.py` | `--keep-image-tags`, `--min-pixels`, `--max-pixels` |
+| `lighton-ocr3.py` | `--model lightonai/LightOnOCR-3-4B\|lightonai/LightOnOCR-3-0.8B`, `--mode plain\|grounding`, `--blocks-column`, `--longest-edge` |
 | `hunyuan-ocr-1.5.py` | `--task-type` (12 types, default `doc_parse`), `--custom-prompt` |
 | `dots-ocr.py` | `--prompt-mode ocr\|layout-all\|layout-only` |
 | `dots-mocr.py` | `--prompt-mode` (8 modes). For SVG: `--model rednote-hilab/dots.mocr-svg --prompt-mode svg` |
