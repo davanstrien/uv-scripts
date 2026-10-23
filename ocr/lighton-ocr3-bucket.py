@@ -37,13 +37,15 @@ Input:                          Output:
   /input/report.pdf       →      /output/report/page_001.md
   (3 pages)                       /output/report/page_002.md
                                   /output/report/page_003.md
-                                  /output/report/.complete
+                                  /output/report/.complete.plain
   /input/sub/photo.jpg    →      /output/sub/photo.md
 
 Pages that already have their output are skipped, so re-running the same command
-resumes a stopped run (--overwrite redoes them). A page that fails writes nothing
-and is retried on the next run. A PDF gets a `.complete` marker in its output folder
-once every page is written; until then, a re-run OCRs only its missing pages.
+resumes a stopped run. A page that fails writes nothing and is retried on the next
+run. A PDF gets a `.complete.<mode>` marker in its output folder once every page is
+written; until then, a re-run OCRs only its missing pages. --overwrite redoes
+everything, replacing outputs as it goes: a page that fails keeps its previous output
+(the run lists those inputs), so re-run them with --overwrite or use a fresh output prefix.
 
 Examples:
 
@@ -177,9 +179,9 @@ def md_rel(rel: str, page: int | None = None) -> str:
     return f"{stem}/page_{page:03d}.md" if page else f"{stem}.md"
 
 
-def marker_rel(rel: str) -> str:
-    """Written into a PDF's output folder once all its pages are written."""
-    return f"{Path(rel).with_suffix('')}/.complete"
+def marker_rel(rel: str, mode: str) -> str:
+    """Written into a PDF's output folder once all its pages are written in this mode."""
+    return f"{Path(rel).with_suffix('')}/.complete.{mode}"
 
 
 def page_done(md: str, existing: set[str], mode: str) -> bool:
@@ -190,7 +192,10 @@ def page_done(md: str, existing: set[str], mode: str) -> bool:
 
 def is_done(rel: str, existing: set[str], mode: str) -> bool:
     if rel.lower().endswith(".pdf"):
-        return marker_rel(rel) in existing
+        # Grounding needs the .json sidecars, so only a grounding marker will do;
+        # plain is satisfied by either (as for images, whose .md exists in both modes).
+        modes = ["grounding"] if mode == "grounding" else ["plain", "grounding"]
+        return any(marker_rel(rel, m) in existing for m in modes)
     return page_done(md_rel(rel), existing, mode)
 
 
@@ -224,7 +229,7 @@ class PageItem(NamedTuple):
     rel: str  # input file
     md: str | None  # output .md path; None for a marker-only item
     image: Image.Image | None
-    last: bool  # last page still to do for a PDF: write its .complete marker after it
+    last: bool  # last page still to do for a PDF: write its .complete.<mode> marker after it
 
 
 def iter_pages(rel: str, path: Path, existing: set[str], mode: str, longest_edge: int):
@@ -387,7 +392,7 @@ Examples:
     pages_done = 0
     errors = 0
     files_seen = 0
-    failed: set[str] = set()  # inputs with a page that failed: no .complete marker this run
+    failed: set[str] = set()  # inputs with a page that failed: no .complete.<mode> marker this run
     open_errors: list[str] = []
 
     def file_pages(batch):
@@ -426,7 +431,9 @@ Examples:
                 pairs.extend(render_outputs(it.md, output.outputs[0].text, it.image.size, args.mode,
                                             not args.no_fix_dollars, args.model))
             # Markers last, so a stopped directory write never marks a PDF complete early.
-            pairs.extend((marker_rel(it.rel), "ok\n") for it in window if it.last and it.rel not in failed)
+            pairs.extend(
+                (marker_rel(it.rel, args.mode), "ok\n") for it in window if it.last and it.rel not in failed
+            )
             try:
                 write_outputs(args.output, pairs)
                 pages_done += len(pages)
@@ -443,6 +450,12 @@ Examples:
     logger.info(f"  Output: {args.output}")
     logger.info(f"  Skipped (already done): {skipped}")
     logger.info(f"  Errors (no output, retried next run): {errors}")
+    if failed:
+        listed = sorted(failed)
+        logger.warning(f"  Inputs with failures ({len(listed)}): {', '.join(listed[:20])}"
+                       + (" ..." if len(listed) > 20 else ""))
+        if args.overwrite:
+            logger.warning("  With --overwrite these keep their previous output: re-run them with --overwrite.")
     if pages_done:
         logger.info(f"  Speed: {pages_done / elapsed:.2f} pages/sec")
 
