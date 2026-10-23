@@ -252,7 +252,21 @@ def jobs_flavor() -> str:
                 gpu_name = torch.cuda.get_device_name(0)
                 gpu_count = torch.cuda.device_count()
         except ImportError:
-            pass
+            # Torch-free drivers (e.g. the -server recipes): ask nvidia-smi instead.
+            import subprocess
+
+            try:
+                listed = subprocess.run(
+                    ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
+                    capture_output=True, text=True, timeout=10, check=True,
+                ).stdout
+                names = [line.strip() for line in listed.splitlines() if line.strip()]
+                if names:
+                    gpu_name, gpu_count = names[0], len(names)
+            except (OSError, subprocess.SubprocessError):
+                pass
+        if gpu_count == 0 and hardware == "gpu":
+            return ""  # a GPU run whose GPU cannot be identified: do not guess a CPU flavor
 
         candidates = []
         for flavor in HfApi(token=False).list_jobs_hardware():
@@ -290,7 +304,7 @@ def push_card(repo_id, query, counters):
     on_jobs = os.environ.get("JOB_ID") is not None  # set by HF Jobs in-container
     hw = jobs_flavor()  # flavor name, e.g. "a10g-small"; "" on CPU
     origin = (
-        f"Produced on [Hugging Face Jobs](https://huggingface.co/docs/huggingface_hub/guides/jobs)"
+        "Produced on [Hugging Face Jobs](https://huggingface.co/docs/huggingface_hub/guides/jobs)"
         + (f" (`{hw}`)" if hw else "")
     ) if on_jobs else "Generated"
     tags = "\n".join(f"- {t}" for t in (["uv-script", "hf-jobs"] if on_jobs else ["uv-script"]))

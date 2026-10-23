@@ -230,6 +230,26 @@ def test_reproduction_falls_back_when_hardware_lookup_fails(monkeypatch):
     assert command.startswith("hf jobs uv run --flavor t4-small --secrets HF_TOKEN")
 
 
+@pytest.mark.parametrize(("nvidia_smi", "expected"), [("NVIDIA L4\n", "l4x1"), (None, "")])
+def test_jobs_flavor_without_torch(monkeypatch, nvidia_smi, expected):
+    """Torch-free drivers (the -server recipes) read the GPU from nvidia-smi; a GPU run
+    whose GPU cannot be identified gets "", never a CPU flavor."""
+    import subprocess
+    import sys
+
+    def fake_run(*args, **kwargs):
+        if nvidia_smi is None:
+            raise FileNotFoundError("nvidia-smi")
+        return SimpleNamespace(stdout=nvidia_smi)
+
+    monkeypatch.setitem(sys.modules, "torch", None)  # makes `import torch` raise ImportError
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setenv("ACCELERATOR", "gpu")
+    monkeypatch.setenv("CPU_CORES", "8")
+    monkeypatch.setenv("MEMORY", "30.0G")
+    assert recipe.jobs_flavor() == expected
+
+
 @pytest.mark.parametrize("is_private", [False, True])
 def test_private_destination_visibility_checked_before_loading_data(monkeypatch, is_private):
     monkeypatch.setattr("sys.argv", [str(SCRIPT), "fixture", "user/model", "--private", "--hf-token", "fake"])

@@ -139,7 +139,21 @@ def jobs_flavor() -> str:
                 gpu_name = torch.cuda.get_device_name(0)
                 gpu_count = torch.cuda.device_count()
         except ImportError:
-            pass
+            # Torch-free drivers (e.g. the -server recipes): ask nvidia-smi instead.
+            import subprocess
+
+            try:
+                listed = subprocess.run(
+                    ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
+                    capture_output=True, text=True, timeout=10, check=True,
+                ).stdout
+                names = [line.strip() for line in listed.splitlines() if line.strip()]
+                if names:
+                    gpu_name, gpu_count = names[0], len(names)
+            except (OSError, subprocess.SubprocessError):
+                pass
+        if gpu_count == 0 and hardware == "gpu":
+            return ""  # a GPU run whose GPU cannot be identified: do not guess a CPU flavor
 
         candidates = []
         for flavor in HfApi(token=False).list_jobs_hardware():
