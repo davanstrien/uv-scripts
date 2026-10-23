@@ -186,6 +186,8 @@ def _offline_jobs_hardware(monkeypatch):
         ("NVIDIA A10G", 1, "12", "46.0G", "a10g-large"),
         ("NVIDIA A10G", 2, "24", "99.0G", "a10g-largex2"),  # Jobs reports 99G, the listing says 92
         ("NVIDIA L40S", 1, "8", "62.0G", "l40sx1"),
+        ("NVIDIA L40S", 1, "", "", "l40sx1"),  # local run: no CPU_CORES/MEMORY; L4 must not match
+        ("NVIDIA L4", 1, "", "", "l4x1"),
         ("NVIDIA L4", 4, "48", "185.0G", "l4x4"),
         ("NVIDIA H200", 8, "184", "2048.0G", "h200x8"),
     ],

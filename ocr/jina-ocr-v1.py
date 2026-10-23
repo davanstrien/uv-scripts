@@ -180,6 +180,8 @@ def jobs_flavor() -> str:
         if gpu_count == 0 and hardware == "gpu":
             return ""  # a GPU run whose GPU cannot be identified: do not guess a CPU flavor
 
+        # Whole-word match, so "L4" does not match "NVIDIA L40S" ("NVIDIA A100-SXM4-80GB" -> A100).
+        gpu_words = gpu_name.upper().replace("-", " ").split()
         candidates = []
         for flavor in HfApi(token=False).list_jobs_hardware():
             accelerator = flavor.accelerator
@@ -188,7 +190,7 @@ def jobs_flavor() -> str:
             elif (
                 gpu_count > 0
                 and accelerator is not None
-                and accelerator.model in gpu_name
+                and accelerator.model.upper() in gpu_words
                 and int(accelerator.quantity) == gpu_count
             ):
                 candidates.append(flavor)
