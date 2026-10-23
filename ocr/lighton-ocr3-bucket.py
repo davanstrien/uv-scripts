@@ -128,16 +128,17 @@ def is_bucket(location: str) -> bool:
 
 
 def as_bucket_dir(url: str) -> tuple[str, str]:
-    """Normalise a bucket URL to a directory and return (url, key prefix).
+    """Split a bucket URL into (bucket root URL, directory key prefix ending in "/").
 
-    The trailing slash matters: bucketbag matches prefixes as strings, so
-    `.../pages/00070476bsb` would also match `.../pages/00070476bsb2/...`.
+    Pass the prefix to bucketbag explicitly: it strips a trailing slash from the URL and
+    matches prefixes as strings, so `.../pages/00070476bsb` would also list
+    `.../pages/00070476bsb2/...`.
     """
     parts = url[len(BUCKET_SCHEME):].strip("/").split("/", 2)
     if len(parts) < 2:
         raise ValueError(f"Not a bucket URL: {url} (expected hf://buckets/<ns>/<bucket>[/<prefix>])")
     prefix = parts[2] + "/" if len(parts) == 3 else ""
-    return BUCKET_SCHEME + "/".join(parts) + "/", prefix
+    return BUCKET_SCHEME + "/".join(parts[:2]), prefix
 
 
 def is_input_file(rel: str) -> bool:
@@ -150,7 +151,7 @@ def list_inputs(source: str, include: str | None, limit: int | None) -> list[str
     rels = []
     if is_bucket(source):
         url, prefix = as_bucket_dir(source)
-        keys = iter_keys(url, include=f"{prefix}{include}" if include else None)
+        keys = iter_keys(url, prefix=prefix, include=f"{prefix}{include}" if include else None)
         candidates = (k[len(prefix):] for k in keys)
     else:
         root = Path(source)
@@ -168,7 +169,7 @@ def list_outputs(dest: str) -> set[str]:
     """Relative paths of outputs already written (for resume)."""
     if is_bucket(dest):
         url, prefix = as_bucket_dir(dest)
-        return {k[len(prefix):] for k in iter_keys(url)}
+        return {k[len(prefix):] for k in iter_keys(url, prefix=prefix)}
     root = Path(dest)
     return {str(p.relative_to(root)) for p in root.rglob("*") if p.is_file()} if root.is_dir() else set()
 
@@ -289,12 +290,17 @@ def write_outputs(dest: str, pairs: list[tuple[str, str]]):
     if not pairs:
         return
     if is_bucket(dest):
-        put_files(pairs, as_bucket_dir(dest)[0].rstrip("/"))  # one upload call per batch
+        url, prefix = as_bucket_dir(dest)
+        put_files([(prefix + rel, content) for rel, content in pairs], url)  # one upload call
         return
     for rel, content in pairs:
+        # Write to a temp file, then rename: a stopped job never leaves a partial .md that
+        # the next run would count as done.
         path = Path(dest) / rel
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(content, encoding="utf-8")
+        tmp = path.with_name(f".{path.name}.tmp")
+        tmp.write_text(content, encoding="utf-8")
+        os.replace(tmp, path)
 
 
 def main():
@@ -430,10 +436,6 @@ Examples:
             for it, output in zip(pages, outputs, strict=True):
                 pairs.extend(render_outputs(it.md, output.outputs[0].text, it.image.size, args.mode,
                                             not args.no_fix_dollars, args.model))
-            # Markers last, so a stopped directory write never marks a PDF complete early.
-            pairs.extend(
-                (marker_rel(it.rel, args.mode), "ok\n") for it in window if it.last and it.rel not in failed
-            )
             try:
                 write_outputs(args.output, pairs)
                 pages_done += len(pages)
@@ -441,6 +443,14 @@ Examples:
                 logger.error(f"Writing batch {batch_num} failed: {e}")
                 errors += len(pages)
                 failed.update(it.rel for it in window)
+                continue
+            # Markers in a separate write, only after the page outputs are stored.
+            finished = [it.rel for it in window if it.last and it.rel not in failed]
+            try:
+                write_outputs(args.output, [(marker_rel(rel, args.mode), "ok\n") for rel in finished])
+            except Exception as e:
+                logger.error(f"Writing completion markers failed (pages are kept): {e}")
+                failed.update(finished)
 
     errors += len(open_errors)
     elapsed = time.time() - start_time
