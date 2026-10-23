@@ -46,6 +46,7 @@ run. A PDF gets a `.complete.<mode>` marker in its output folder once every page
 written; until then, a re-run OCRs only its missing pages. --overwrite redoes
 everything, replacing outputs as it goes: a page that fails keeps its previous output
 (the run lists those inputs), so re-run them with --overwrite or use a fresh output prefix.
+Keep plain and grounding runs in separate output prefixes.
 
 Examples:
 
