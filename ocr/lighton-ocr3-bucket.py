@@ -141,6 +141,22 @@ def as_bucket_dir(url: str) -> tuple[str, str]:
     return BUCKET_SCHEME + "/".join(parts[:2]), prefix
 
 
+def output_collisions(rels: list[str]) -> list[str]:
+    """Inputs whose outputs would overwrite each other, e.g. scan.png + scan.jpg -> scan.md,
+    or report.pdf (report/page_001.md) + report/page_001.png."""
+    owners: dict[str, list[str]] = {}
+    for rel in rels:
+        # A PDF owns its whole output folder; an image owns one .md.
+        key = str(Path(rel).with_suffix("")) + "/" if rel.lower().endswith(".pdf") else md_rel(rel)
+        owners.setdefault(key, []).append(rel)
+    clashes = [group for group in owners.values() if len(group) > 1]
+    folders = {key for key in owners if key.endswith("/")}
+    for key, group in owners.items():
+        if not key.endswith("/") and any(key.startswith(folder) for folder in folders):
+            clashes.append(group + owners[next(f for f in folders if key.startswith(f))])
+    return [" + ".join(group) for group in clashes]
+
+
 def is_input_file(rel: str) -> bool:
     ext = Path(rel).suffix.lower()
     return ext in IMAGE_EXTENSIONS or ext == ".pdf"
@@ -279,10 +295,12 @@ def render_outputs(md: str, raw: str, image_size, mode: str, fix_dollars: bool, 
         "image_size": list(image_size),  # size fed to the model; bbox is 0-1000 of this frame
         "blocks": [b.to_dict() for b in blocks],
     }
-    # Sidecar before .md: if a directory write stops between the two, the page is redone.
+    # .md before sidecar: a page counts as done in grounding mode only once its .json
+    # exists, so a write that stops between the two is redone (also when replacing a
+    # plain-mode .md).
     return [
-        (md[: -len(".md")] + ".json", json.dumps(sidecar, ensure_ascii=False)),
         (md, to_markdown(blocks) if blocks else text),
+        (md[: -len(".md")] + ".json", json.dumps(sidecar, ensure_ascii=False)),
     ]
 
 
@@ -371,6 +389,13 @@ Examples:
     rels = list_inputs(args.input, args.include, args.max_samples)
     if not rels:
         logger.error(f"No image or PDF files found in {args.input}")
+        sys.exit(1)
+    clashes = output_collisions(rels)
+    if clashes:
+        logger.error("These inputs would write the same output file(s):")
+        for clash in clashes[:20]:
+            logger.error(f"  {clash}")
+        logger.error("Rename them, or narrow the input with --include.")
         sys.exit(1)
     existing = set() if args.overwrite else list_outputs(args.output)
     todo = [rel for rel in rels if not is_done(rel, existing, args.mode)]
