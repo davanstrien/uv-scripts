@@ -21,6 +21,12 @@ First [install the `hf` CLI](https://huggingface.co/docs/huggingface_hub/en/guid
 hf datasets ls --author uv-scripts
 ```
 
+List a family's scripts without downloading them:
+
+```bash
+hf download uv-scripts/ocr --repo-type dataset --include "*.py" --dry-run
+```
+
 **OCR seven scanned pages on a GPU** from a [NASA booklet](https://huggingface.co/datasets/uv-scripts/ocr-demo). [Sign in](https://huggingface.co/docs/hub/jobs-quickstart) with a token that can write to your account; Jobs needs [pre-paid credits](https://huggingface.co/settings/billing). Replace `your-username` with your Hugging Face username (`hf auth whoami` shows it):
 
 ```bash
@@ -38,6 +44,8 @@ A recipe runs from a URL and documents itself in its header, so a coding agent (
 ```
 List the uv-scripts recipe families and tell me which fit my task:
   hf datasets ls --author uv-scripts
+List a family's scripts with:
+  hf download uv-scripts/<family> --repo-type dataset --include "*.py" --dry-run
 Read the matching family's README on the Hub. Before running a script, read its header and docstring for the arguments and hardware.
 Use my username from `hf auth whoami` for output datasets, and always set --timeout.
 ```
