@@ -1,4 +1,4 @@
-# uv-scripts-for-ai
+# uv-scripts
 
 <a href="https://huggingface.co/uv-scripts"><picture><source media="(prefers-color-scheme: dark)" srcset="https://huggingface.co/datasets/huggingface/badges/resolve/main/follow-us-on-hf-md-dark.svg"><img src="https://huggingface.co/datasets/huggingface/badges/resolve/main/follow-us-on-hf-md.svg" alt="Follow uv-scripts on Hugging Face"></picture></a>
 <a href="https://huggingface.co/davanstrien"><picture><source media="(prefers-color-scheme: dark)" srcset="https://huggingface.co/datasets/huggingface/badges/resolve/main/follow-me-on-HF-md-dark.svg"><img src="https://huggingface.co/datasets/huggingface/badges/resolve/main/follow-me-on-HF-md.svg" alt="Follow davanstrien on Hugging Face"></picture></a>

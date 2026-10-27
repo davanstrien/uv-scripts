@@ -25,13 +25,13 @@ planned **self-review skill** (see [Deferred](#deferred--tracked)) just enforces
   PageLoaderConfig`), or say "card gives none" if upstream is silent. Upstream-locked values stay
   locked; expose only the knobs upstream sanctions. Deliberate deviations go in the docstring with
   the why. Benchmark before overriding a card value that looks wrong (e.g. hunyuan-1.5
-  `repetition_penalty` on tables, [#85](https://github.com/davanstrien/uv-scripts-for-ai/issues/85))
+  `repetition_penalty` on tables, [#85](https://github.com/davanstrien/uv-scripts/issues/85))
   — never silently "improve" it. Docstring/card claims (params, scores, languages) must match the
   card too.
 - **Self-contained single file.** Each recipe is one PEP 723 UV script runnable from a raw URL
   (`hf jobs uv run <url>`). No shared *importable local* module (the job env only gets the one file).
   Extra pip deps are fine — **pin them**. A heavy/stable/shared subsystem may become an opt-in *package*
-  dep (e.g. bucket I/O → `bucketbag`, [#67](https://github.com/davanstrien/uv-scripts-for-ai/issues/67)),
+  dep (e.g. bucket I/O → `bucketbag`, [#67](https://github.com/davanstrien/uv-scripts/issues/67)),
   never a local import. Recipes = inline; internal tooling may share freely.
 - **GPU + output.** Check `torch.cuda.is_available()` and exit clearly if absent. Write to the Hub
   (`push_to_hub`) or a bucket (`-v hf://…`), never bare local paths (Jobs disk is ephemeral; local *input*
@@ -57,7 +57,7 @@ planned **self-review skill** (see [Deferred](#deferred--tracked)) just enforces
 - **Output-column collision guard.** Every recipe that adds an output column calls
   `ensure_output_columns_free(dataset, [cols], overwrite)` (or the inline sink guard for pp-*) so it
   fails fast instead of duplicating/clobbering an input column; `--overwrite` opts into replacing it.
-  Default `--output-column` is `markdown` (never a bare `text`). ([#66](https://github.com/davanstrien/uv-scripts-for-ai/pull/66))
+  Default `--output-column` is `markdown` (never a bare `text`). ([#66](https://github.com/davanstrien/uv-scripts/pull/66))
 - **Bound large images.** Full-page recipes cap input pixels / resize, or size `max_model_len` to fit —
   a 7–9 MP page is ~14k image tokens. Prefer bounding the input (deterministic) over a giant context;
   don't auto-size `max_model_len` from images (it's fixed at engine init, before images are seen).
@@ -268,7 +268,7 @@ LightOnOCR-2's commentary style).
 ## Deferred / tracked
 
 - **bucketbag adoption** — evaluate adopting `bucketbag` for the bucket recipes (slim recipes / harden
-  bucketbag / find other beneficiaries) → [#67](https://github.com/davanstrien/uv-scripts-for-ai/issues/67).
+  bucketbag / find other beneficiaries) → [#67](https://github.com/davanstrien/uv-scripts/issues/67).
 - **Self-review skill** (spark) — a dev-only skill (sibling to `bump-vllm-pins`) that reviews a recipe/diff
   against the [Conventions](#conventions--invariants) block: context-length, collision guard, vLLM-image +
   preflight, env guards, dep sanity, image bounding, optional Jobs smoke. Enforces that list; build after
@@ -282,7 +282,7 @@ LightOnOCR-2's commentary style).
   fix; see `serving-unlimited-ocr.md`.
 - **ALTO XML export** — from `surya_blocks` (block-level bbox→`HPOS/VPOS/…`, label→`TextBlock`/`Illustration`);
   the surya-ocr-bucket test bucket ships CA's own ALTO `.xml` as a diff target.
-- **Incremental uploads** — superseded by HF Buckets / `bucketbag` ([#67](https://github.com/davanstrien/uv-scripts-for-ai/issues/67));
+- **Incremental uploads** — superseded by HF Buckets / `bucketbag` ([#67](https://github.com/davanstrien/uv-scripts/issues/67));
   `glm-ocr-v2.py` keeps the older CommitScheduler resume path for very large jobs today (do not port it — on hold).
 - **Leaderboard Space** — public ELO/pointwise view fed by the benchmark datasets. Idea only.
 - **MonkeyOCRv2 — evaluated, not added** (2026-07-14). `zenosai/MonkeyOCRv2-S-Parsing` (0.6B) needs the
@@ -316,9 +316,9 @@ ARM wheels) — if a nightly-recipe install fails on resolution, wait and retry 
 - **2026-07-08** — HunyuanOCR upstream repo swap: pinned `hunyuan-ocr.py` to the last 1.0 revision +
   added `hunyuan-ocr-1.5.py` (12 task types, locked sampling); `transformers<5.13` cap in both for the
   stable-vLLM HunyuanVL register breakage (vllm#47872). See the hunyuan gotcha above.
-- **2026-07-01** — large full-page scan fixes ([#65](https://github.com/davanstrien/uv-scripts-for-ai/pull/65)):
+- **2026-07-01** — large full-page scan fixes ([#65](https://github.com/davanstrien/uv-scripts/pull/65)):
   surya vLLM-missing preflight; `dots` 8192→32768 + `--max-pixels`; `lighton-ocr2` 8192→16384; `glm` dropped
   `pyarrow<18` (→ `datasets` `Json` load crash) + `VLLM_USE_DEEP_GEMM=0` + `--max-pixels`; `pp-ocrv6`
   `--output-column` + collision guard. Then the output-column collision-guard + `--overwrite` sweep across
-  the recipes ([#66](https://github.com/davanstrien/uv-scripts-for-ai/pull/66)); `nanonets-ocr` 8192→32768.
+  the recipes ([#66](https://github.com/davanstrien/uv-scripts/pull/66)); `nanonets-ocr` 8192→32768.
 - **Earlier** — per-script fixes are recorded in git history + the gotchas above; benchmark runs in `OCR-BENCHMARK.md`.

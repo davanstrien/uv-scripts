@@ -29,7 +29,7 @@ Keep `--max-seq-length` within the chosen body's supported context window. If pr
 
 Use the tested recipe rather than recreating SetFit training code. The executable link below pins a tested revision. The canonical recipe is https://huggingface.co/datasets/uv-scripts/classification/raw/main/train-setfit.py; verify it includes the pinned revision's input-validation fixes before switching to the mirror:
 
-https://raw.githubusercontent.com/davanstrien/uv-scripts-for-ai/11e6ae6250a2ae3dc67cd074679a6da70cac13b0/classification/train-setfit.py
+https://raw.githubusercontent.com/davanstrien/uv-scripts/11e6ae6250a2ae3dc67cd074679a6da70cac13b0/classification/train-setfit.py
 
 Read its help for flags and check `hf jobs uv run --help` if needed. CPU is practical for small experiments; use a GPU for faster training, particularly with larger models, longer texts or more classes. A small first run can use `cpu-basic`; changing to `t4-small` accelerates the same model and training settings. Choose hardware within the user's budget. Four examples per class is a smoke test, not a quality target. `--num-samples` caps examples per class; it does not mean total training rows.
 
@@ -37,7 +37,7 @@ Example for a small pilot (replace the output namespace):
 
 ```bash
 hf jobs uv run --flavor cpu-basic --timeout 10m --detach --secrets HF_TOKEN \
-  https://raw.githubusercontent.com/davanstrien/uv-scripts-for-ai/11e6ae6250a2ae3dc67cd074679a6da70cac13b0/classification/train-setfit.py \
+  https://raw.githubusercontent.com/davanstrien/uv-scripts/11e6ae6250a2ae3dc67cd074679a6da70cac13b0/classification/train-setfit.py \
   fancyzhx/ag_news YOUR_NAMESPACE/ag-news-setfit \
   --eval-split test --num-samples 8 --max-eval-samples 200 \
   --sampling-strategy undersampling --max-minutes 5 --private
