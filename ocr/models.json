@@ -7,7 +7,8 @@
       "core": "Maintained. Smoke-tested flagless on HF Jobs on 2026-09-23/24 with the pinned launch config in `jobs`.",
       "tool": "Maintained companion (judge, layout, text extraction), not a page-OCR recipe.",
       "legacy": "Works (smoke-tested 2026-09-23) but superseded or little used; no header yet. See support_note for the alternative.",
-      "unsupported": "Known broken as of 2026-09-23; kept in the repo for now. See support_note."
+      "unsupported": "Known broken as of 2026-09-23; kept in the repo for now. See support_note.",
+    "experimental": "Works in testing on HF Jobs with the launch config in `jobs`, but changes often and may break. See support_note for the stable alternative."
     }
   },
   "tesseract-ocr.py": {
@@ -664,6 +665,51 @@
         "PYTHONPATH": "/usr/local/lib/python3.12/dist-packages"
       },
       "flavor": "a10g-small",
+      "secrets": [
+        "HF_TOKEN"
+      ]
+    }
+  },
+  "unlimited-ocr2.py": {
+    "model_id": "baidu/Unlimited-OCR-2",
+    "params": "3.3B (MoE, 0.5B active)",
+    "backend": "saturate (in-job SGLang from Baidu's wheel + saturate pump)",
+    "image": "lmsysorg/sglang:v0.5.20-cu130",
+    "task": "ocr (multi-page documents: folders of page images; cross-page continuations)",
+    "output": "markdown per page + layout-grounded raw, one row per 16-page window",
+    "license": "mit",
+    "notes": "Sends 16 consecutive pages per request so the model keeps context across page breaks. Needs a >= 48 GB GPU (24 GB cards thrash the KV cache). Measured on 1771 Britannica: rtx-pro-6000 ~1,570 tok/s end to end. About 2% of dense 18th-century pages loop; unlimited-ocr2-saturate.py repairs them.",
+    "languages": {
+      "evidence": "multilingual-unspecified"
+    },
+    "support": "core",
+    "jobs": {
+      "image": "lmsysorg/sglang:v0.5.20-cu130",
+      "flavor": "rtx-pro-6000",
+      "timeout": "4h",
+      "secrets": [
+        "HF_TOKEN"
+      ]
+    }
+  },
+  "unlimited-ocr2-saturate.py": {
+    "model_id": "baidu/Unlimited-OCR-2",
+    "params": "3.3B (MoE, 0.5B active)",
+    "backend": "saturate (in-job SGLang from Baidu's wheel + saturate pump)",
+    "image": "lmsysorg/sglang:v0.5.20-cu130",
+    "task": "ocr (multi-page documents: book volumes, PDFs; cross-page continuations)",
+    "output": "markdown per page and per window + layout-grounded raw",
+    "license": "mit",
+    "notes": "Tuned version of unlimited-ocr2.py: repair pass for looping pages (fixed 28/33 in testing), faster JPEG 2000 decoding, PDF input, Baidu's own Markdown post-processing, speed flags.",
+    "languages": {
+      "evidence": "multilingual-unspecified"
+    },
+    "support": "experimental",
+    "support_note": "Use unlimited-ocr2.py unless you need the repair pass, PDFs or the extras.",
+    "jobs": {
+      "image": "lmsysorg/sglang:v0.5.20-cu130",
+      "flavor": "rtx-pro-6000",
+      "timeout": "4h",
       "secrets": [
         "HF_TOKEN"
       ]
