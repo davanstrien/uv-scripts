@@ -669,6 +669,28 @@
       ]
     }
   },
+  "unlimited-ocr2-saturate.py": {
+    "model_id": "baidu/Unlimited-OCR-2",
+    "params": "3.3B (MoE, 0.5B active)",
+    "backend": "saturate (in-job SGLang from Baidu's wheel + saturate pump)",
+    "image": "lmsysorg/sglang:v0.5.20-cu130",
+    "task": "ocr (multi-page documents: book volumes, PDFs; cross-page continuations)",
+    "output": "markdown per page and per window + layout-grounded raw",
+    "license": "mit",
+    "notes": "Sends 16 consecutive pages per request so the model keeps context across page breaks; a repair pass re-OCRs looping pages one at a time. Measured on 1771 Britannica: rtx-pro-6000 ~1,570 tok/s end to end (~$0.0005/page at scale); 24 GB GPUs thrash the KV cache.",
+    "languages": {
+      "evidence": "multilingual-unspecified"
+    },
+    "support": "core",
+    "jobs": {
+      "image": "lmsysorg/sglang:v0.5.20-cu130",
+      "flavor": "rtx-pro-6000",
+      "timeout": "4h",
+      "secrets": [
+        "HF_TOKEN"
+      ]
+    }
+  },
   "unlimited-ocr-vllm.py": {
     "model_id": "baidu/Unlimited-OCR",
     "params": "3.3B",

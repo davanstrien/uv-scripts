@@ -92,6 +92,7 @@ These are the maintained recipes. Each one has a tested `[tool.hf-jobs]` header,
 | [`dots-ocr.py`](https://huggingface.co/datasets/uv-scripts/ocr/blob/main/dots-ocr.py) | [dots.ocr](https://huggingface.co/rednote-hilab/dots.ocr) | 1.7B | 100+ languages; layout modes | MIT | `a10g-small` |
 | [`dots-mocr.py`](https://huggingface.co/datasets/uv-scripts/ocr/blob/main/dots-mocr.py) | [dots.mocr](https://huggingface.co/rednote-hilab/dots.mocr) | 3B | Eight prompt modes, including SVG from charts | MIT | `a10g-small` |
 | [`deepseek-ocr2-vllm.py`](https://huggingface.co/datasets/uv-scripts/ocr/blob/main/deepseek-ocr2-vllm.py) | [DeepSeek-OCR-2](https://huggingface.co/deepseek-ai/DeepSeek-OCR-2) | 3B | Newer DeepSeek-OCR | Apache-2.0 | `a10g-small` |
+| [`unlimited-ocr2-saturate.py`](https://huggingface.co/datasets/uv-scripts/ocr/blob/main/unlimited-ocr2-saturate.py) | [Unlimited-OCR-2](https://huggingface.co/baidu/Unlimited-OCR-2) | 3.3B | Whole documents: 16 pages per request, paragraphs continue across page breaks; reads page folders, Buckets or PDFs; resumable, with a repair pass | MIT | `rtx-pro-6000` |
 | [`unlimited-ocr-vllm.py`](https://huggingface.co/datasets/uv-scripts/ocr/blob/main/unlimited-ocr-vllm.py) | [Unlimited-OCR](https://huggingface.co/baidu/Unlimited-OCR) | 3.3B | Markdown with layout boxes (`--strip-grounding` for clean text) | MIT | `a10g-small` |
 | [`deepseek-ocr-vllm.py`](https://huggingface.co/datasets/uv-scripts/ocr/blob/main/deepseek-ocr-vllm.py) | [DeepSeek-OCR](https://huggingface.co/deepseek-ai/DeepSeek-OCR) | 4B | Five prompt modes, including figure description | MIT | `a10g-small` |
 | [`nuextract3.py`](https://huggingface.co/datasets/uv-scripts/ocr/blob/main/nuextract3.py) | [NuExtract3](https://huggingface.co/numind/NuExtract3) | 4B | Markdown, or JSON from a template ([below](#structured-extraction-and-layout)) | Apache-2.0 | `a10g-small` |
@@ -219,6 +220,17 @@ hf jobs uv run https://huggingface.co/datasets/uv-scripts/ocr/raw/main/pp-doclay
 ## Scaling up
 
 **Large datasets:** `lighton-ocr2-saturate.py` and `ovis-ocr2-saturate.py` start a vLLM server in the Job and send pages to it with adaptive concurrency. They stream results to the output repo as parquet parts. If a run stops, run the same command again and it skips the rows that are done. A failed page is stored as an error row, and `--retry-errors` tries those rows again. The output layout is different from the other recipes; the script header explains how to read it. [SERVING.md](SERVING.md) compares server mode with offline batches (measured throughput and output parity).
+
+**Whole books and long documents:** `unlimited-ocr2-saturate.py` runs [Unlimited-OCR-2](https://huggingface.co/baidu/Unlimited-OCR-2) on Baidu's own SGLang build. It groups page images (or PDF pages) into documents and sends 16 consecutive pages per request, so a paragraph that runs over a page break comes back joined. Point it at a folder of pages, for example a Bucket:
+
+```bash
+hf jobs uv run --detach \
+    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/unlimited-ocr2-saturate.py \
+    "hf://buckets/biglam/britannica/source/pages/1771EncyclopediaBritannicaNLS/*.jp2" \
+    your-username/britannica-1771
+```
+
+The header picks `rtx-pro-6000` (the fastest per dollar in our tests; 24 GB GPUs are too small for 16-page requests). Results are one row per 16-page window, plus a `repairs/` folder for the few pages (about 2% in 18th-century print, mostly mathematics) that the model looped on and that were read again one at a time.
 
 ```bash
 hf jobs uv run --detach --timeout 4h \
