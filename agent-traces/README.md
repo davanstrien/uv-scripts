@@ -27,7 +27,7 @@ Specific to Claude Code's log format — other coding agents record sessions dif
 Run it (nothing to install but [uv](https://docs.astral.sh/uv/getting-started/installation/)):
 
 ```bash
-uv run https://raw.githubusercontent.com/davanstrien/uv-scripts-for-ai/main/agent-traces/claude-code-agree-rate.py
+uv run https://raw.githubusercontent.com/davanstrien/uv-scripts/main/agent-traces/claude-code-agree-rate.py
 ```
 
 Example output:

@@ -16,7 +16,7 @@ Specific to Claude Code logs (the AskUserQuestion tool + ~/.claude/projects
 JSONL format). Other coding agents record sessions differently.
 
 Run it (nothing to install but uv):
-    uv run https://raw.githubusercontent.com/davanstrien/uv-scripts-for-ai/main/agent-traces/claude-code-agree-rate.py
+    uv run https://raw.githubusercontent.com/davanstrien/uv-scripts/main/agent-traces/claude-code-agree-rate.py
     uv run claude-code-agree-rate.py --examples 20      # show each answered case
     uv run claude-code-agree-rate.py --json             # machine-readable
     uv run claude-code-agree-rate.py --path ~/some/dir  # scan a different log dir
