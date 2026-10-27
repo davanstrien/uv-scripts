@@ -78,17 +78,6 @@ To teach your agent the rest of the `hf` CLI, install Hugging Face's [`hf` CLI s
 
 **What fits here:** any self-contained UV script for data or ML work on the Hub. OCR and dataset work are the current focus, but inference, evaluation, RAG indexing, and **training** (fine-tuning with TRL / `transformers`, producing a model) are all in scope. If it's one self-contained script that reads from or writes to the Hub, it belongs.
 
-## Built with uv-scripts
-
-Most recipes tag the dataset card they push with `uv-script`, and many add a *Reproduction* section with the exact command. As of October 2026, [386 datasets carry that tag](https://huggingface.co/datasets?other=uv-script), from more than 40 accounts besides `uv-scripts` and its maintainer. Some examples:
-
-- [`cis-lmu/GlotOCR-bench-v1.0-results`](https://huggingface.co/datasets/cis-lmu/GlotOCR-bench-v1.0-results): OCR benchmark results
-- [`mantisnlp/classification-with-sieves`](https://huggingface.co/datasets/mantisnlp/classification-with-sieves): zero-shot text classification
-- [`princeton-hf-workshop/affordable-housing-conversations-classified`](https://huggingface.co/datasets/princeton-hf-workshop/affordable-housing-conversations-classified): classified conversations from a workshop
-- [`shijithpk/ncert-history-ocr-bench-48-output`](https://huggingface.co/datasets/shijithpk/ncert-history-ocr-bench-48-output): OCR of history textbooks
-
-Built something? Keep the tag on your dataset so others can find it, and share the link.
-
 ## Compose a pipeline
 
 Because recipes hand off through the Hub, you can chain them — each step's output dataset is the next step's input. A document-collection pipeline, end to end:
@@ -126,6 +115,17 @@ hf jobs uv run --flavor a10g-small --timeout 15m --secrets HF_TOKEN $SCRIPT uv-s
 ```
 
 [Jobs](https://huggingface.co/docs/hub/jobs-overview) bills by the second while a Job runs; `hf jobs hardware` lists the hardware and prices, and [Pricing and Billing](https://huggingface.co/docs/hub/jobs-pricing) explains the rest. Jobs read and write Hub datasets, models and [storage buckets](https://huggingface.co/docs/hub/storage-buckets) directly. Running a recipe from its `https://huggingface.co/datasets/uv-scripts/…` URL also counts the run towards that recipe.
+
+## Built with uv-scripts
+
+Most recipes tag the dataset card they push with `uv-script`, and many add a *Reproduction* section with the exact command. As of October 2026, [386 datasets carry that tag](https://huggingface.co/datasets?other=uv-script), from more than 40 accounts besides `uv-scripts` and its maintainer. Some examples:
+
+- [`cis-lmu/GlotOCR-bench-v1.0-results`](https://huggingface.co/datasets/cis-lmu/GlotOCR-bench-v1.0-results): OCR benchmark results
+- [`mantisnlp/classification-with-sieves`](https://huggingface.co/datasets/mantisnlp/classification-with-sieves): zero-shot text classification
+- [`princeton-hf-workshop/affordable-housing-conversations-classified`](https://huggingface.co/datasets/princeton-hf-workshop/affordable-housing-conversations-classified): classified conversations from a workshop
+- [`shijithpk/ncert-history-ocr-bench-48-output`](https://huggingface.co/datasets/shijithpk/ncert-history-ocr-bench-48-output): OCR of history textbooks
+
+Built something? Keep the tag on your dataset so others can find it, and share the link.
 
 ## Model licenses
 
