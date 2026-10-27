@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.11"
 # dependencies = [
-#     "saturate[hf]>=0.2.0",
+#     "saturate[hf]==0.2.0",
 #     "pillow>=10",
 #     "pymupdf>=1.24",
 # ]
@@ -14,6 +14,12 @@
 # ///
 """
 OCR whole documents (book volumes, PDFs) with Baidu Unlimited-OCR-2 via saturate.
+
+Tuned version of `unlimited-ocr2.py`, and experimental: it adds a repair pass for
+pages the model loops on, faster JPEG 2000 decoding, PDF input, Baidu's own
+Markdown post-processing and speed flags. It changes more often; start with
+`unlimited-ocr2.py` and use this one when you need the extras. Window ids and the
+main output layout are the same, so `--repair-only` works on a minimal run too.
 
 Unlimited-OCR-2 reads many pages in ONE request and keeps context across page
 breaks: a paragraph that runs onto the next page comes back tagged as a

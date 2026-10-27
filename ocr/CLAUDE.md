@@ -92,6 +92,8 @@ Legend: ✅ production-ready · ⚠️ works only with a required pinned image �
 | `nanonets-ocr.py` | ✅ | vLLM | a10g-small | `--max-model-len` 32768 (`--max-tokens` 15000) |
 | `nanonets-ocr2.py` | ⚠️+image | vLLM `:v0.10.2` | a10g-small | Qwen2.5-VL ≥0.11 regression → pure `!` |
 | `unlimited-ocr-vllm.py` | ✅+image | vLLM `:unlimited-ocr` | l4x1 | single-image; multi-page → serve |
+| `unlimited-ocr2.py` | ✅+image | SGLang (Baidu wheel) on `lmsysorg/sglang:v0.5.20-cu130` | rtx-pro-6000 | 16-page windows; ≥48 GB GPU |
+| `unlimited-ocr2-saturate.py` | 🧪+image | same | rtx-pro-6000 | tuned/experimental: repair pass, JP2 fast decode, PDFs |
 | `surya-ocr.py` | ✅+image | vLLM `:v0.20.1` | l4x1 | offline backend inject; site-packages PYTHONPATH |
 | `surya-ocr-bucket.py` | ✅+image | vLLM `:v0.20.1` | l4x1 | bucket I/O; pin `surya-ocr==0.20.0` |
 | `lift-extract.py` | ✅ | hf / vLLM | a100-large | schema-constrained extraction; naming gotcha |
@@ -165,6 +167,26 @@ runs on **`vllm/vllm-openai:unlimited-ocr`** (`:unlimited-ocr-cu129` on Hopper),
 hard scans) and belongs to **serving** — both engines read clean multi-page docs, but **SGLang is more
 robust on hard/degraded scans**. Serving setup (SGLang pin `lmsysorg/sglang:v0.5.10.post1`, a100+flashinfer
 — HF `h200` nodes fail with `CUDA error 802`) is in `serving-unlimited-ocr.md`.
+
+### `unlimited-ocr2.py` / `unlimited-ocr2-saturate.py` — Baidu SGLang wheel, multi-page windows
+v2 has no vLLM support; Baidu ships a custom SGLang wheel in the model repo. Its pins (torch 2.13.0,
+transformers 5.12.1, flashinfer 0.6.18 cu13) match **`lmsysorg/sglang:v0.5.20`** exactly → `-cu130` image,
+wheel installed `--no-deps` into the image's **`/opt/sglang` venv** (found on PATH past the uv venv). Move
+image and wheel together. Gotchas measured 2026-10-27 on 1771 Britannica:
+- The card's n-gram guard is a pure-Python logit processor run every decode step → decode is
+  scheduler-CPU-bound (A100 at ~33% GPU util). Turning it off breaks windows (13/32 failed); window 128
+  is 1.3x faster but loops more → keep 1024. The processor string is a fixed pickled global (no sglang
+  or dill needed in the driver).
+- 16-page windows reach ~31k tokens of KV each: 24 GB GPUs thrash (retractions), l40s (48 GB) hits KV
+  pressure; rtx-pro-6000 (96 GB, 23 vCPU) was 1.6x a100-large throughput at ~30% lower $/page.
+- ~2% of dense pages (mathematics) loop; the per-page token cap then forces a `<PAGE>` and shifts the next
+  page's text by one. `-saturate` re-reads looping pages + empty neighbours alone in gundam mode (28/33 fixed).
+- Send pages at 1280 px in base mode (the model sees a 1024 view): 1600+ px bodies (~14 MB per window)
+  stalled SGLang's HTTP front end past saturate's fixed 30 s connect/write timeouts.
+- saturate 0.2.0: `RETRY_BUDGET_S` (300 s) < one window, so retries always timed out → raised to 3600 in
+  the scripts; `Auto` widens only on completions (start it at 32); `flush_every=4`. Pinned `==0.2.0`.
+- JP2 decode at a reduced level (`img.reduce`) failed intermittently in Jobs ("broken data stream", not
+  reproducible on macOS) → fallback to a fuller decode.
 
 ### `lift-extract.py` — naming + backends
 Datalab `lift` (9B, Qwen3.5), schema-constrained image/PDF → JSON; the only recipe ingesting PDFs directly.
@@ -298,6 +320,13 @@ ARM wheels) — if a nightly-recipe install fails on resolution, wait and retry 
 ---
 
 ## Change log
+
+- **2026-10-27** — added `unlimited-ocr2.py` (minimal) and `unlimited-ocr2-saturate.py` (tuned, experimental)
+  for `baidu/Unlimited-OCR-2`: whole-document OCR in 16-page windows on Baidu's SGLang build, driven by
+  saturate (pinned `==0.2.0`). First recipes whose unit of work is a document, not a page; input is a
+  glob/folder of page files (Buckets), output one row per window with a `status` column. Header flavor
+  `rtx-pro-6000` from a flavor sweep. Full 1771 Britannica (2,724 pages): 171 windows, 0 errors, 123
+  pages re-read by the repair pass. New `support` level `experimental` in models.json.
 
 - **2026-07-29** — added the first two **`-saturate.py` companions**: `lighton-ocr2-saturate.py` and
   `ovis-ocr2-saturate.py`. Same model/prompt/sampling/post-processing as their `-server.py` siblings;
