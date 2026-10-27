@@ -20,6 +20,7 @@ _Sorted by strength of evidence, then coverage:_
 | [Qianfan-OCR](https://huggingface.co/baidu/Qianfan-OCR) | 192 languages | Headline claim; no list or per-language numbers |
 | [PaddleOCR-VL](https://huggingface.co/PaddlePaddle/PaddleOCR-VL) / [1.5](https://huggingface.co/PaddlePaddle/PaddleOCR-VL-1.5) / [1.6](https://huggingface.co/PaddlePaddle/PaddleOCR-VL-1.6) | 109 languages; 1.5 adds Tibetan + Bengali | Names scripts (Cyrillic, Arabic, Devanagari, Thai) and claims handwriting + historical documents; no per-language numbers |
 | [PP-OCRv6](https://huggingface.co/collections/PaddlePaddle/pp-ocrv6) | 48 languages | Official card claim |
+| [MiniCPM-OCR 1.0](https://huggingface.co/openbmb/MiniCPM-OCR-1.0) | Chinese and English ("primary languages") | Card names two; no per-language numbers. Examples include historical scans |
 | [Nanonets-OCR2-3B](https://huggingface.co/nanonets/Nanonets-OCR2-3B) | 11 named + "many more" (incl. Arabic + CJK) | Illustrative list, no benchmark — but the only card claiming multilingual **handwriting** |
 | [LightOnOCR-2-1B](https://huggingface.co/lightonai/LightOnOCR-2-1B) | 11 (9 European + zh/ja) | Declared, not benchmarked. [v1](https://huggingface.co/lightonai/LightOnOCR-1B-1025) is explicitly European/Latin-script only (9) |
 | [GLM-OCR](https://huggingface.co/zai-org/GLM-OCR) | 8 (zh en fr es ru de ja ko) | Declared in card metadata only; no per-language evidence in the card body |

@@ -8,7 +8,7 @@
 #
 # [tool.hf-jobs]
 # image = "cr.hf.co/davanstrien/minicpm-ocr:1.0-vllm-5d35ce3"
-# flavor = "l4x1"
+# flavor = "a10g-large"
 # timeout = "2h"
 # secrets = ["HF_TOKEN"]
 # ///
