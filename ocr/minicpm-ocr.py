@@ -60,6 +60,7 @@ Image: https://huggingface.co/containers/davanstrien/minicpm-ocr
 
 import argparse
 import contextlib
+import io
 import json
 import logging
 import os
@@ -179,21 +180,38 @@ def vllm_server(dspark: bool):
         logger.info("vLLM ready")
         yield
     finally:
-        if proc.poll() is None:
-            for sig, wait in ((signal.SIGTERM, 60), (signal.SIGKILL, 30)):
-                with contextlib.suppress(ProcessLookupError):
-                    os.killpg(proc.pid, sig)
-                try:
-                    proc.wait(timeout=wait)
-                    break
-                except subprocess.TimeoutExpired:
-                    continue
+        stop_process_group(proc)
+
+
+def group_alive(pgid: int) -> bool:
+    try:
+        os.killpg(pgid, 0)
+        return True
+    except (ProcessLookupError, PermissionError):
+        return False
+
+
+def stop_process_group(proc: subprocess.Popen):
+    """SIGTERM the whole group, wait up to 60 s for it to empty, then SIGKILL; always reap the
+    parent. Checks the group, not just the parent, since vLLM's workers can outlive it."""
+    pgid = proc.pid  # start_new_session=True: the server leads its own group
+    for sig, wait in ((signal.SIGTERM, 60), (signal.SIGKILL, 30)):
+        if not group_alive(pgid):
+            break
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(pgid, sig)
+        deadline = time.time() + wait
+        while group_alive(pgid) and time.time() < deadline:
+            with contextlib.suppress(subprocess.TimeoutExpired):
+                proc.wait(timeout=1)
+    with contextlib.suppress(subprocess.TimeoutExpired):
+        proc.wait(timeout=5)
 
 
 def parse_batch(images: dict, work: Path, tag: str) -> dict:
     """OCR one batch of pages with the SDK.
 
-    `images` maps a key to something PIL can open (a PIL image or a path). Returns
+    `images` maps a key to a PIL image, a path, or an undecoded datasets image dict. Returns
     key -> (status, markdown or None). A page that cannot be read gets an `error: ...` status and
     does not stop the batch; if the SDK run itself fails, every page in the batch gets one.
     """
@@ -204,6 +222,8 @@ def parse_batch(images: dict, work: Path, tag: str) -> dict:
     results, ids = {}, {}
     for i, (key, source) in enumerate(images.items()):
         try:
+            if isinstance(source, dict):  # datasets Image(decode=False): {"bytes", "path"}
+                source = io.BytesIO(source["bytes"]) if source.get("bytes") else source["path"]
             img = source if isinstance(source, Image.Image) else Image.open(source)
             img.convert("RGB").save(image_dir / f"{i:06d}.png")
             ids[f"{i:06d}"] = key
@@ -304,10 +324,17 @@ def write_outputs(dest: str, pairs: list[tuple[str, str]]):
 
 def run_files(args):
     inputs = [r for r in list_rels(args.input) if Path(r).suffix.lower() in IMAGE_EXTENSIONS]
+    owners: dict[str, list[str]] = {}
+    for rel in inputs:
+        owners.setdefault(md_rel(rel), []).append(rel)
+    clashes = [" + ".join(group) for group in owners.values() if len(group) > 1]
+    if clashes:
+        sys.exit("These inputs would write the same .md file; rename or move them first:\n  "
+                 + "\n  ".join(clashes))
+    if args.max_samples:
+        inputs = inputs[: args.max_samples]  # the same pages on every run, so a re-run resumes them
     done = {r for r in list_rels(args.output) if r.endswith(".md")}
     todo = [r for r in inputs if args.overwrite or md_rel(r) not in done]
-    if args.max_samples:
-        todo = todo[: args.max_samples]
     already = sum(md_rel(r) in done for r in inputs)
     logger.info("%d images under %s, %d already have a .md, %d to OCR", len(inputs), args.input,
                 already, len(todo))
@@ -420,6 +447,8 @@ def create_dataset_card(args, num_samples: int, counts: dict, processing_time: s
         flags.append(f"--shuffle --seed {args.seed}")
     if args.no_dspark:
         flags.append("--no-dspark")
+    if args.overwrite:
+        flags.append("--overwrite")
     command = f"hf jobs uv run {' '.join(flags[:1])} \\\n    {SCRIPT_URL} \\\n    {args.input} <output-dataset>"
     if flags[1:]:
         command += " \\\n    " + " ".join(flags[1:])
@@ -481,6 +510,10 @@ def run_dataset(args):
         dataset = dataset.shuffle(seed=args.seed)
     if args.max_samples:
         dataset = dataset.select(range(min(args.max_samples, len(dataset))))
+    # Undecoded: a corrupt image then fails inside parse_batch's per-page guard, not in the slice.
+    from datasets import Image as ImageFeature
+
+    dataset = dataset.cast_column(args.image_column, ImageFeature(decode=False))
     clash = [c for c in (args.output_column, status_col) if c in dataset.column_names]
     if clash and not args.overwrite:
         sys.exit(f"Output column(s) {clash} already exist; choose another --output-column or pass --overwrite")
@@ -508,6 +541,7 @@ def run_dataset(args):
         counts[key] = counts.get(key, 0) + 1
     logger.info("Page status: %s", counts)
 
+    dataset = dataset.cast_column(args.image_column, ImageFeature())
     dataset = dataset.add_column(args.output_column, texts).add_column(status_col, statuses)
     entry = {"model_id": MODEL, "model_name": "MiniCPM-OCR-1.0", "column_name": args.output_column,
              "timestamp": datetime.now().isoformat(), "model_revision": MODEL_REVISION,
@@ -555,10 +589,15 @@ def main():
 
     if args.hf_token:
         os.environ["HF_TOKEN"] = args.hf_token
+    if args.max_samples is not None and args.max_samples < 1:
+        sys.exit("--max-samples must be at least 1")
+    if args.batch_size < 1:
+        sys.exit("--batch-size must be at least 1")
+    # The input decides the mode: a Bucket or an existing folder means files, anything else is a
+    # Hub dataset ID. In file mode the output is a Bucket URL or a folder (created if new).
     file_in = is_bucket(args.input) or Path(args.input).is_dir()
-    file_out = is_bucket(args.output) or args.output.startswith(("/", "./")) or Path(args.output).is_dir()
-    if file_in != file_out:
-        sys.exit("Use a Hub dataset for both input and output, or a Bucket/folder for both.")
+    if not file_in and (is_bucket(args.output) or Path(args.output).is_dir()):
+        sys.exit("Dataset input writes a Hub dataset; for Bucket output, give a Bucket or folder as input.")
     check_runtime()
     if file_in:
         run_files(args)
