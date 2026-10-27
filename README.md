@@ -3,19 +3,27 @@
 <a href="https://huggingface.co/uv-scripts"><picture><source media="(prefers-color-scheme: dark)" srcset="https://huggingface.co/datasets/huggingface/badges/resolve/main/follow-us-on-hf-md-dark.svg"><img src="https://huggingface.co/datasets/huggingface/badges/resolve/main/follow-us-on-hf-md.svg" alt="Follow uv-scripts on Hugging Face"></picture></a>
 <a href="https://huggingface.co/davanstrien"><picture><source media="(prefers-color-scheme: dark)" srcset="https://huggingface.co/datasets/huggingface/badges/resolve/main/follow-me-on-HF-md-dark.svg"><img src="https://huggingface.co/datasets/huggingface/badges/resolve/main/follow-me-on-HF-md.svg" alt="Follow davanstrien on Hugging Face"></picture></a>
 
-> **A UV script is a single Python file that declares its own dependencies inline — a *portable* unit you run with `uv run` where you have the hardware, or hand to `hf jobs uv run` on [Hugging Face Jobs](https://huggingface.co/docs/huggingface_hub/guides/jobs) for a GPU. Chain several into a pipeline.**
+> **Run a data or ML task over a Hugging Face dataset in one command: OCR, transcription, classification, embeddings, deduplication and more.** Run it on your own machine, or on a pay-per-second GPU with [Hugging Face Jobs](https://huggingface.co/docs/hub/jobs-overview). For people and coding agents.
 
-Each script carries its own dependencies, so people and agents can run one without cloning a repo, making a virtualenv, or installing a `requirements.txt` first.
-
-A **recipe** here is one such script. Most read and write the [Hugging Face Hub](https://huggingface.co/datasets), so one script's output dataset becomes the next one's input.
+Each **recipe** is one Python file with its dependencies declared inside it, so it runs straight from its URL: no clone, no virtualenv, no `pip install`. Most recipes read a [Hub](https://huggingface.co/datasets) dataset and write a new one, so one recipe's output can be the next one's input.
 
 ![Demo: OCR a whole image dataset with one command — no clone, no environment, straight from a Hub URL](ocr/demo.gif)
 
 ## Quickstart
 
-Before starting, [install the `hf` CLI and sign in](https://huggingface.co/docs/hub/jobs-quickstart). Jobs needs a Hugging Face account with [pay-as-you-go credit](https://huggingface.co/pricing). Run `hf jobs hardware` for current hardware and prices.
+First [install the `hf` CLI](https://huggingface.co/docs/huggingface_hub/en/guides/cli#getting-started). **See the recipe families** (no GPU, no account):
 
-**Try OCR on seven scanned pages** from [NASA’s *Food for Space Flight* booklet](https://huggingface.co/datasets/uv-scripts/ocr-demo). Replace `your-username` with your Hugging Face username; the results will be saved as a new dataset in your namespace:
+```bash
+hf datasets ls --author uv-scripts
+```
+
+Each family is a Hub repo. List a family's scripts without downloading them, or open its page (for example [`uv-scripts/ocr`](https://huggingface.co/datasets/uv-scripts/ocr)) to see how to run them:
+
+```bash
+hf download uv-scripts/ocr --repo-type dataset --include "*.py" --dry-run
+```
+
+**OCR seven scanned pages on a GPU** from [NASA’s *Food for Space Flight* booklet](https://huggingface.co/datasets/uv-scripts/ocr-demo). [Sign in](https://huggingface.co/docs/hub/jobs-quickstart) with a token that can write to your account; Jobs needs [pre-paid credits](https://huggingface.co/settings/billing) ([pricing](https://huggingface.co/docs/hub/jobs-pricing)). Replace `your-username` with your Hugging Face username (`hf auth whoami` shows it):
 
 ```bash
 hf jobs uv run --flavor a10g-small --timeout 15m --secrets HF_TOKEN \
@@ -23,7 +31,7 @@ hf jobs uv run --flavor a10g-small --timeout 15m --secrets HF_TOKEN \
   uv-scripts/ocr-demo your-username/ocr-demo-results
 ```
 
-`--secrets HF_TOKEN` forwards your token so the Job can save the output dataset. The script adds a `markdown` column containing the OCR text. Dependency installation and model loading can take a few minutes. Follow [Get and check your results](ocr/README.md#get-and-check-your-results), or [try the same pages as a PDF from a Bucket](ocr/README.md#try-the-same-pages-as-a-pdf).
+This takes about 4 minutes on an `a10g-small` ($1.00/hour), so about $0.07. Most of that time is startup; the OCR itself takes about 25 seconds. The Job saves a new dataset with a `markdown` column. `--secrets HF_TOKEN` forwards your token so the Job can save it, and `--timeout` stops the Job (and the billing) if it runs too long. Next: [get and check your results](ocr/README.md#get-and-check-your-results), or [try the same pages as a PDF from a Bucket](ocr/README.md#try-the-same-pages-as-a-pdf).
 
 **Got local scans or PDFs?** Put a few images or a short PDF in `./my-scans` for your first run, then create the output directory:
 
@@ -37,34 +45,24 @@ hf jobs uv run --flavor a10g-small --timeout 15m --secrets HF_TOKEN \
 
 The CLI syncs these local folders to a private bucket. Local folder mounts are read-only unless you add `:rw`; the CLI prints the `hf buckets sync` command to retrieve the output after the Job finishes. See the [OCR walkthrough](ocr/README.md#use-your-own-documents) for inputs and results.
 
-**Prefer your own machine?** With [uv](https://docs.astral.sh/uv/getting-started/installation/) and the required hardware installed, use `uv run` with the same script URL and arguments. Most recipes need a CUDA GPU. To inspect a recipe without installing its dependencies, open its [source](https://huggingface.co/datasets/uv-scripts/ocr/blob/main/glm-ocr.py).
+**Prefer your own machine?** Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and use `uv run` with the same script URL and arguments. Most recipes need a CUDA GPU. To read a recipe without installing anything, open its [source](https://huggingface.co/datasets/uv-scripts/ocr/blob/main/glm-ocr.py).
 
-## What's a UV script?
+## Use it with your coding agent
 
-A normal Python file with a metadata block at the top that lists its dependencies:
+A recipe runs from a URL and documents itself in its header, so a coding agent (Claude Code, Codex, Cursor, …) can pick one and run it with no setup. Paste this to start:
 
-```python
-# /// script
-# requires-python = ">=3.10"
-# dependencies = ["datasets", "transformers", "torch"]
-# ///
+```
+List the uv-scripts recipe families and tell me which fit my task:
+  hf datasets ls --author uv-scripts
+List a family's scripts with:
+  hf download uv-scripts/<family> --repo-type dataset --include "*.py" --dry-run
+Read the matching family's README on the Hub. Before running a script, read its header and docstring for the arguments and hardware.
+Use my username from `hf auth whoami` for output datasets, and always set --timeout.
 ```
 
-Normally, running someone's Python script means cloning their repo, making a virtual environment, and `pip install`-ing a `requirements.txt` first — and if your versions don't match theirs, it can still break. Here the dependencies live inside the file, in that comment block, so `uv` (and `hf jobs uv run`) reads them, installs exactly those versions into a throwaway environment, and runs the file — straight from a URL, with nothing to set up. This is the standard [PEP 723](https://peps.python.org/pep-0723/) inline-script-metadata format; see the [uv scripts guide](https://docs.astral.sh/uv/guides/scripts/) to learn more.
+On Jobs, the agent's code runs on a throwaway machine, not your laptop. It can only reach what your token allows, and `--timeout` limits how long (and so how much) each Job can cost.
 
-## Why UV scripts
-
-A self-contained, pinned script is easy to run and reuse, for a few reasons:
-
-- **Discrete & single-purpose** — one script, one job. That job can be a two-second transform or a multi-hour fine-tune; either way it's one self-contained unit you pick by reading a header instead of a whole codebase.
-- **Self-describing** — the [PEP 723](https://peps.python.org/pep-0723/) dependency block, the docstring, and `--help` tell you what it needs and how to call it.
-- **Reproducible** — dependencies are pinned *in the file*, so there's no env drift and no "works on my machine."
-- **Composable** — recipes hand off through the Hub (usually a dataset in, a dataset or model out), so you can chain them into a pipeline.
-- **Portable** — one self-contained file; run it with `uv run` where you have the hardware (most recipes need a GPU), or `hf jobs uv run` it on a managed GPU.
-
-**Built for agents, too.** Every recipe takes its arguments in the same `input output` order and runs from a URL, so an AI agent can pick a tool from its header and run it with no setup. On Jobs the agent runs in a sandbox: a throwaway disk, access limited to what the token's repo permissions allow, and a cost cap per job — not arbitrary code on your machine. (Hugging Face also ships an [`hf` CLI skill for agents](https://huggingface.co/docs/hub/agents-cli) for driving Jobs from an editor.) This repo also ships a ready-to-use **[`uv-recipes` agent skill](skills/uv-recipes/)** — point your agent at it to discover, run, and adapt recipes.
-
-For few-shot text classification, the focused **[`setfit-on-jobs` skill](skills/setfit-on-jobs/)** prepares a small labeled sample when needed, runs SetFit on Jobs, and verifies the resulting model.
+To teach your agent the rest of the `hf` CLI, install Hugging Face's [`hf` CLI skill](https://huggingface.co/docs/hub/agents-cli) with `hf skills add`.
 
 ## Recipes
 
@@ -82,11 +80,9 @@ For few-shot text classification, the focused **[`setfit-on-jobs` skill](skills/
 | **synthetic data** | Generate datasets with LLMs | [`synthetic-data`](https://huggingface.co/datasets/uv-scripts/synthetic-data) |
 | **inference** | Run any open LLM / VLM over a dataset | [`vllm`](https://huggingface.co/datasets/uv-scripts/vllm) · [`openai-oss`](https://huggingface.co/datasets/uv-scripts/openai-oss) · [`transformers-inference`](https://huggingface.co/datasets/uv-scripts/transformers-inference) |
 | **entity extraction** | NER / structured extraction over text | [`gliner`](https://huggingface.co/datasets/uv-scripts/gliner) |
-| ***…and more*** | *Training, evaluation, RAG indexing — migrating as they mature* | [`training`](https://huggingface.co/datasets/uv-scripts/training) · [`transformers-training`](https://huggingface.co/datasets/uv-scripts/transformers-training) |
+| **training** | Fine-tune models with TRL / `transformers` | [`training`](https://huggingface.co/datasets/uv-scripts/training) · [`transformers-training`](https://huggingface.co/datasets/uv-scripts/transformers-training) |
 
-Most recipes now live in this repo; the rest link to the [`uv-scripts`](https://huggingface.co/uv-scripts) Hugging Face org where they run today, and migrate here over time. (each folder mirrors to its Hub dataset repo.)
-
-**What fits here:** any self-contained UV script for data or ML work on the Hub. OCR and dataset work are the current focus, but inference, evaluation, RAG indexing, and **training** (fine-tuning with TRL / `transformers`, producing a model) are all in scope. If it's one pinned script that reads from or writes to the Hub, it belongs.
+**What fits here:** any self-contained UV script for data or ML work on the Hub. OCR and dataset work are the current focus, but inference, evaluation, RAG indexing, and **training** (fine-tuning with TRL / `transformers`, producing a model) are all in scope. If it's one self-contained script that reads from or writes to the Hub, it belongs.
 
 ## Compose a pipeline
 
@@ -97,27 +93,45 @@ PDFs / scans          →   OCR to markdown      →   dedup + stats        → 
 dataset-creation          ocr/glm-ocr.py           deduplication            build-atlas
 ```
 
-Each arrow is a Hub dataset; each box is one `hf jobs uv run` (or `uv run`), and every box runs today from its Hub URL, even before it's migrated into this repo. A pipeline can also end in a *trained model* instead of another dataset. You can write the chain as a shell script, or an agent can generate it — the scripts are the same.
+Each arrow is a Hub dataset; each box is one `hf jobs uv run` (or `uv run`). A pipeline can also end in a *trained model* instead of another dataset. You can write the chain as a shell script, or an agent can generate it — the scripts are the same.
 
-## Portable: run it locally or on Jobs
+## How recipes work
 
-A recipe is the same file wherever you run it — on a machine with the hardware it needs, or on [Hugging Face Jobs](https://huggingface.co/docs/huggingface_hub/guides/jobs) for a managed GPU. Same file, same arguments:
+A recipe is a normal Python file with a [PEP 723](https://peps.python.org/pep-0723/) metadata block at the top that lists its dependencies:
+
+```python
+# /// script
+# requires-python = ">=3.10"
+# dependencies = ["datasets", "transformers", "torch"]
+# ///
+```
+
+`uv` (and `hf jobs uv run`) reads that block, installs the dependencies into a throwaway environment and runs the file, straight from a URL. How reproducible a run is depends on how tightly each recipe pins its versions. See the [uv scripts guide](https://docs.astral.sh/uv/guides/scripts/) to learn more.
+
+The same file runs anywhere with the same arguments:
 
 ```bash
 SCRIPT=https://huggingface.co/datasets/uv-scripts/ocr/raw/main/glm-ocr.py
 
-# locally — needs the right hardware (a GPU for most recipes)
+# locally: needs the right hardware (a GPU for most recipes)
 uv run $SCRIPT uv-scripts/ocr-demo your-username/ocr-demo-results
 
-# on a managed GPU — pick hardware with --flavor; --secrets forwards your write token
+# on Jobs: pick hardware with --flavor; --secrets forwards your write token
 hf jobs uv run --flavor a10g-small --timeout 15m --secrets HF_TOKEN $SCRIPT uv-scripts/ocr-demo your-username/ocr-demo-results
 ```
 
-Why reach for [Jobs](https://huggingface.co/docs/hub/jobs):
+[Jobs](https://huggingface.co/docs/hub/jobs-overview) bills by the second while a Job runs; `hf jobs hardware` lists the hardware and prices, and [Pricing and Billing](https://huggingface.co/docs/hub/jobs-pricing) explains the rest. Jobs read and write Hub datasets, models and [storage buckets](https://huggingface.co/docs/hub/storage-buckets) directly. Running a recipe from its `https://huggingface.co/datasets/uv-scripts/…` URL also counts the run towards that recipe.
 
-- **Pay by the second** — billed only while the job runs. Run `hf jobs hardware`, or see the [flavors](https://huggingface.co/docs/huggingface_hub/guides/jobs#select-the-hardware) and [pricing](https://huggingface.co/docs/hub/jobs).
-- **No infra** — `hf jobs uv run <url>` and you're done. See the [`hf jobs` CLI](https://huggingface.co/docs/huggingface_hub/guides/cli#hf-jobs).
-- **Hub-native** — read and write datasets, models, and [storage buckets](https://huggingface.co/docs/hub/storage-buckets) directly. Running from the `https://huggingface.co/datasets/uv-scripts/…` URL also attributes usage to the recipe.
+## Built with uv-scripts
+
+Most recipes tag the dataset card they push with `uv-script`, and many add a *Reproduction* section with the exact command. As of October 2026, [386 datasets carry that tag](https://huggingface.co/datasets?other=uv-script), from more than 40 accounts besides `uv-scripts` and its maintainer. Some examples:
+
+- [`cis-lmu/GlotOCR-bench-v1.0-results`](https://huggingface.co/datasets/cis-lmu/GlotOCR-bench-v1.0-results): OCR benchmark results
+- [`mantisnlp/classification-with-sieves`](https://huggingface.co/datasets/mantisnlp/classification-with-sieves): zero-shot text classification
+- [`princeton-hf-workshop/affordable-housing-conversations-classified`](https://huggingface.co/datasets/princeton-hf-workshop/affordable-housing-conversations-classified): classified conversations from a workshop
+- [`shijithpk/ncert-history-ocr-bench-48-output`](https://huggingface.co/datasets/shijithpk/ncert-history-ocr-bench-48-output): OCR of history textbooks
+
+Built something? Keep the tag on your dataset so others can find it, and share the link.
 
 ## Model licenses
 
