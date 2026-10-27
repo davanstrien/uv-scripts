@@ -221,7 +221,7 @@ hf jobs uv run https://huggingface.co/datasets/uv-scripts/ocr/raw/main/pp-doclay
 
 **Large datasets:** `lighton-ocr2-saturate.py` and `ovis-ocr2-saturate.py` start a vLLM server in the Job and send pages to it with adaptive concurrency. They stream results to the output repo as parquet parts. If a run stops, run the same command again and it skips the rows that are done. A failed page is stored as an error row, and `--retry-errors` tries those rows again. The output layout is different from the other recipes; the script header explains how to read it. [SERVING.md](SERVING.md) compares server mode with offline batches (measured throughput and output parity).
 
-**Whole books and long documents:** `unlimited-ocr2.py` runs [Unlimited-OCR-2](https://huggingface.co/baidu/Unlimited-OCR-2) on Baidu's own SGLang build. It groups page images (or PDF pages) into documents and sends 16 consecutive pages per request, so a paragraph that runs over a page break comes back joined. Point it at a folder of pages, for example a Bucket:
+**Whole books and long documents:** `unlimited-ocr2.py` runs [Unlimited-OCR-2](https://huggingface.co/baidu/Unlimited-OCR-2) on Baidu's own SGLang build. It groups page images into documents and sends 16 consecutive pages per request, so a paragraph that runs over a page break comes back joined. Point it at a folder of pages, for example a Bucket:
 
 ```bash
 hf jobs uv run --detach \

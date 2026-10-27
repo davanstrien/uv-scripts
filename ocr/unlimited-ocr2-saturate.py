@@ -332,14 +332,16 @@ def repair_rows(windows, output: str):
     for wid, row in windows:
         n = len(row["paths"])
         rec = done.get(wid)
-        if rec is None or rec.get("status", "ok") != "ok" or not rec.get("raw"):
+        raw_pages = (rec or {}).get("raw", "").split("<PAGE>")[1:]
+        texts = (rec or {}).get("page_markdown") or []
+        # Anything we cannot line up page-for-page is repaired whole (also covers
+        # records written before the status column existed).
+        if rec is None or rec.get("status", "ok") != "ok" or len(raw_pages) != n or len(texts) != n:
             bad = set(range(n))
         else:
-            raw_pages = rec["raw"].split("<PAGE>")[1:]
             bad = {i for i, p in enumerate(raw_pages) if degenerate(p)}
-            texts = rec.get("page_markdown") or [""] * n
             for i in list(bad):
-                bad |= {j for j in (i - 1, i + 1) if 0 <= j < n and not texts[j].strip()}
+                bad |= {j for j in (i - 1, i + 1) if 0 <= j < n and not (texts[j] or "").strip()}
         for i in sorted(bad):
             yield row["page_files"][i], {
                 "doc_id": row["doc_id"], "page": row["first_page"] + i, "window": wid,
@@ -489,15 +491,21 @@ def main():
     def parse_repair(row, body):
         raw = body["choices"][0]["message"]["content"]
         finish = body["choices"][0].get("finish_reason")
-        page_raw = raw.split("<PAGE>", 1)[-1]
+        pages = raw.split("<PAGE>")[1:]
+        page_raw = pages[0] if pages else raw
+        if len(pages) != 1:
+            status = "page_mismatch"  # never substitute a malformed reading for the page
+        elif finish == "length" or degenerate(page_raw):
+            status = "degenerate"  # still looping alone: keep the text, flagged
+        else:
+            status = "ok"
         usage = body.get("usage") or {}
         return {
             "doc_id": row["doc_id"],
             "page": row["page"],
             "page_file": row["page_file"],
             "window": row["window"],
-            # still looping alone: keep the text, flagged, for a human or another model
-            "status": "degenerate" if finish == "length" or degenerate(page_raw) else "ok",
+            "status": status,
             "finish_reason": finish,
             "markdown": clean_page(page_raw, args.keep_furniture)[0],
             "raw": raw,
@@ -508,8 +516,10 @@ def main():
 
     is_repo_id = re.fullmatch(r"[\w-][\w.-]*/[\w.-]*[\w-]", args.output) and not os.path.exists(args.output)
     output = f"hf://datasets/{args.output}/data" if is_repo_id else args.output
+    # Sibling of data/, or a subfolder of the output (saturate only reads <root>/part-*.parquet,
+    # so it never mixes the two); never a path outside the output repo or bucket.
     repairs_out = re.sub(r"/data/?$", "/repairs", output) if re.search(r"/data/?$", output) \
-        else output.rstrip("/") + "-repairs"
+        else output.rstrip("/") + "/repairs"
     # One window is minutes of decode, and Auto widens only on completed-request
     # evidence, so it ramps slowly from a small start. Start near the measured
     # headroom (a100-large: 8 x 32-page windows used ~25% of KV) and flush often,
