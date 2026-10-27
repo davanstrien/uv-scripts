@@ -1,7 +1,7 @@
 # uv-scripts
 
 <a href="https://huggingface.co/uv-scripts"><picture><source media="(prefers-color-scheme: dark)" srcset="https://huggingface.co/datasets/huggingface/badges/resolve/main/follow-us-on-hf-md-dark.svg"><img src="https://huggingface.co/datasets/huggingface/badges/resolve/main/follow-us-on-hf-md.svg" alt="Follow uv-scripts on Hugging Face"></picture></a>
-<a href="https://huggingface.co/davanstrien"><picture><source media="(prefers-color-scheme: dark)" srcset="https://huggingface.co/datasets/huggingface/badges/resolve/main/follow-me-on-HF-md-dark.svg"><img src="https://huggingface.co/datasets/huggingface/badges/resolve/main/follow-me-on-HF-md.svg" alt="Follow davanstrien on Hugging Face"></picture></a>
+<a href="https://huggingface.co/davanstrien"><picture><source media="(prefers-color-scheme: dark)" srcset="https://huggingface.co/datasets/huggingface/badges/resolve/main/follow-me-on-HF-md-dark.svg"><img src="https://huggingface.co/datasets/huggingface/badges/resolve/81f590d0445dfbdb77dfca42fa3fa023ff001d31/follow-me-on-HF-md.svg" alt="Follow davanstrien on Hugging Face"></picture></a>
 
 > **Run a data or ML task over a Hugging Face dataset in one command: OCR, transcription, classification, embeddings, deduplication and more.** Run it on your own machine, or on a pay-per-second GPU with [Hugging Face Jobs](https://huggingface.co/docs/hub/jobs-overview). For people and coding agents.
 
