@@ -7,8 +7,9 @@ container registry: https://huggingface.co/containers/davanstrien/minicpm-ocr
 |---|---|
 | `1.0-vllm-5d35ce3` (also `latest`) | `sha256:2fb9a09980abecb3102b99b0685b57b4ecde22702b3a441c03fab22e30239aea` |
 
-Built from this Dockerfile with kaniko on an HF CPU Job (`cpu-upgrade`, about 20 minutes),
-pushed to `cr.hf.co`. Why a custom image: MiniCPM-OCR's architecture is in vLLM main but not in a
+Built with kaniko on an HF CPU Job (`cpu-upgrade`, about 20 minutes),
+pushed to `cr.hf.co`. The published digest was built before `sdk-requirements.lock` existed;
+the lock is that image's `/opt/sdk` environment (`uv pip freeze`), so a rebuild reproduces it. Why a custom image: MiniCPM-OCR's architecture is in vLLM main but not in a
 vLLM release yet, and the SDK needs PaddlePaddle in its own environment. Drop it for a stock
 `vllm/vllm-openai` tag plus a pip-installed SDK once a vLLM release has the architecture.
 

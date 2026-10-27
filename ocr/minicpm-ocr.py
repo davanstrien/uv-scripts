@@ -4,6 +4,7 @@
 #     "datasets>=3.1.0",
 #     "huggingface-hub>=1.0",
 #     "pillow",
+#     "bucketbag @ https://github.com/davanstrien/bucketbag/archive/refs/tags/v0.3.1.tar.gz",
 # ]
 #
 # [tool.hf-jobs]
@@ -19,14 +20,26 @@ Convert document images to markdown with OpenBMB's MiniCPM-OCR 1.0 pipeline.
 MiniCPM-OCR 1.0 (1.3B, Apache-2.0) is a region reader: the official SDK finds layout regions
 with PP-DocLayoutV3, crops them, sends each crop to the model with the prompt for its type
 (`Text Recognition:`, `Table Recognition:`, `Formula Recognition:`, ...) and assembles the page
-as Markdown (tables as HTML, formulas as LaTeX). This script runs that pipeline unchanged over a
-Hub dataset of page images and adds a `markdown` column.
+as Markdown (tables as HTML, formulas as LaTeX). This script runs that pipeline unchanged.
 
+Two ways in and out:
+
+  # Hub dataset -> Hub dataset (adds `markdown` and `markdown_status` columns)
   hf jobs uv run https://huggingface.co/datasets/uv-scripts/ocr/raw/main/minicpm-ocr.py \\
       input-dataset output-dataset --max-samples 20
 
+  # Bucket (or folder) of page images -> one .md per image in a Bucket (or folder)
+  hf jobs uv run https://huggingface.co/datasets/uv-scripts/ocr/raw/main/minicpm-ocr.py \\
+      hf://buckets/<ns>/<bucket>/pages hf://buckets/<ns>/<bucket>/minicpm-ocr
+
+Bucket input is listed and downloaded in batches with bucketbag (no mount); `x/y.jp2` becomes
+`x/y.md` under the output prefix. A page whose regions all read cleanly is written; a page with
+failed regions is not, and is listed at the end, so re-running the same command retries it (pages
+with a `.md` already are skipped). In dataset mode every row gets a `markdown_status`: `ok`,
+`partial_failed` (some regions failed; the text is kept), `failed` or `error: ...` (no text).
+
 Runtime image (from the [tool.hf-jobs] header): cr.hf.co/davanstrien/minicpm-ocr, built from
-the Dockerfile linked below. It holds:
+images/minicpm-ocr/Dockerfile. It holds:
 - vLLM nightly 5d35ce3. MiniCPMOcrForConditionalGeneration landed in vLLM main on 23 Oct 2026
   and is not in a release yet. Drop the custom image for a stock vllm/vllm-openai tag once a
   release has the architecture.
@@ -46,10 +59,13 @@ Image: https://huggingface.co/containers/davanstrien/minicpm-ocr
 """
 
 import argparse
+import contextlib
 import json
 import logging
 import os
+import shlex
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -58,12 +74,10 @@ import urllib.request
 from datetime import datetime
 from pathlib import Path
 
-from datasets import load_dataset
-from huggingface_hub import DatasetCard, login, snapshot_download
-
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
+SCRIPT_URL = "https://huggingface.co/datasets/uv-scripts/ocr/raw/main/minicpm-ocr.py"
 MODEL = "openbmb/MiniCPM-OCR-1.0"
 MODEL_REVISION = "a59a4acf215e34c6d73149e9eafdb88ed2086e39"
 DRAFT_MODEL = "openbmb/MiniCPM-OCR-1.0-DSpark"  # must come from the same release as MODEL
@@ -72,6 +86,9 @@ SERVED_NAME = "minicpm-ocr"
 PORT = 18499
 SDK_PYTHON = "/opt/sdk/bin/python"
 LAYOUT_MODEL_DIR = "/opt/minicpm-ocr-assets/models/PP-DocLayoutV3_infer"
+IMAGE_TAG = "cr.hf.co/davanstrien/minicpm-ocr:1.0-vllm-5d35ce3"
+BUCKET_SCHEME = "hf://buckets/"
+IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp", ".jp2"}
 
 # Runs inside the SDK venv: the SDK's documented Python API (docs/minicpmvocr_api_en.md),
 # with the bundled config and only the input, server and layout path filled in.
@@ -92,21 +109,40 @@ print(json.dumps({"run_dir": cfg["_meta"]["run_dir"]}))
 """
 
 
-def check_image():
-    """Fail fast, naming the fix, when not on the MiniCPM-OCR image."""
-    if not (shutil.which("vllm") and Path(SDK_PYTHON).exists() and Path(LAYOUT_MODEL_DIR).exists()):
-        logger.error("This script needs the cr.hf.co/davanstrien/minicpm-ocr image (vLLM with "
-                     "MiniCPM-OCR support + the minicpm-ocr SDK + the layout model).")
+def image_python() -> str | None:
+    """The image's own python3 (the one with vLLM and torch), looking past this script's venv."""
+    own_bin = os.path.realpath(os.path.join(sys.prefix, "bin"))
+    path = os.pathsep.join(p for p in os.environ.get("PATH", "").split(os.pathsep)
+                           if os.path.realpath(p) != own_bin)
+    return shutil.which("python3", path=path)
+
+
+def check_runtime():
+    """Fail fast, naming the fix, when not on the MiniCPM-OCR image or without a CUDA GPU."""
+    py = image_python()
+    if not (py and shutil.which("vllm") and Path(SDK_PYTHON).exists() and Path(LAYOUT_MODEL_DIR).exists()):
+        logger.error("This script needs the %s image (vLLM with MiniCPM-OCR support, the "
+                     "minicpm-ocr SDK and the layout model).", IMAGE_TAG)
         logger.error("Run it with `hf jobs uv run`, which reads the image from the script header, "
-                     "or pass --image cr.hf.co/davanstrien/minicpm-ocr:1.0-vllm-5d35ce3.")
+                     "or pass --image %s.", IMAGE_TAG)
         sys.exit(1)
-    if subprocess.run(["nvidia-smi"], capture_output=True).returncode != 0:
-        logger.error("No GPU found. This script needs a CUDA GPU.")
+    probe = subprocess.run([py, "-c", "import torch; print(torch.cuda.is_available())"],
+                           capture_output=True, text=True)
+    if probe.stdout.strip() != "True":
+        logger.error("CUDA is not available to the image's torch. This script needs a GPU "
+                     "(e.g. --flavor a10g-large). %s", probe.stderr.strip()[-300:])
         sys.exit(1)
 
 
-def start_server(dspark: bool) -> subprocess.Popen:
-    """Start vLLM with OpenBMB's tutorial settings and wait until it serves the model."""
+@contextlib.contextmanager
+def vllm_server(dspark: bool):
+    """Run vLLM with OpenBMB's tutorial settings for the duration of the block.
+
+    The server gets its own process group, and is terminated, then killed, then reaped, on every
+    exit path, including a failed or interrupted startup.
+    """
+    from huggingface_hub import snapshot_download
+
     model_dir = snapshot_download(MODEL, revision=MODEL_REVISION)
     cmd = [
         "vllm", "serve", model_dir, "--served-model-name", SERVED_NAME,
@@ -122,57 +158,175 @@ def start_server(dspark: bool) -> subprocess.Popen:
         cmd += ["--speculative-config", json.dumps({
             "method": "dspark", "model": draft_dir, "num_speculative_tokens": 15,
             "enable_adaptive_verification": False})]
-    # The uv venv's VIRTUAL_ENV and PATH entry must not shadow the image's vLLM.
+    # This script's VIRTUAL_ENV must not leak into the image's vLLM.
     env = {k: v for k, v in os.environ.items() if k != "VIRTUAL_ENV"}
-    logger.info("Starting vLLM: %s", " ".join(cmd))
-    proc = subprocess.Popen(cmd, env=env)
-    deadline = time.time() + 1800
-    while time.time() < deadline:
-        if proc.poll() is not None:
-            sys.exit(f"vLLM exited during startup (code {proc.returncode})")
-        try:
-            with urllib.request.urlopen(f"http://127.0.0.1:{PORT}/v1/models", timeout=5) as r:
-                if SERVED_NAME in r.read().decode():
-                    logger.info("vLLM ready")
-                    return proc
-        except OSError:
-            pass
-        time.sleep(5)
-    proc.kill()
-    sys.exit("vLLM did not become ready within 30 minutes")
+    logger.info("Starting vLLM: %s", shlex.join(cmd))
+    proc = subprocess.Popen(cmd, env=env, start_new_session=True)
+    try:
+        deadline = time.time() + 1800
+        while True:
+            if proc.poll() is not None:
+                sys.exit(f"vLLM exited during startup (code {proc.returncode})")
+            try:
+                with urllib.request.urlopen(f"http://127.0.0.1:{PORT}/v1/models", timeout=5) as r:
+                    if SERVED_NAME in r.read().decode():
+                        break
+            except OSError:
+                pass
+            if time.time() > deadline:
+                sys.exit("vLLM did not become ready within 30 minutes")
+            time.sleep(5)
+        logger.info("vLLM ready")
+        yield
+    finally:
+        if proc.poll() is None:
+            for sig, wait in ((signal.SIGTERM, 60), (signal.SIGKILL, 30)):
+                with contextlib.suppress(ProcessLookupError):
+                    os.killpg(proc.pid, sig)
+                try:
+                    proc.wait(timeout=wait)
+                    break
+                except subprocess.TimeoutExpired:
+                    continue
 
 
-def parse_batch(images, work: Path, tag: str) -> list[str]:
-    """Write one batch of page images, run the SDK over the folder, return markdown in order."""
+def parse_batch(images: dict, work: Path, tag: str) -> dict:
+    """OCR one batch of pages with the SDK.
+
+    `images` maps a key to something PIL can open (a PIL image or a path). Returns
+    key -> (status, markdown or None). A page that cannot be read gets an `error: ...` status and
+    does not stop the batch; if the SDK run itself fails, every page in the batch gets one.
+    """
+    from PIL import Image
+
     image_dir = work / tag / "images"
     image_dir.mkdir(parents=True)
-    for i, img in enumerate(images):
-        img.convert("RGB").save(image_dir / f"{i:06d}.png")
-    args = {"image_dir": str(image_dir), "run_root": str(work / tag / "runs"), "run_tag": tag,
-            "server_url": f"http://127.0.0.1:{PORT}", "model_name": SERVED_NAME,
-            "layout_dir": LAYOUT_MODEL_DIR}
-    out = subprocess.run([SDK_PYTHON, "-c", SDK_RUNNER, json.dumps(args)],
-                         check=True, capture_output=True, text=True)
-    run_dir = Path(json.loads(out.stdout.strip().splitlines()[-1])["run_dir"])
-    pages = []
-    for i in range(len(images)):
-        md = run_dir / "output" / f"{i:06d}.md"
-        pages.append(md.read_text(encoding="utf-8").strip() if md.exists() else "[OCR ERROR]")
-    shutil.rmtree(work / tag)
-    return pages
+    results, ids = {}, {}
+    for i, (key, source) in enumerate(images.items()):
+        try:
+            img = source if isinstance(source, Image.Image) else Image.open(source)
+            img.convert("RGB").save(image_dir / f"{i:06d}.png")
+            ids[f"{i:06d}"] = key
+        except Exception as e:  # one unreadable page must not lose the batch
+            logger.warning("Cannot read %s: %s", key, e)
+            results[key] = (f"error: unreadable image ({type(e).__name__})", None)
+    if ids:
+        args = {"image_dir": str(image_dir), "run_root": str(work / tag / "runs"), "run_tag": tag,
+                "server_url": f"http://127.0.0.1:{PORT}", "model_name": SERVED_NAME,
+                "layout_dir": LAYOUT_MODEL_DIR}
+        run = subprocess.run([SDK_PYTHON, "-c", SDK_RUNNER, json.dumps(args)],
+                             capture_output=True, text=True)
+        if run.returncode != 0:
+            logger.error("SDK run failed for %s (exit %d):\n%s", tag, run.returncode, run.stderr[-3000:])
+            results.update({key: (f"error: SDK exit {run.returncode}", None) for key in ids.values()})
+        else:
+            run_dir = Path(json.loads(run.stdout.strip().splitlines()[-1])["run_dir"])
+            status = {}
+            metrics = run_dir / "per_page_metrics.jsonl"
+            if metrics.exists():
+                for line in metrics.read_text(encoding="utf-8").splitlines():
+                    row = json.loads(line)
+                    status[row["image_id"]] = row.get("status") or "unknown"
+            for image_id, key in ids.items():
+                md = run_dir / "output" / f"{image_id}.md"
+                page_status = status.get(image_id, "failed" if not md.exists() else "unknown")
+                text = md.read_text(encoding="utf-8").strip() if md.exists() else None
+                results[key] = (page_status, text if page_status in ("ok", "partial_failed") else None)
+    shutil.rmtree(work / tag, ignore_errors=True)
+    return results
 
 
-def ensure_output_columns_free(dataset, columns, overwrite=False):
-    """Fail fast if an output column would collide with an existing input column."""
-    clash = [c for c in columns if c in dataset.column_names]
-    if not clash:
-        return dataset
-    if overwrite:
-        logger.warning(f"--overwrite: replacing existing column(s) {clash}")
-        return dataset.remove_columns(clash)
-    logger.error(f"Output column(s) {clash} already exist in the input dataset.")
-    logger.error("Choose a different --output-column, or pass --overwrite to replace them.")
-    sys.exit(1)
+# --- Bucket / folder mode ------------------------------------------------------------------
+
+
+def is_bucket(location: str) -> bool:
+    return location.startswith(BUCKET_SCHEME)
+
+
+def as_bucket_dir(url: str) -> tuple[str, str]:
+    """Split a bucket URL into (bucket root URL, directory key prefix ending in "/").
+
+    The prefix goes to bucketbag explicitly: it matches prefixes as strings, so `.../vol`
+    would also list `.../vol2/...`.
+    """
+    parts = url[len(BUCKET_SCHEME):].strip("/").split("/", 2)
+    if len(parts) < 2:
+        raise ValueError(f"Not a bucket URL: {url} (expected hf://buckets/<ns>/<bucket>[/<prefix>])")
+    prefix = parts[2] + "/" if len(parts) == 3 else ""
+    return BUCKET_SCHEME + "/".join(parts[:2]), prefix
+
+
+def md_rel(rel: str) -> str:
+    return str(Path(rel).with_suffix(".md"))
+
+
+def list_rels(location: str) -> list[str]:
+    """Relative paths of every file under a bucket prefix or folder, sorted."""
+    if is_bucket(location):
+        from bucketbag import iter_keys
+
+        url, prefix = as_bucket_dir(location)
+        return sorted(k[len(prefix):] for k in iter_keys(url, prefix=prefix))
+    root = Path(location)
+    return sorted(str(p.relative_to(root)) for p in root.rglob("*") if p.is_file()) if root.is_dir() else []
+
+
+def iter_local_batches(source: str, rels: list[str], n: int):
+    """Yield batches of (rel, local path): from disk, or downloaded by bucketbag to scratch."""
+    if not is_bucket(source):
+        for i in range(0, len(rels), n):
+            yield [(rel, Path(source) / rel) for rel in rels[i: i + n]]
+        return
+    from bucketbag import batched_files
+
+    url, prefix = as_bucket_dir(source)
+    for batch in batched_files(url, keys=[prefix + rel for rel in rels], n=n, prefetch=2):
+        yield [(item.key[len(prefix):], item.path) for item in batch]
+
+
+def write_outputs(dest: str, pairs: list[tuple[str, str]]):
+    if not pairs:
+        return
+    if is_bucket(dest):
+        from bucketbag import put_files
+
+        url, prefix = as_bucket_dir(dest)
+        put_files([(prefix + rel, content) for rel, content in pairs], url)
+        return
+    for rel, content in pairs:
+        # Temp file + rename: a stopped job never leaves a partial .md that a re-run counts as done.
+        path = Path(dest) / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(f".{path.name}.tmp")
+        tmp.write_text(content, encoding="utf-8")
+        os.replace(tmp, path)
+
+
+def run_files(args):
+    inputs = [r for r in list_rels(args.input) if Path(r).suffix.lower() in IMAGE_EXTENSIONS]
+    done = {r for r in list_rels(args.output) if r.endswith(".md")}
+    todo = [r for r in inputs if args.overwrite or md_rel(r) not in done]
+    if args.max_samples:
+        todo = todo[: args.max_samples]
+    already = sum(md_rel(r) in done for r in inputs)
+    logger.info("%d images under %s, %d already have a .md, %d to OCR", len(inputs), args.input,
+                already, len(todo))
+    if not todo:
+        return
+    failed = []
+    with vllm_server(dspark=not args.no_dspark), tempfile.TemporaryDirectory() as work:
+        for b, batch in enumerate(iter_local_batches(args.input, todo, args.batch_size)):
+            results = parse_batch(dict(batch), Path(work), f"batch{b:06d}")
+            write_outputs(args.output, [(md_rel(rel), text) for rel, (status, text) in results.items()
+                                        if status == "ok"])
+            failed += [f"{rel} ({status})" for rel, (status, _) in results.items() if status != "ok"]
+            logger.info("%d/%d images", min((b + 1) * args.batch_size, len(todo)), len(todo))
+    if failed:
+        logger.warning("%d pages not written (re-run the same command to retry them):\n  %s",
+                       len(failed), "\n  ".join(failed))
+
+
+# --- Dataset mode ----------------------------------------------------------------------------
 
 
 def jobs_flavor() -> str:
@@ -244,7 +398,7 @@ def jobs_flavor() -> str:
         return ""
 
 
-def create_dataset_card(source_dataset, num_samples, processing_time, dspark, image_column, split):
+def create_dataset_card(args, num_samples: int, counts: dict, processing_time: str) -> str:
     # Canonical provenance stamp (see AGENTS.md): Jobs claim gated on JOB_ID, set by HF Jobs in-container.
     on_jobs = os.environ.get("JOB_ID") is not None
     hw = jobs_flavor()
@@ -253,6 +407,23 @@ def create_dataset_card(source_dataset, num_samples, processing_time, dspark, im
         + (f" (`{hw}`)" if hw else "")
     ) if on_jobs else "Generated"
     jobs_tag = "\n- hf-jobs" if on_jobs else ""
+    status_col = f"{args.output_column}_status"
+    flags = [f"--flavor {hw or 'a10g-large'}"]
+    for flag, value, default in (("--split", args.split, "train"), ("--image-column", args.image_column, "image"),
+                                 ("--output-column", args.output_column, "markdown"),
+                                 ("--batch-size", args.batch_size, 64)):
+        if value != default:
+            flags.append(f"{flag} {shlex.quote(str(value))}")
+    if args.max_samples:
+        flags.append(f"--max-samples {args.max_samples}")
+    if args.shuffle:
+        flags.append(f"--shuffle --seed {args.seed}")
+    if args.no_dspark:
+        flags.append("--no-dspark")
+    command = f"hf jobs uv run {' '.join(flags[:1])} \\\n    {SCRIPT_URL} \\\n    {args.input} <output-dataset>"
+    if flags[1:]:
+        command += " \\\n    " + " ".join(flags[1:])
+    counts_line = ", ".join(f"`{k}` {v:,}" for k, v in sorted(counts.items()))
     return f"""---
 tags:
 - ocr
@@ -265,63 +436,79 @@ tags:
 
 # Document OCR using MiniCPM-OCR 1.0
 
-OCR of [{source_dataset}](https://huggingface.co/datasets/{source_dataset}) with OpenBMB's
+OCR of [{args.input}](https://huggingface.co/datasets/{args.input}) with OpenBMB's
 [MiniCPM-OCR 1.0](https://huggingface.co/{MODEL}) pipeline: PP-DocLayoutV3 layout regions, each
 region read by the model, assembled into Markdown by the official SDK.
 
 ## Processing Details
 
-- **Source Dataset**: [{source_dataset}](https://huggingface.co/datasets/{source_dataset}) (split `{split}`, column `{image_column}`)
+- **Source Dataset**: [{args.input}](https://huggingface.co/datasets/{args.input}) (split `{args.split}`, column `{args.image_column}`)
 - **Model**: [{MODEL}](https://huggingface.co/{MODEL}) @ `{MODEL_REVISION[:7]}`
-- **Decoding**: {"DSpark speculative decoding" if dspark else "standard"}
+- **Decoding**: {"standard" if args.no_dspark else "DSpark speculative decoding"}
 - **Number of Samples**: {num_samples:,}
+- **Page status**: {counts_line}
 - **Processing Time**: {processing_time}
 - **Processing Date**: {datetime.now().strftime("%Y-%m-%d %H:%M UTC")}
 
 ## Columns
 
-- `markdown`: the SDK's Markdown for each page (tables as HTML, formulas as LaTeX)
+- `{args.output_column}`: the SDK's Markdown for each page (tables as HTML, formulas as LaTeX); empty when
+  the page failed
+- `{status_col}`: `ok`, `partial_failed` (some regions failed; text kept), `failed` or `error: ...`
 - `inference_info`: JSON list tracking all OCR models applied to this dataset
 
 ## Reproduction
 
-{origin} with the [uv-scripts](https://huggingface.co/datasets/uv-scripts/ocr) MiniCPM-OCR recipe:
+{origin} with the [`minicpm-ocr.py`]({SCRIPT_URL}) recipe from [uv-scripts](https://huggingface.co/uv-scripts). Run it yourself:
 
 ```bash
-hf jobs uv run https://huggingface.co/datasets/uv-scripts/ocr/raw/main/minicpm-ocr.py \\
-    {source_dataset} <output-dataset>
+{command}
 ```
 """
 
 
-def main(args):
-    check_image()
-    token = args.hf_token or os.environ.get("HF_TOKEN")
-    if token:
-        login(token=token)
+def run_dataset(args):
+    from datasets import load_dataset
+    from huggingface_hub import DatasetCard
 
-    dataset = load_dataset(args.input_dataset, split=args.split)
+    status_col = f"{args.output_column}_status"
+    reserved = {"inference_info", args.image_column}
+    if args.output_column in reserved or status_col in reserved:
+        sys.exit(f"--output-column {args.output_column!r} clashes with {sorted(reserved)}; pick another name")
+
+    dataset = load_dataset(args.input, split=args.split)
     if args.shuffle:
         dataset = dataset.shuffle(seed=args.seed)
     if args.max_samples:
         dataset = dataset.select(range(min(args.max_samples, len(dataset))))
-    dataset = ensure_output_columns_free(dataset, [args.output_column], args.overwrite)
-    logger.info(f"{len(dataset)} pages from {args.input_dataset}")
+    clash = [c for c in (args.output_column, status_col) if c in dataset.column_names]
+    if clash and not args.overwrite:
+        sys.exit(f"Output column(s) {clash} already exist; choose another --output-column or pass --overwrite")
+    if clash:
+        logger.warning("--overwrite: replacing existing column(s) %s", clash)
+        dataset = dataset.remove_columns(clash)
+    logger.info("%d pages from %s", len(dataset), args.input)
 
     start = datetime.now()
-    server = start_server(dspark=not args.no_dspark)
-    outputs = []
-    try:
-        with tempfile.TemporaryDirectory() as work:
-            for b in range(0, len(dataset), args.batch_size):
-                images = dataset[b: b + args.batch_size][args.image_column]
-                outputs += parse_batch(images, Path(work), f"batch{b:08d}")
-                logger.info(f"{len(outputs)}/{len(dataset)} pages")
-    finally:
-        server.terminate()
+    texts, statuses = [], []
+    with vllm_server(dspark=not args.no_dspark), tempfile.TemporaryDirectory() as work:
+        for b in range(0, len(dataset), args.batch_size):
+            images = dataset[b: b + args.batch_size][args.image_column]
+            results = parse_batch(dict(enumerate(images)), Path(work), f"batch{b:08d}")
+            for i in range(len(images)):
+                status, text = results[i]
+                statuses.append(status)
+                texts.append(text or "")
+            logger.info("%d/%d pages", len(texts), len(dataset))
     elapsed = datetime.now() - start
 
-    dataset = dataset.add_column(args.output_column, outputs)
+    counts = {}
+    for s in statuses:
+        key = "error" if s.startswith("error") else s
+        counts[key] = counts.get(key, 0) + 1
+    logger.info("Page status: %s", counts)
+
+    dataset = dataset.add_column(args.output_column, texts).add_column(status_col, statuses)
     entry = {"model_id": MODEL, "model_name": "MiniCPM-OCR-1.0", "column_name": args.output_column,
              "timestamp": datetime.now().isoformat(), "model_revision": MODEL_REVISION,
              "pipeline": "minicpm-ocr SDK 1.0.1 (PP-DocLayoutV3)", "dspark": not args.no_dspark}
@@ -336,28 +523,48 @@ def main(args):
     else:
         dataset = dataset.add_column("inference_info", [json.dumps([entry])] * len(dataset))
 
-    dataset.push_to_hub(args.output_dataset, private=args.private, token=token)
-    card = create_dataset_card(args.input_dataset, len(dataset), f"{elapsed.total_seconds() / 60:.1f} min",
-                               not args.no_dspark, args.image_column, args.split)
-    DatasetCard(card).push_to_hub(args.output_dataset, token=token)
-    logger.info(f"Done: https://huggingface.co/datasets/{args.output_dataset} "
-                f"({len(dataset) / elapsed.total_seconds():.2f} pages/s including startup)")
+    dataset.push_to_hub(args.output, private=args.private)
+    card = create_dataset_card(args, len(dataset), counts, f"{elapsed.total_seconds() / 60:.1f} min")
+    DatasetCard(card).push_to_hub(args.output)
+    logger.info("Done: https://huggingface.co/datasets/%s (%.2f pages/s including startup)",
+                args.output, len(dataset) / elapsed.total_seconds())
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Document OCR with the MiniCPM-OCR 1.0 pipeline")
-    parser.add_argument("input_dataset", help="Input dataset ID on the Hub")
-    parser.add_argument("output_dataset", help="Output dataset ID on the Hub")
-    parser.add_argument("--image-column", default="image")
-    parser.add_argument("--output-column", default="markdown")
-    parser.add_argument("--split", default="train")
+def main():
+    parser = argparse.ArgumentParser(
+        description="Document OCR with the MiniCPM-OCR 1.0 pipeline",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="Input/output: Hub dataset IDs (dataset mode), or hf://buckets/<ns>/<bucket>[/<prefix>] "
+               "URLs / folders (one .md per image).")
+    parser.add_argument("input", help="Hub dataset ID, or hf://buckets/... URL or folder of page images")
+    parser.add_argument("output", help="Hub dataset ID (dataset input), or hf://buckets/... URL or folder")
+    parser.add_argument("--image-column", default="image", help="Dataset mode: image column")
+    parser.add_argument("--output-column", default="markdown", help="Dataset mode: output column")
+    parser.add_argument("--split", default="train", help="Dataset mode: split")
     parser.add_argument("--max-samples", type=int, help="Process only the first N pages (for testing)")
-    parser.add_argument("--shuffle", action="store_true")
+    parser.add_argument("--shuffle", action="store_true", help="Dataset mode: shuffle before --max-samples")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--batch-size", type=int, default=64,
                         help="Pages handed to the SDK per run (it parallelises regions inside a run)")
     parser.add_argument("--no-dspark", action="store_true", help="Standard decoding, no draft model")
-    parser.add_argument("--private", action="store_true")
-    parser.add_argument("--overwrite", action="store_true", help="Replace an existing output column")
+    parser.add_argument("--private", action="store_true", help="Dataset mode: private output dataset")
+    parser.add_argument("--overwrite", action="store_true",
+                        help="Replace an existing output column / re-OCR images that already have a .md")
     parser.add_argument("--hf-token", help="Hugging Face token (default: HF_TOKEN env var)")
-    main(parser.parse_args())
+    args = parser.parse_args()
+
+    if args.hf_token:
+        os.environ["HF_TOKEN"] = args.hf_token
+    file_in = is_bucket(args.input) or Path(args.input).is_dir()
+    file_out = is_bucket(args.output) or args.output.startswith(("/", "./")) or Path(args.output).is_dir()
+    if file_in != file_out:
+        sys.exit("Use a Hub dataset for both input and output, or a Bucket/folder for both.")
+    check_runtime()
+    if file_in:
+        run_files(args)
+    else:
+        run_dataset(args)
+
+
+if __name__ == "__main__":
+    main()

@@ -720,10 +720,10 @@
     "params": "1.3B",
     "backend": "in-job vLLM (nightly) + OpenBMB's minicpm-ocr SDK (PP-DocLayoutV3 layout, per-region prompts, Markdown assembly)",
     "image": "cr.hf.co/davanstrien/minicpm-ocr:1.0-vllm-5d35ce3",
-    "task": "ocr (page images -> Markdown; tables as HTML, formulas as LaTeX)",
-    "output": "markdown",
+    "task": "ocr (page images -> Markdown; tables as HTML, formulas as LaTeX); Hub dataset or Bucket/folder I/O",
+    "output": "dataset mode: markdown + markdown_status columns; Bucket/folder mode: one .md per image (failed pages not written, re-run retries)",
     "license": "apache-2.0",
-    "notes": "A region reader behind a layout model, run through the vendor SDK unchanged. Custom public image (Dockerfile in images/minicpm-ocr/): the architecture is in vLLM main but not a release, and the SDK needs PaddlePaddle in its own venv. DSpark speculative decoding on by default (--no-dspark to disable). Smoke-tested 2026-10-27 on 20 BHL pages, a10g-large.",
+    "notes": "A region reader behind a layout model, run through the vendor SDK unchanged. Custom public image (Dockerfile in images/minicpm-ocr/): the architecture is in vLLM main but not a release, and the SDK needs PaddlePaddle in its own venv. DSpark speculative decoding on by default (--no-dspark). Bucket I/O via bucketbag v0.3.1 (no mount), resume-by-skip. Smoke-tested 2026-10-27 on BHL pages (dataset mode) and 1771 Britannica .jp2 (Bucket mode), a10g-large.",
     "languages": {
       "evidence": "named-list",
       "count": 2,

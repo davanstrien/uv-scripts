@@ -94,7 +94,7 @@ Legend: ✅ production-ready · ⚠️ works only with a required pinned image �
 | `unlimited-ocr-vllm.py` | ✅+image | vLLM `:unlimited-ocr` | l4x1 | single-image; multi-page → serve |
 | `unlimited-ocr2.py` | ✅+image | SGLang (Baidu wheel) on `lmsysorg/sglang:v0.5.20-cu130` | rtx-pro-6000 | 16-page windows; ≥48 GB GPU |
 | `unlimited-ocr2-saturate.py` | 🧪+image | same | rtx-pro-6000 | tuned/experimental: repair pass, JP2 fast decode, PDFs |
-| `minicpm-ocr.py` | 🧪+image | in-job vLLM nightly + minicpm-ocr SDK on `cr.hf.co/davanstrien/minicpm-ocr` | a10g-large | vendor pipeline; custom public image |
+| `minicpm-ocr.py` | 🧪+image | in-job vLLM nightly + minicpm-ocr SDK on `cr.hf.co/davanstrien/minicpm-ocr` | a10g-large | vendor pipeline; custom public image; dataset **or** bucket I/O (bucketbag), `markdown_status` |
 | `surya-ocr.py` | ✅+image | vLLM `:v0.20.1` | l4x1 | offline backend inject; site-packages PYTHONPATH |
 | `surya-ocr-bucket.py` | ✅+image | vLLM `:v0.20.1` | l4x1 | bucket I/O; pin `surya-ocr==0.20.0` |
 | `lift-extract.py` | ✅ | hf / vLLM | a100-large | schema-constrained extraction; naming gotcha |
@@ -183,6 +183,11 @@ require) against `vllm serve` started in the job. Measured/learned 2026-10-27:
 - Built with kaniko on a `cpu-upgrade` Job (~20 min); container repo creation needed the stored `cli` token
   (the OAuth login gets 403). `l4x1` had no capacity on 27 Oct; smoke ran on `a10g-large`.
 - The SDK reads a folder: the recipe writes each batch as `{i:06d}.png` and reads `output/{i:06d}.md` back.
+- The SDK writes a `.md` even when regions fail (empty for a failed text region); the page status lives in
+  `per_page_metrics.jsonl` (`ok` / `partial_failed` / `failed`). The recipe reads it: dataset mode keeps it in
+  `markdown_status`; bucket mode writes only `ok` pages so a re-run retries the rest (Codex review, 27 Oct).
+- vLLM runs in its own process group and is terminated → killed → reaped on every exit path; one bad
+  image or a failed SDK run marks its pages `error: ...` instead of losing finished batches.
 
 ### `unlimited-ocr2.py` / `unlimited-ocr2-saturate.py` — Baidu SGLang wheel, multi-page windows
 v2 has no vLLM support; Baidu ships a custom SGLang wheel in the model repo. Its pins (torch 2.13.0,
