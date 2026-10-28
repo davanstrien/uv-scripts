@@ -635,8 +635,7 @@ def main():
         stats = pump(rows, to_request, parse, endpoint, output,
                      window=Auto(initial=32, max_limit=64),  # long requests: start wide
                      flush_every=4,  # each row is minutes of GPU time; write often
-                     read_timeout=3600, retry_errors=args.retry_errors,
-                     prepare_workers=max(8, (os.cpu_count() or 8) - 2))  # decoding scans is the CPU-heavy part
+                     read_timeout=3600, prepare_workers=8, retry_errors=args.retry_errors)
     print(f"{output}: {stats.rows_processed} windows written, {stats.rows_failed} errors", file=sys.stderr)
     if live is not None:
         live.phase("Finished")
