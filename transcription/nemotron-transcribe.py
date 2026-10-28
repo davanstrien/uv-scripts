@@ -76,6 +76,7 @@ import logging
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tarfile
@@ -91,6 +92,9 @@ MODEL = "nvidia/NVIDIA-Nemotron-3.5-Transcribe-30B-A4B"
 # Where the prebuilt image (nemotron-transcribe-image.sh) installs the serving
 # stack and its warm kernel caches.
 PREBUILT_WORKDIR = Path("/opt/nemotron-transcribe")
+
+# Written last by install_serving_stack, so a half-finished install is redone.
+INSTALL_MARKER = ".install-complete"
 
 AUDIO_EXTENSIONS = {".mp3", ".wav", ".flac", ".ogg", ".m4a", ".wma", ".aac", ".opus"}
 
@@ -131,6 +135,13 @@ BLOCK_RUN = re.compile(r"(.{1,4096}?)\1{19,}", re.DOTALL)
 def cleanup_generation_loops(text: str) -> str:
     text = CHAR_RUN.sub(lambda m: m.group(1), text)
     return BLOCK_RUN.sub(lambda m: m.group(1), text)
+
+
+def write_atomic(path: Path, text: str):
+    """Write via a temp file, so an interrupted write never looks finished."""
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(text, encoding="utf-8")
+    os.replace(tmp, path)
 
 
 def discover_audio_files(input_dir: Path) -> list[Path]:
@@ -230,9 +241,16 @@ def install_serving_stack(workdir: Path, nemo_ref: str) -> Path:
     """Install vLLM 0.32.0 + NeMo Speech as the model card does; return the venv."""
     src = workdir / "nemo-speech"
     venv = src / ".venv"
-    if (venv / "bin" / "vllm").exists():
+    marker = src / INSTALL_MARKER
+    # The first prebuilt image predates the marker; the builder only publishes
+    # complete installs, so a vllm binary in the prebuilt workdir counts too.
+    prebuilt = workdir == PREBUILT_WORKDIR and (venv / "bin" / "vllm").exists()
+    if marker.exists() or prebuilt:
         logger.info(f"Using the installed serving stack in {src}")
         return venv
+    if src.exists():
+        logger.info(f"Removing an incomplete install in {src}")
+        shutil.rmtree(src)
 
     # Resolve the ref to a commit so the run records exactly what it served.
     with urllib.request.urlopen(
@@ -276,6 +294,7 @@ def install_serving_stack(workdir: Path, nemo_ref: str) -> Path:
     result = subprocess.run([str(venv / "bin" / "vllm"), "download-kernels"])
     if result.returncode != 0:
         logger.warning("Kernel download failed; FlashInfer will JIT-build at startup")
+    marker.write_text(sha)
     return venv
 
 
@@ -310,7 +329,20 @@ def start_server(venv: Path, model_dir: Path, port: int) -> subprocess.Popen:
         "nemo.collections.speechlm2.vllm.salm.ctc_serving.ctc_timestamp_middleware",
     ]  # fmt: skip
     logger.info("Starting vllm serve...")
-    return subprocess.Popen(cmd, env=env)
+    # Own process group, so stop_server also reaches vLLM's engine workers.
+    return subprocess.Popen(cmd, env=env, start_new_session=True)
+
+
+def stop_server(process: subprocess.Popen):
+    if process.poll() is not None:
+        return
+    logger.info("Stopping vllm serve...")
+    os.killpg(process.pid, signal.SIGTERM)
+    try:
+        process.wait(timeout=60)
+    except subprocess.TimeoutExpired:
+        os.killpg(process.pid, signal.SIGKILL)
+        process.wait()
 
 
 def wait_for_server(
@@ -383,8 +415,16 @@ def process_file(
 
     txt_path = output_dir / rel.with_suffix(".txt")
     txt_path.parent.mkdir(parents=True, exist_ok=True)
-    txt_path.write_text("\n\n".join(texts) + "\n", encoding="utf-8")
+    write_atomic(txt_path, "\n\n".join(texts) + "\n")
 
+    alignment_errors = [
+        p["alignment"]["error"]
+        for p in parts
+        if timestamps and p["alignment"]["error"] is not None
+    ]
+    if alignment_errors:
+        # No JSON, so a rerun retries this file instead of skipping it.
+        raise RuntimeError(f"alignment failed: {alignment_errors}")
     if timestamps:
         record = {
             "file": str(rel),
@@ -393,16 +433,12 @@ def process_file(
             "duration_s": round(duration, 1),
             "parts": parts,
         }
-        txt_path.with_suffix(".json").write_text(
-            json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8"
+        write_atomic(
+            txt_path.with_suffix(".json"),
+            json.dumps(record, ensure_ascii=False, indent=2),
         )
 
     elapsed = time.time() - start_time
-    alignment_errors = [
-        p["alignment"]["error"]
-        for p in parts
-        if timestamps and p["alignment"]["error"] is not None
-    ]
     logger.info(
         f"  {rel}: {duration / 60:.1f} min, {len(parts)} part(s), "
         f"{sum(len(t.split()) for t in texts)} words in {elapsed:.0f}s"
@@ -498,6 +534,11 @@ def main():
         sys.exit(1)
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    part_seconds = int(args.part_minutes * 60)
+    if part_seconds < 1:
+        logger.error("--part-minutes must be at least 1/60 (one second)")
+        sys.exit(1)
+
     if args.prompt:
         prompt = args.prompt
     elif args.timestamps:
@@ -536,50 +577,61 @@ def main():
 
         from huggingface_hub import snapshot_download
 
+        # Only start a server where the requests will go: this machine, on
+        # the port named in --server.
+        url = urlparse(args.server)
+        if url.hostname not in {"127.0.0.1", "localhost"} or url.port is None:
+            logger.error(
+                f"No server answers at {args.server}. To start one here, pass "
+                "--server http://127.0.0.1:<port> (the default is port 8000)."
+            )
+            sys.exit(1)
         workdir = Path(args.workdir)
         workdir.mkdir(parents=True, exist_ok=True)
         venv = install_serving_stack(workdir, args.nemo_ref)
         logger.info(f"Downloading {MODEL}...")
         model_dir = Path(snapshot_download(MODEL, local_dir=workdir / "model"))
-        port = urlparse(args.server).port or 8000
-        server_process = start_server(venv, model_dir, port)
-    wait_for_server(args.server, server_process)
+        server_process = start_server(venv, model_dir, url.port)
 
-    part_seconds = int(args.part_minutes * 60)
-    start_time = time.time()
-    results = []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=args.concurrency) as pool:
-        futures = {
-            pool.submit(
-                process_file,
-                f,
-                input_dir,
-                output_dir,
-                args.server,
-                prompt,
-                args.timestamps,
-                part_seconds,
-                args.request_timeout,
-            ): f
-            for f in files
-        }
-        for fut in concurrent.futures.as_completed(futures):
-            f = futures[fut]
-            try:
-                results.append(fut.result())
-            except Exception as exc:
-                logger.error(f"  {f.name} FAILED: {exc}")
-                results.append({"file": f.name, "error": str(exc)})
-
-    elapsed = time.time() - start_time
-    if server_process is not None:
-        server_process.terminate()
-        server_process.wait(timeout=120)
-
+    # Results are appended as files finish, so a crash keeps what completed
+    # and a resumed run adds to the earlier records instead of replacing them.
     summary_path = output_dir / "summary.jsonl"
-    with open(summary_path, "w", encoding="utf-8") as f:
-        for r in results:
-            f.write(json.dumps(r, ensure_ascii=False) + "\n")
+    results = []
+    try:
+        wait_for_server(args.server, server_process)
+        start_time = time.time()
+        with (
+            concurrent.futures.ThreadPoolExecutor(max_workers=args.concurrency) as pool,
+            open(summary_path, "a", encoding="utf-8") as summary,
+        ):
+            futures = {
+                pool.submit(
+                    process_file,
+                    f,
+                    input_dir,
+                    output_dir,
+                    args.server,
+                    prompt,
+                    args.timestamps,
+                    part_seconds,
+                    args.request_timeout,
+                ): f
+                for f in files
+            }
+            for fut in concurrent.futures.as_completed(futures):
+                f = futures[fut]
+                try:
+                    result = fut.result()
+                except Exception as exc:
+                    logger.error(f"  {f.name} FAILED: {exc}")
+                    result = {"file": str(f.relative_to(input_dir)), "error": str(exc)}
+                results.append(result)
+                summary.write(json.dumps(result, ensure_ascii=False) + "\n")
+                summary.flush()
+        elapsed = time.time() - start_time
+    finally:
+        if server_process is not None:
+            stop_server(server_process)
 
     ok = [r for r in results if "error" not in r]
     total_audio = sum(r["duration_s"] for r in ok)
@@ -589,9 +641,11 @@ def main():
     if total_audio:
         logger.info(f"  Audio: {total_audio / 3600:.1f} h total")
         logger.info(f"  RTFx: {total_audio / elapsed:.1f}x realtime (aggregate)")
-    if len(ok) < len(files):
-        logger.warning(f"  Failed: {len(files) - len(ok)} file(s) — see {summary_path}")
     logger.info(f"  Summary: {summary_path}")
+    if len(ok) < len(files):
+        # Non-zero, so the job (and the image builder's warm-up) shows as failed.
+        logger.error(f"  Failed: {len(files) - len(ok)} file(s) — see {summary_path}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
