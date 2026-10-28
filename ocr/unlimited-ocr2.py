@@ -73,7 +73,9 @@ SERVING = {
         "SGLANG_UOCR_EANABLE_DOC_LIMIT": "1",  # (sic) upstream spelling
         "SGLANG_UOCR_DOC_GUNDAM_PAGE_WINDOW": "10",
         "SGLANG_UOCR_DOC_BASE_PAGE_WINDOW": "10",
-        "SGLANG_UOCR_MAX_PAGE_TOKENS": "20000",
+        # Per-page output cap. A normal book page is ~2,000 characters (p99 ~6,700); the
+        # tokens past 8000 on a page are repetition loops, which held whole runs' tails.
+        "SGLANG_UOCR_MAX_PAGE_TOKENS": "8000",
         "SGLANG_OPT_UOCR_SAM_REL_POS_BIAS_MB": "64",
         "SGLANG_UOCR_SHM_WRAP_MODEL_DATA": "1",
         "SGLANG_UOCR_SHM_WRAP_MIN_MB": "1",
@@ -158,7 +160,26 @@ def load_page(fs, path: str, max_side: int) -> str:
     from PIL import Image
 
     with fs.open(path, "rb") as f:
-        img = Image.open(io.BytesIO(f.read()))
+        data = f.read()
+    img = Image.open(io.BytesIO(data))
+    if img.format == "JPEG2000":
+        # Decode straight at a lower wavelet level while the page stays >= max_side: the
+        # same pixels after downscaling, for a fraction of the CPU. Some codestreams fail
+        # at a reduced level, so step back towards a full decode until one works.
+        reduce = 0
+        while max(img.size) >> (reduce + 1) >= max_side:
+            reduce += 1
+        while True:
+            try:
+                img = Image.open(io.BytesIO(data))
+                img.reduce = reduce
+                img.load()
+                break
+            except OSError:
+                if reduce == 0:
+                    raise
+                reduce -= 1
+    else:
         img.load()
     img = img.convert("RGB")
     img.thumbnail((max_side, max_side), Image.LANCZOS)
@@ -191,6 +212,16 @@ def clean_page(raw_page: str, keep_furniture: bool) -> str:
         else:
             blocks.append(body)
     return "\n\n".join(blocks)
+
+
+def prepare_workers() -> int:
+    """Threads that decode and encode pages: enough to keep ~40 requests fed, within the Job's CPU quota.
+
+    os.cpu_count() reports the host's cores (190 on a Jobs node), not the quota; that many
+    threads starve the loop that sends requests. Jobs sets CPU_CORES to the quota.
+    """
+    cores = int(os.environ.get("CPU_CORES") or len(os.sched_getaffinity(0)))
+    return max(4, min(16, cores - 6))  # leave cores for SGLang's tokenizer and scheduler
 
 
 def start_server_cmd() -> list[str]:
@@ -256,7 +287,7 @@ def main():
             "custom_logit_processor": NGRAM_PROCESSOR,
             "custom_params": {
                 "ngram_size": 35, "window_size": 1024 if n > 1 else 128,
-                "page_token_id": 128827, "eos_token_id": 1, "max_page_tokens": 20000,
+                "page_token_id": 128827, "eos_token_id": 1, "max_page_tokens": 8000,
             },
         }
 
@@ -294,7 +325,7 @@ def main():
         stats = pump(rows, to_request, parse, endpoint, output,
                      window=Auto(initial=32, max_limit=64),  # long requests: start wide
                      flush_every=4,  # each row is minutes of GPU time; write often
-                     read_timeout=3600, prepare_workers=8, retry_errors=args.retry_errors)
+                     read_timeout=3600, prepare_workers=prepare_workers(), retry_errors=args.retry_errors)
     print(f"{output}: {stats.rows_processed} windows written, {stats.rows_failed} errors", file=sys.stderr)
     print("UNLIMITED_OCR2 " + stats.to_json(), flush=True)
 
