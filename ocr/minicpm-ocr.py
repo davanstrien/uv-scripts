@@ -51,7 +51,9 @@ images/minicpm-ocr/Dockerfile. It holds:
 Server settings follow OpenBMB's SDK tutorial (docs/minicpmvocr_tutorial_en.md): max-model-len
 40960, 32 sequences, image limit 36, `downsample_mode` 4x, thinking off, DSpark speculative
 decoding with the matching draft model (`--no-dspark` for plain decoding). The SDK's bundled
-config sets sampling and per-region prompts; nothing here overrides them.
+config sets sampling and per-region prompts; nothing here overrides them. The SDK reads page
+numbers, headers, footers, footnotes and side notes but leaves them out of the Markdown;
+`--keep-labels footnote aside_text` puts those region types back.
 
 Model: https://huggingface.co/openbmb/MiniCPM-OCR-1.0
 SDK: https://github.com/OpenBMB/MiniCPM-OCR
@@ -87,6 +89,8 @@ SERVED_NAME = "minicpm-ocr"
 PORT = 18499
 SDK_PYTHON = "/opt/sdk/bin/python"
 LAYOUT_MODEL_DIR = "/opt/minicpm-ocr-assets/models/PP-DocLayoutV3_infer"
+# minicpm-ocr SDK 1.0.1 markdown_assembly.ignore_labels: read by the model, left out of the Markdown
+SDK_IGNORED_LABELS = ["number", "footnote", "header", "footer", "aside_text"]
 IMAGE_TAG = "cr.hf.co/davanstrien/minicpm-ocr:1.0-vllm-5d35ce3"
 BUCKET_SCHEME = "hf://buckets/"
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp", ".jp2"}
@@ -96,14 +100,26 @@ IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp", "
 SDK_RUNNER = """
 import json, sys
 from importlib.resources import files
+from pathlib import Path
 from minicpmvocr import load_config, pipelined_run
+from minicpmvocr.prompts import DEFAULT_PROMPT_MAP
 args = json.loads(sys.argv[1])
+prompt = {}
+if args["keep_labels"]:
+    # A prompt-map file replaces whole top-level sections, so write the full assembly section.
+    assembly = dict(DEFAULT_PROMPT_MAP["markdown_assembly"])
+    assembly["ignore_labels"] = [l for l in assembly["ignore_labels"] if l not in args["keep_labels"]]
+    prompt_map = Path(args["run_root"]) / "prompt_map.json"
+    prompt_map.parent.mkdir(parents=True, exist_ok=True)
+    prompt_map.write_text(json.dumps({"markdown_assembly": assembly}))
+    prompt = {"prompt_map": str(prompt_map)}
 cfg = load_config(str(files("minicpmvocr").joinpath("configs/minicpmvocr.yaml")), overrides={
     "input": {"image_dir": args["image_dir"]},
     "run": {"run_root": args["run_root"], "run_tag": args["run_tag"]},
     "engine": {"server_url": args["server_url"], "model_name": args["model_name"], "max_model_len": 40960},
     "layout": {"model_dir": args["layout_dir"], "device": "cuda:0"},
     "pipeline": {"overlap_layout": True},
+    "prompt": prompt,
 })
 pipelined_run(cfg)
 print(json.dumps({"run_dir": cfg["_meta"]["run_dir"]}))
@@ -208,7 +224,7 @@ def stop_process_group(proc: subprocess.Popen):
         proc.wait(timeout=5)
 
 
-def parse_batch(images: dict, work: Path, tag: str) -> dict:
+def parse_batch(images: dict, work: Path, tag: str, keep_labels: list[str]) -> dict:
     """OCR one batch of pages with the SDK.
 
     `images` maps a key to a PIL image, a path, or an undecoded datasets image dict. Returns
@@ -233,7 +249,7 @@ def parse_batch(images: dict, work: Path, tag: str) -> dict:
     if ids:
         args = {"image_dir": str(image_dir), "run_root": str(work / tag / "runs"), "run_tag": tag,
                 "server_url": f"http://127.0.0.1:{PORT}", "model_name": SERVED_NAME,
-                "layout_dir": LAYOUT_MODEL_DIR}
+                "layout_dir": LAYOUT_MODEL_DIR, "keep_labels": keep_labels}
         run = subprocess.run([SDK_PYTHON, "-c", SDK_RUNNER, json.dumps(args)],
                              capture_output=True, text=True)
         if run.returncode != 0:
@@ -343,7 +359,7 @@ def run_files(args):
     failed = []
     with vllm_server(dspark=not args.no_dspark), tempfile.TemporaryDirectory() as work:
         for b, batch in enumerate(iter_local_batches(args.input, todo, args.batch_size)):
-            results = parse_batch(dict(batch), Path(work), f"batch{b:06d}")
+            results = parse_batch(dict(batch), Path(work), f"batch{b:06d}", args.keep_labels)
             write_outputs(args.output, [(md_rel(rel), text) for rel, (status, text) in results.items()
                                         if status == "ok"])
             failed += [f"{rel} ({status})" for rel, (status, _) in results.items() if status != "ok"]
@@ -447,6 +463,8 @@ def create_dataset_card(args, num_samples: int, counts: dict, processing_time: s
         flags.append(f"--shuffle --seed {args.seed}")
     if args.no_dspark:
         flags.append("--no-dspark")
+    if args.keep_labels:
+        flags.append("--keep-labels " + " ".join(args.keep_labels))
     if args.overwrite:
         flags.append("--overwrite")
     command = f"hf jobs uv run {' '.join(flags[:1])} \\\n    {SCRIPT_URL} \\\n    {args.input} <output-dataset>"
@@ -474,6 +492,7 @@ region read by the model, assembled into Markdown by the official SDK.
 - **Source Dataset**: [{args.input}](https://huggingface.co/datasets/{args.input}) (split `{args.split}`, column `{args.image_column}`)
 - **Model**: [{MODEL}](https://huggingface.co/{MODEL}) @ `{MODEL_REVISION[:7]}`
 - **Decoding**: {"standard" if args.no_dspark else "DSpark speculative decoding"}
+- **Region types left out of the Markdown**: {", ".join(f"`{l}`" for l in SDK_IGNORED_LABELS if l not in args.keep_labels) or "none"}
 - **Number of Samples**: {num_samples:,}
 - **Page status**: {counts_line}
 - **Processing Time**: {processing_time}
@@ -527,7 +546,7 @@ def run_dataset(args):
     with vllm_server(dspark=not args.no_dspark), tempfile.TemporaryDirectory() as work:
         for b in range(0, len(dataset), args.batch_size):
             images = dataset[b: b + args.batch_size][args.image_column]
-            results = parse_batch(dict(enumerate(images)), Path(work), f"batch{b:08d}")
+            results = parse_batch(dict(enumerate(images)), Path(work), f"batch{b:08d}", args.keep_labels)
             for i in range(len(images)):
                 status, text = results[i]
                 statuses.append(status)
@@ -545,7 +564,8 @@ def run_dataset(args):
     dataset = dataset.add_column(args.output_column, texts).add_column(status_col, statuses)
     entry = {"model_id": MODEL, "model_name": "MiniCPM-OCR-1.0", "column_name": args.output_column,
              "timestamp": datetime.now().isoformat(), "model_revision": MODEL_REVISION,
-             "pipeline": "minicpm-ocr SDK 1.0.1 (PP-DocLayoutV3)", "dspark": not args.no_dspark}
+             "pipeline": "minicpm-ocr SDK 1.0.1 (PP-DocLayoutV3)", "dspark": not args.no_dspark,
+             "keep_labels": args.keep_labels}
     if "inference_info" in dataset.column_names:
         def update(example):
             try:
@@ -581,6 +601,8 @@ def main():
     parser.add_argument("--batch-size", type=int, default=64,
                         help="Pages handed to the SDK per run (it parallelises regions inside a run)")
     parser.add_argument("--no-dspark", action="store_true", help="Standard decoding, no draft model")
+    parser.add_argument("--keep-labels", nargs="+", default=[], choices=SDK_IGNORED_LABELS,
+                        help="Region types to keep in the Markdown that the SDK leaves out by default")
     parser.add_argument("--private", action="store_true", help="Dataset mode: private output dataset")
     parser.add_argument("--overwrite", action="store_true",
                         help="Replace an existing output column / re-OCR images that already have a .md")
