@@ -192,7 +192,8 @@ h1{font-size:18px;margin:0}#stats{color:var(--muted);font-variant-numeric:tabula
 main{padding:16px;display:grid;gap:16px}
 .page{display:grid;grid-template-columns:minmax(0,320px) minmax(0,1fr);gap:16px;background:var(--card);
  border:1px solid var(--line);border-radius:6px;padding:12px}
-.page img{width:100%;border:1px solid var(--line)}.meta{color:var(--muted);font-size:13px;margin-bottom:6px}
+.page img{width:100%;border:1px solid var(--line)}
+.meta{color:var(--muted);font-size:13px;margin-bottom:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 pre{margin:0;white-space:pre-wrap;font:14px/1.5 Georgia,serif;max-height:480px;overflow:auto}
 .bad{color:var(--accent)}@media (max-width:640px){.page{grid-template-columns:1fr}}
 </style>
@@ -207,7 +208,7 @@ async function poll() {
     document.getElementById("stats").textContent =
       `${s.pages_done} / ${s.pages_total} pages · ${s.windows_done} windows · ${rate} pages/min · ${Math.round(s.elapsed_s / 60)} min`;
     document.getElementById("bar").style.width = (100 * s.pages_done / Math.max(1, s.pages_total)) + "%";
-    const main = document.getElementById("pages");
+    const main = document.getElementById("pages"), batch = document.createDocumentFragment();
     for (const p of d.pages) {
       since = Math.max(since, p.seq);
       const card = document.createElement("section"); card.className = "page";
@@ -217,8 +218,9 @@ async function poll() {
       const meta = document.createElement("div"); meta.className = "meta" + (p.status === "ok" ? "" : " bad");
       meta.textContent = `${p.doc} · page ${p.page}` + (p.status === "ok" ? "" : ` · ${p.status}`);
       const pre = document.createElement("pre"); pre.textContent = p.text;
-      right.append(meta, pre); card.append(img, right); main.prepend(card);
+      right.append(meta, pre); card.append(img, right); batch.append(card);
     }
+    main.prepend(batch);  // newest window on top, its pages in reading order
     while (main.children.length > 60) main.lastChild.remove();
   } catch (e) {}
   setTimeout(poll, 2000);
@@ -236,7 +238,7 @@ class LiveView:
         self.lock = threading.Lock()
         self.seq = 0
         self.pages_total, self.pages_done, self.windows_done = pages_total, 0, 0
-        self.started = time.time()
+        self.started = None  # set when the first page is loaded, so the rate leaves out server start-up
         live = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -258,13 +260,16 @@ class LiveView:
 
         server = ThreadingHTTPServer(("0.0.0.0", port), Handler)
         threading.Thread(target=server.serve_forever, daemon=True).start()
-        print(f"Live view on port {port}: pass --expose-public {port} to `hf jobs uv run`; "
-              "the URL is on the Job page", file=sys.stderr)
+        # An exposed Job port is served at https://<job id>--<port>.hf.jobs.
+        where = (f"https://{os.environ['JOB_ID']}--{port}.hf.jobs (needs --expose-public {port})"
+                 if os.environ.get("JOB_ID") else f"http://localhost:{port}")
+        print(f"Live view: {where}", file=sys.stderr, flush=True)
 
     def add_thumbnail(self, path: str, img):
         thumb = img.copy()
         thumb.thumbnail((480, 480))
         with self.lock:
+            self.started = self.started or time.time()
             self.thumbs[path] = jpeg_b64(thumb, quality=80)
 
     def add_window(self, row: dict, status: str, texts):
@@ -282,7 +287,7 @@ class LiveView:
         with self.lock:
             return {"stats": {"pages_total": self.pages_total, "pages_done": self.pages_done,
                               "windows_done": self.windows_done,
-                              "elapsed_s": round(time.time() - self.started)},
+                              "elapsed_s": round(time.time() - self.started) if self.started else 0},
                     "pages": [p for p in self.pages if p["seq"] > since]}
 
 
