@@ -40,8 +40,8 @@ ran out of budget or lost a page boundary (then `page_markdown` is empty and onl
 `raw` is kept). Re-running the same command resumes where it stopped.
 
 About 2% of dense 18th-century pages (mostly mathematics) send the model into a
-loop. `unlimited-ocr2-saturate.py` is the tuned version of this script: it
-re-reads those pages one at a time, decodes JPEG 2000 faster, reads PDFs and adds
+loop; a page stops at `--max-page-tokens` (8000). `unlimited-ocr2-saturate.py` is the
+tuned version of this script: it re-reads those pages one at a time, reads PDFs and adds
 Baidu's own Markdown post-processing. It may change more often.
 
 How it runs: Unlimited-OCR-2 needs Baidu's own SGLang build (no vLLM support).
@@ -73,8 +73,7 @@ SERVING = {
         "SGLANG_UOCR_EANABLE_DOC_LIMIT": "1",  # (sic) upstream spelling
         "SGLANG_UOCR_DOC_GUNDAM_PAGE_WINDOW": "10",
         "SGLANG_UOCR_DOC_BASE_PAGE_WINDOW": "10",
-        # Per-page output cap. A normal book page is ~2,000 characters (p99 ~6,700); the
-        # tokens past 8000 on a page are repetition loops, which held whole runs' tails.
+        # Per-page output cap; --max-page-tokens sets it (default 8000).
         "SGLANG_UOCR_MAX_PAGE_TOKENS": "8000",
         "SGLANG_OPT_UOCR_SAM_REL_POS_BIAS_MB": "64",
         "SGLANG_UOCR_SHM_WRAP_MODEL_DATA": "1",
@@ -163,8 +162,8 @@ def load_page(fs, path: str, max_side: int) -> str:
         data = f.read()
     img = Image.open(io.BytesIO(data))
     if img.format == "JPEG2000":
-        # Decode straight at a lower wavelet level while the page stays >= max_side: the
-        # same pixels after downscaling, for a fraction of the CPU. Some codestreams fail
+        # Decode straight at a lower wavelet level while the page stays >= max_side: close
+        # to the full decode after downscaling, for a fraction of the CPU. Some codestreams fail
         # at a reduced level, so step back towards a full decode until one works.
         reduce = 0
         while max(img.size) >> (reduce + 1) >= max_side:
@@ -220,7 +219,15 @@ def prepare_workers() -> int:
     os.cpu_count() reports the host's cores (190 on a Jobs node), not the quota; that many
     threads starve the loop that sends requests. Jobs sets CPU_CORES to the quota.
     """
-    cores = int(os.environ.get("CPU_CORES") or len(os.sched_getaffinity(0)))
+    try:
+        cores = int(os.environ.get("CPU_CORES", ""))
+    except ValueError:
+        cores = 0
+    if cores <= 0:
+        try:
+            cores = len(os.sched_getaffinity(0))
+        except AttributeError:  # not Linux
+            cores = os.cpu_count() or 1
     return max(4, min(16, cores - 6))  # leave cores for SGLang's tokenizer and scheduler
 
 
@@ -258,8 +265,17 @@ def main():
                          "1024 px view, so more pixels only make the requests bigger")
     ap.add_argument("--keep-furniture", action="store_true",
                     help="Keep page numbers and running heads in page_markdown")
+    ap.add_argument("--max-page-tokens", type=int, default=8000,
+                    help="Output cap per page (default 8000). A book page is ~2,000 characters; "
+                         "past 8000 tokens it is almost always a repetition loop. Raise it (up to "
+                         "20000) for very dense pages: large tables, mathematics")
     ap.add_argument("--retry-errors", action="store_true", help="Retry windows recorded as errors")
     args = ap.parse_args()
+    if args.max_side <= 0:
+        ap.error("--max-side must be a positive number of pixels")
+    if not 0 < args.max_page_tokens <= 20000:
+        ap.error("--max-page-tokens must be between 1 and 20000")
+    SERVING["env"]["SGLANG_UOCR_MAX_PAGE_TOKENS"] = str(args.max_page_tokens)
 
     import fsspec
     import saturate.transport
@@ -280,14 +296,14 @@ def main():
         return {
             "model": SERVING["served_name"],
             "messages": [{"role": "user", "content": content}],
-            "max_tokens": 8000 * n,  # output budget for the whole window
+            "max_tokens": max(8000, args.max_page_tokens) * n,  # output budget for the whole window
             "temperature": 0,
             "skip_special_tokens": False,  # <PAGE>/<BLOCK> markers are the structure
             "images_config": {"crop_mode": False},  # base mode: one 1024 px view per page
             "custom_logit_processor": NGRAM_PROCESSOR,
             "custom_params": {
                 "ngram_size": 35, "window_size": 1024 if n > 1 else 128,
-                "page_token_id": 128827, "eos_token_id": 1, "max_page_tokens": 8000,
+                "page_token_id": 128827, "eos_token_id": 1, "max_page_tokens": args.max_page_tokens,
             },
         }
 
