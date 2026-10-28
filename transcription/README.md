@@ -78,6 +78,21 @@ Audio already on your machine? Mount the folder directly — `-v ./audio:/input`
 
 **`nemotron-transcribe.py`** — when you want **punctuated text, speaker tags and word timestamps from one model, in 40 languages** (speaker tags in 13, up to 8 speakers), and have enough audio to amortise a fixed ~8 min setup. The model only serves on vLLM 0.32.0 with the NeMo Speech plugin, so the script starts that server inside the job and posts files concurrently: 10 half-hour 1940s radio episodes (4.9 h) took 2.5 min once the server was up, a $0.48 job on `rtx-pro-6000`. The `[tool.hf-jobs]` header sets the flavor and a prebuilt image (`cr.hf.co/davanstrien/nemotron-transcribe`, built in a Job by `nemotron-transcribe-image.sh`) that pins NeMo Speech to one commit and carries FlashInfer kernels already compiled for that GPU. Without them, FlashInfer compiles its kernels at every start (~10 min). `--image vllm/vllm-openai:v0.32.0` makes the script install the stack at runtime instead (~2 min slower). Prompts are the model card's presets (`--style verbatim|clean|speakers`, or `--prompt` with `Context terms: <names>` for jargon), and the card's generation-loop guardrail is applied to every transcript. `--timestamps` adds a JSON per file with word start/end times, speaker tags and diarization segments, from the CTC head bundled in the checkpoint. Files over 55 min are split, and speaker tags reset between parts. On the same 10 episodes, after Whisper-style text normalisation, its words differ from Cohere's by 7.0% (Granite vs Cohere: 7.7%; Nemotron vs Granite: 8.4%); there is no ground truth for these episodes, so this measures agreement, not accuracy. Once loaded it matches Cohere's speed (116x vs 120x RT on the same audio), but the fixed setup makes a 5-hour batch cost $0.48 against Cohere's $0.16 and Granite's $0.20, so reach for it when you need the speaker tags, timestamps or languages. The vLLM integration is NVIDIA's development path; the card says it is about 2x slower than their NIM.
 
+**Serve, explore, scale with `nemotron-transcribe.py --serve`.** To pay the ~8 min setup once and reuse a hot model, run the server on its own with an [exposed port](https://huggingface.co/docs/hub/jobs-serving), then send requests from anywhere with an HF token (Bearer auth):
+
+```bash
+# Serve: the job logs https://<job_id>--8000.hf.jobs once the model is up
+hf jobs uv run --detach --expose 8000 --timeout 2h \
+    https://huggingface.co/datasets/uv-scripts/transcription/raw/main/nemotron-transcribe.py \
+    --serve
+
+# Scale: the same script as a driver, from a laptop or a CPU job
+uv run https://huggingface.co/datasets/uv-scripts/transcription/raw/main/nemotron-transcribe.py \
+    ./audio ./transcripts --server https://<job_id>--8000.hf.jobs
+```
+
+For exploring, any OpenAI-compatible client works: `base_url="https://<job_id>--8000.hf.jobs/v1"`, `api_key=<HF token>`, with the audio as a `data:audio/flac;base64,...` `audio_url` part (see the model card). Measured from a laptop: a warm 2-minute clip came back in 2.4 s, and the driver did two half-hour episodes with `--timestamps` in 54 s. The first requests after start are slow (~1 min) while vLLM compiles two Triton kernels that its warmup misses. Cancel the job when done (`hf jobs cancel <job_id>`); exposed ports are billed on top of the hardware price, and each half-hour file is uploaded as ~30 MB, so for bulk work the in-job driver is still cheaper.
+
 #### Options — `nemotron-transcribe.py`
 
 | Flag | Default | Description |
@@ -87,7 +102,8 @@ Audio already on your machine? Mount the folder directly — `-v ./audio:/input`
 | `--timestamps` | off | Also write JSON with word timestamps, speaker tags and diarization segments (uses the `speakers` prompt) |
 | `--concurrency` | 16 | Files in flight against the server |
 | `--part-minutes` | 55 | Split longer audio into parts (the model is trained on recordings up to 1 h); speaker tags reset between parts |
-| `--server` | `http://127.0.0.1:8000` | Use a server already running there instead of starting one |
+| `--server` | `http://127.0.0.1:8000` | Use a server already running there instead of starting one; a remote URL (e.g. a serving job's `https://<job_id>--8000.hf.jobs`) gets your HF token as Bearer auth |
+| `--serve` | off | Only start the server and keep it up, for a job started with `--expose 8000` (no input/output dirs) |
 | `--nemo-ref` | `main` | NeMo Speech ref to install when the image has no prebuilt stack |
 | `--max-files` | all | Limit files to process (for testing) |
 
