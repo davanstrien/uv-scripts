@@ -80,7 +80,9 @@ SERVING = {
         "SGLANG_UOCR_EANABLE_DOC_LIMIT": "1",  # (sic) upstream spelling
         "SGLANG_UOCR_DOC_GUNDAM_PAGE_WINDOW": "10",
         "SGLANG_UOCR_DOC_BASE_PAGE_WINDOW": "10",
-        "SGLANG_UOCR_MAX_PAGE_TOKENS": "20000",
+        # Per-page output cap. A normal book page is ~2,000 characters (p99 ~6,700); the
+        # tokens past 8000 on a page are repetition loops, which held whole runs' tails.
+        "SGLANG_UOCR_MAX_PAGE_TOKENS": "8000",
         "SGLANG_OPT_UOCR_SAM_REL_POS_BIAS_MB": "64",
         "SGLANG_UOCR_SHM_WRAP_MODEL_DATA": "1",
         "SGLANG_UOCR_SHM_WRAP_MIN_MB": "1",
@@ -213,7 +215,7 @@ def page_request(images_b64: list[str], stream: bool = False) -> dict:
         "custom_logit_processor": NGRAM_PROCESSOR,
         "custom_params": {
             "ngram_size": 35, "window_size": 1024 if n > 1 else 128,
-            "page_token_id": 128827, "eos_token_id": 1, "max_page_tokens": 20000,
+            "page_token_id": 128827, "eos_token_id": 1, "max_page_tokens": 8000,
         },
         "stream": stream,
     }
@@ -622,6 +624,16 @@ def clean_page(raw_page: str, keep_furniture: bool) -> str:
     return "\n\n".join(blocks)
 
 
+def prepare_workers() -> int:
+    """Threads that decode and encode pages: enough to keep ~40 requests fed, within the Job's CPU quota.
+
+    os.cpu_count() reports the host's cores (190 on a Jobs node), not the quota; that many
+    threads starve the loop that sends requests. Jobs sets CPU_CORES to the quota.
+    """
+    cores = int(os.environ.get("CPU_CORES") or len(os.sched_getaffinity(0)))
+    return max(4, min(16, cores - 6))  # leave cores for SGLang's tokenizer and scheduler
+
+
 def start_server_cmd() -> list[str]:
     """Install Baidu's wheel into the image's sglang Python and return the server command."""
     # The SGLang image keeps sglang in its own venv (/opt/sglang/bin), first on PATH;
@@ -722,7 +734,7 @@ def main():
         stats = pump(rows, to_request, parse, endpoint, output,
                      window=Auto(initial=32, max_limit=64),  # long requests: start wide
                      flush_every=4,  # each row is minutes of GPU time; write often
-                     read_timeout=3600, prepare_workers=8, retry_errors=args.retry_errors)
+                     read_timeout=3600, prepare_workers=prepare_workers(), retry_errors=args.retry_errors)
     print(f"{output}: {stats.rows_processed} windows written, {stats.rows_failed} errors", file=sys.stderr)
     if live is not None:
         live.phase("Finished")
