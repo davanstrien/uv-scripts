@@ -94,6 +94,7 @@ Legend: ✅ production-ready · ⚠️ works only with a required pinned image �
 | `unlimited-ocr-vllm.py` | ✅+image | vLLM `:unlimited-ocr` | l4x1 | single-image; multi-page → serve |
 | `unlimited-ocr2.py` | ✅+image | SGLang (Baidu wheel) on `lmsysorg/sglang:v0.5.20-cu130` | rtx-pro-6000 | 16-page windows; ≥48 GB GPU |
 | `unlimited-ocr2-saturate.py` | 🧪+image | same | rtx-pro-6000 | tuned/experimental: repair pass, JP2 fast decode, PDFs |
+| `unlimited-ocr2-live.py` | 🧪+image | same | rtx-pro-6000 | experimental: minimal script + `--live-port` dashboard (streams the page being read) |
 | `surya-ocr.py` | ✅+image | vLLM `:v0.20.1` | l4x1 | offline backend inject; site-packages PYTHONPATH |
 | `surya-ocr-bucket.py` | ✅+image | vLLM `:v0.20.1` | l4x1 | bucket I/O; pin `surya-ocr==0.20.0` |
 | `lift-extract.py` | ✅ | hf / vLLM | a100-large | schema-constrained extraction; naming gotcha |
