@@ -6,8 +6,7 @@
 # target GPU, and pushes the result as one layer on top of the vLLM image:
 #
 #   - /opt/nemotron-transcribe/nemo-speech (source + locked venv + kernels)
-#   - FlashInfer JIT cache, vLLM torch.compile cache and the Triton cubins it
-#     references (warm for the flavor
+#   - FlashInfer JIT cache and vLLM torch.compile cache (warm for the flavor
 #     the build ran on; other GPUs rebuild their kernels on first start)
 #
 # The model checkpoint is NOT baked in (it downloads in ~35 s on Jobs).
@@ -19,6 +18,9 @@
 #       -v hf://datasets/uv-scripts/transcription:/recipe:ro \
 #       vllm/vllm-openai:v0.32.0 -- \
 #       bash /recipe/nemotron-transcribe-image.sh cr.hf.co/uv-scripts/nemotron-transcribe
+#
+# Optional env: NEMO_REF (NeMo Speech branch/tag/commit, default main) and
+# TAG_SUFFIX (appended to the tag, to keep an earlier build of the same commit).
 set -euo pipefail
 
 REPO="${1:?usage: nemotron-transcribe-image.sh <cr.hf.co/namespace/name>}"
@@ -31,16 +33,16 @@ pip install -q uv
 # 1. Install + warm up: run the recipe on a short silent clip.
 mkdir -p /tmp/warmup-in /tmp/warmup-out
 python3 -c "import wave; w = wave.open('/tmp/warmup-in/silence.wav', 'wb'); w.setnchannels(1); w.setsampwidth(2); w.setframerate(16000); w.writeframes(b'\0' * 64000); w.close()"
-uv run "$RECIPE_DIR/nemotron-transcribe.py" /tmp/warmup-in /tmp/warmup-out --workdir "$WORKDIR"
+uv run "$RECIPE_DIR/nemotron-transcribe.py" /tmp/warmup-in /tmp/warmup-out \
+    --workdir "$WORKDIR" --nemo-ref "${NEMO_REF:-main}"
 
 NEMO_SHA="$(cat "$WORKDIR/nemo-speech/.nemo-ref")"
-TAG="v0.32.0-nemo-${NEMO_SHA:0:12}"
+TAG="v0.32.0-nemo-${NEMO_SHA:0:12}${TAG_SUFFIX:-}"
 
 # 2. One layer: the serving stack and the warm caches, not the checkpoint.
 tar -C / -cf /tmp/layer.tar \
     --exclude="${WORKDIR#/}/model" --exclude="${WORKDIR#/}/nemo-speech.tar.gz" \
-    "${WORKDIR#/}" root/.cache/flashinfer root/.cache/vllm \
-    tmp/torchinductor_root  # Triton cubins the vLLM compile cache points at
+    "${WORKDIR#/}" root/.cache/flashinfer root/.cache/vllm
 ls -lh /tmp/layer.tar
 
 # 3. Append it to the base image and push (also tag :latest).
