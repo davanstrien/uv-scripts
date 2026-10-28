@@ -160,12 +160,6 @@ def list_windows(pattern: str, pages_per_request: int, max_pages):
             }
 
 
-def jpeg_b64(img, quality: int) -> str:
-    buf = io.BytesIO()
-    img.save(buf, format="JPEG", quality=quality)
-    return base64.b64encode(buf.getvalue()).decode()
-
-
 def load_page(fs, path: str, max_side: int, live=None) -> str:
     """Read one page image, downscale it, return base64 JPEG (and give the live view a thumbnail)."""
     from PIL import Image
@@ -177,64 +171,146 @@ def load_page(fs, path: str, max_side: int, live=None) -> str:
     img.thumbnail((max_side, max_side), Image.LANCZOS)
     if live is not None:
         live.add_thumbnail(path, img)
-    return jpeg_b64(img, quality=90)
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=90)
+    return base64.b64encode(buf.getvalue()).decode()
 
 
 LIVE_PAGE = """<!doctype html><meta charset="utf-8"><title>Unlimited-OCR-2 live</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-:root{--bg:#f6f5f2;--fg:#1d1d1f;--muted:#6b6b70;--card:#fff;--line:#e3e1dc;--accent:#d9622b}
-@media (prefers-color-scheme:dark){:root{--bg:#121315;--fg:#e8e9ec;--muted:#8a8f99;--card:#1b1d21;--line:#2a2d33}}
-body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-serif}
-header{position:sticky;top:0;background:var(--bg);padding:14px 16px;border-bottom:1px solid var(--line)}
-h1{font-size:18px;margin:0}#stats{color:var(--muted);font-variant-numeric:tabular-nums}
-.bar{height:4px;background:var(--line);margin-top:8px}.bar div{height:4px;background:var(--accent);width:0}
-main{padding:16px;display:grid;gap:16px}
-.page{display:grid;grid-template-columns:minmax(0,320px) minmax(0,1fr);gap:16px;background:var(--card);
- border:1px solid var(--line);border-radius:6px;padding:12px}
-.page img{width:100%;border:1px solid var(--line)}
-.meta{color:var(--muted);font-size:13px;margin-bottom:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-pre{margin:0;white-space:pre-wrap;font:14px/1.5 Georgia,serif;max-height:480px;overflow:auto}
-.bad{color:var(--accent)}@media (max-width:640px){.page{grid-template-columns:1fr}}
+:root{--bg:#f4f2ee;--fg:#1c1c1e;--muted:#6e6c68;--card:#fff;--line:#dfdcd5;--accent:#d9622b;--ok:#2f7d5b}
+@media (prefers-color-scheme:dark){:root{--bg:#101113;--fg:#ececef;--muted:#8b909a;--card:#191b1f;--line:#2b2e34;--accent:#ff8a3d;--ok:#5cc29a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.45 system-ui,sans-serif;height:100vh;
+ display:grid;grid-template-rows:auto auto 1fr auto;overflow:hidden}
+header{display:flex;align-items:baseline;gap:16px;padding:14px 20px 8px}
+h1{font-size:18px;margin:0;font-weight:650}#doc{color:var(--muted);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.label{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+#flight{display:flex;align-items:center;gap:10px;padding:6px 20px 10px;border-bottom:1px solid var(--line);min-height:76px}
+#flightThumbs{display:flex;gap:6px;overflow:hidden;flex:1}
+#flightThumbs img{height:60px;border:1px solid var(--line);opacity:.55;animation:pulse 1.6s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.95}}
+#middle{display:grid;grid-template-columns:minmax(0,1fr) 300px;min-height:0}
+#spot{display:grid;grid-template-columns:minmax(0,38%) minmax(0,1fr);gap:20px;padding:16px 20px;min-height:0}
+#spotImg{max-width:100%;max-height:100%;object-fit:contain;justify-self:center;border:1px solid var(--line);background:var(--card)}
+#spotRight{display:flex;flex-direction:column;min-height:0}
+#spotMeta{font-size:13px;color:var(--muted);margin-bottom:8px}
+#spotText{flex:1;overflow:hidden;white-space:pre-wrap;font:16px/1.55 Georgia,serif;
+ -webkit-mask-image:linear-gradient(#000 85%,transparent)}
+.caret{display:inline-block;width:.5em;background:var(--accent);animation:blink 1s steps(1) infinite}@keyframes blink{50%{opacity:0}}
+aside{border-left:1px solid var(--line);padding:16px 20px;display:flex;flex-direction:column;gap:14px}
+.big{font-size:40px;font-weight:650;font-variant-numeric:tabular-nums;line-height:1.05}
+.mid{font-size:22px;font-weight:600;font-variant-numeric:tabular-nums}
+.bar{height:6px;background:var(--line);border-radius:3px}.bar div{height:6px;background:var(--accent);border-radius:3px;width:0;transition:width .8s}
+#spark{width:100%;height:46px}.bad{color:var(--accent)}
+#strip{display:flex;gap:8px;padding:10px 20px 14px;border-top:1px solid var(--line);overflow:hidden;height:150px}
+#strip figure{margin:0;flex:none;animation:enter .6s ease-out}
+#strip img{height:110px;border:1px solid var(--line);display:block}
+#strip figcaption{font-size:11px;color:var(--muted);text-align:center}
+@keyframes enter{from{opacity:0;transform:translateX(-30px)}}
+@media (max-width:800px){body{overflow:auto;height:auto}#middle,#spot{grid-template-columns:1fr}aside{border-left:0}}
 </style>
-<header><h1>Unlimited-OCR-2 · live</h1><div id="stats">waiting for the first window…</div>
-<div class="bar"><div id="bar"></div></div></header><main id="pages"></main>
+<header><h1>Unlimited-OCR-2 · live</h1><span id="doc"></span></header>
+<section id="flight"><span class="label">Reading now<br><span id="flightN" class="mid">0</span></span><div id="flightThumbs"></div></section>
+<section id="middle">
+ <div id="spot"><img id="spotImg" alt=""><div id="spotRight"><div id="spotMeta">waiting for the first pages…</div><div id="spotText"></div></div></div>
+ <aside>
+  <div><div class="label">Pages done</div><div class="big" id="done">0</div><div id="of" class="label"></div>
+   <div class="bar" style="margin-top:8px"><div id="bar"></div></div></div>
+  <div><div class="label">Pages per minute</div><div class="mid" id="rate">–</div><svg id="spark" viewBox="0 0 100 40" preserveAspectRatio="none"></svg></div>
+  <div><div class="label">Words extracted</div><div class="mid" id="words">0</div></div>
+  <div><div class="label">Elapsed</div><div class="mid" id="elapsed">0:00</div></div>
+  <div><div class="label">Needs a retry</div><div class="mid" id="failed">0</div></div>
+ </aside>
+</section>
+<section id="strip"></section>
 <script>
-let since = 0;
+const $ = id => document.getElementById(id), fmt = n => n.toLocaleString();
+let since = 0, words = 0, failed = 0;
+const queue = [];   // finished pages waiting for the spotlight
+const history = []; // [seconds, pages_done] for the rolling rate
+
+function ingest(d) {
+  const s = d.stats;
+  $("done").textContent = fmt(s.pages_done);
+  $("of").textContent = `of ${fmt(s.pages_total)} · ${s.windows_done} requests`;
+  $("bar").style.width = (100 * s.pages_done / Math.max(1, s.pages_total)) + "%";
+  $("elapsed").textContent = `${Math.floor(s.elapsed_s / 60)}:${String(s.elapsed_s % 60).padStart(2, "0")}`;
+  history.push([s.elapsed_s, s.pages_done]);
+  const recent = history.filter(h => h[0] >= s.elapsed_s - 300), first = recent[0];
+  if (s.elapsed_s - first[0] >= 30) $("rate").textContent = ((s.pages_done - first[1]) / (s.elapsed_s - first[0]) * 60).toFixed(1);
+  drawSpark();
+  $("flightN").textContent = fmt(s.in_flight);
+  const ft = $("flightThumbs"); ft.replaceChildren();
+  for (const k of d.in_flight) { const i = new Image(); i.src = "img/" + k; ft.append(i); }
+  for (const p of d.pages) {
+    since = Math.max(since, p.seq);
+    words += p.text ? p.text.split(/\\s+/).filter(Boolean).length : 0;
+    if (p.status !== "ok") failed += 1;
+    queue.push(p);
+  }
+  $("words").textContent = fmt(words);
+  $("failed").textContent = fmt(failed); $("failed").className = "mid" + (failed ? " bad" : "");
+}
+
+function drawSpark() {
+  const pts = []; for (let i = 1; i < history.length; i++) {
+    const dt = history[i][0] - history[i - 1][0]; if (dt > 0) pts.push((history[i][1] - history[i - 1][1]) / dt * 60);
+  }
+  const last = pts.slice(-60), max = Math.max(1, ...last);
+  const path = last.map((v, i) => `${i ? "L" : "M"}${(i / Math.max(1, last.length - 1) * 100).toFixed(1)},${(38 - v / max * 34).toFixed(1)}`).join("");
+  $("spark").innerHTML = `<path d="${path}" fill="none" stroke="var(--accent)" stroke-width="1.5" vector-effect="non-scaling-stroke"/>`;
+}
+
+function addToStrip(p) {
+  const f = document.createElement("figure"), i = new Image(), c = document.createElement("figcaption");
+  i.src = "img/" + p.img; c.textContent = "p. " + p.page + (p.status === "ok" ? "" : " · retry");
+  f.append(i, c); $("strip").prepend(f);
+  while ($("strip").children.length > 40) $("strip").lastChild.remove();
+}
+
+// Spotlight: one finished page at a time, its text typed out. A backlog shortens each page's slot,
+// so a 16-page window lands as a quick run of pages rather than a jump.
+async function spotlight() {
+  for (;;) {
+    const p = queue.shift();
+    if (!p) { await new Promise(r => setTimeout(r, 300)); continue; }
+    const slot = Math.max(700, 5000 / (1 + queue.length / 3));
+    $("spotImg").src = "img/" + p.img;
+    $("spotMeta").textContent = `${p.doc} · page ${p.page}` + (p.status === "ok" ? "" : ` · ${p.status}`);
+    $("spotMeta").className = p.status === "ok" ? "" : "bad";
+    $("doc").textContent = p.doc;
+    addToStrip(p);
+    const text = p.text || "", el = $("spotText"), t0 = performance.now(), typeFor = slot * 0.75;
+    await new Promise(done => {
+      function frame(now) {
+        const n = Math.min(text.length, Math.ceil(text.length * (now - t0) / typeFor));
+        el.textContent = text.slice(0, n); const c = document.createElement("span"); c.className = "caret"; c.textContent = " ";
+        el.append(c);
+        if (n < text.length) requestAnimationFrame(frame); else setTimeout(done, slot - typeFor);
+      }
+      requestAnimationFrame(frame);
+    });
+  }
+}
+
 async function poll() {
-  try {
-    const r = await fetch("feed.json?since=" + since); const d = await r.json();
-    const s = d.stats, rate = s.elapsed_s > 0 ? (s.pages_done / s.elapsed_s * 60).toFixed(1) : "0";
-    document.getElementById("stats").textContent =
-      `${s.pages_done} / ${s.pages_total} pages · ${s.windows_done} windows · ${rate} pages/min · ${Math.round(s.elapsed_s / 60)} min`;
-    document.getElementById("bar").style.width = (100 * s.pages_done / Math.max(1, s.pages_total)) + "%";
-    const main = document.getElementById("pages"), batch = document.createDocumentFragment();
-    for (const p of d.pages) {
-      since = Math.max(since, p.seq);
-      const card = document.createElement("section"); card.className = "page";
-      const img = document.createElement(p.thumb ? "img" : "div");
-      if (p.thumb) { img.src = "data:image/jpeg;base64," + p.thumb; img.alt = p.file; }
-      const right = document.createElement("div");
-      const meta = document.createElement("div"); meta.className = "meta" + (p.status === "ok" ? "" : " bad");
-      meta.textContent = `${p.doc} · page ${p.page}` + (p.status === "ok" ? "" : ` · ${p.status}`);
-      const pre = document.createElement("pre"); pre.textContent = p.text;
-      right.append(meta, pre); card.append(img, right); batch.append(card);
-    }
-    main.prepend(batch);  // newest window on top, its pages in reading order
-    while (main.children.length > 60) main.lastChild.remove();
-  } catch (e) {}
+  try { ingest(await (await fetch("feed.json?since=" + since)).json()); } catch (e) {}
   setTimeout(poll, 2000);
 }
-poll();
+poll(); spotlight();
 </script>"""
 
 
 class LiveView:
     """The last pages read, served as a web page from inside the Job (`--live-port`)."""
 
-    def __init__(self, port: int, pages_total: int, keep: int = 60):
+    def __init__(self, port: int, pages_total: int, keep: int = 400):
         self.pages = collections.deque(maxlen=keep)
-        self.thumbs: dict[str, str] = {}
+        self.images: collections.OrderedDict[str, bytes] = collections.OrderedDict()  # key -> JPEG
+        self.keep = keep
+        self.in_flight: dict[str, str] = {}  # page path -> image key, loaded and sent, not yet read
         self.lock = threading.Lock()
         self.seq = 0
         self.pages_total, self.pages_done, self.windows_done = pages_total, 0, 0
@@ -245,13 +321,21 @@ class LiveView:
             def do_GET(self):
                 if self.path.startswith("/feed.json"):
                     since = int(self.path.partition("since=")[2] or 0)
-                    body = json.dumps(live.feed(since)).encode()
-                    ctype = "application/json"
+                    self.reply(json.dumps(live.feed(since)).encode(), "application/json")
+                elif self.path.startswith("/img/"):
+                    with live.lock:
+                        jpeg = live.images.get(self.path[len("/img/"):])
+                    if jpeg is None:
+                        self.send_error(404)
+                    else:
+                        self.reply(jpeg, "image/jpeg", cache="max-age=86400")
                 else:
-                    body, ctype = LIVE_PAGE.encode(), "text/html; charset=utf-8"
+                    self.reply(LIVE_PAGE.encode(), "text/html; charset=utf-8")
+
+            def reply(self, body: bytes, ctype: str, cache: str = "no-store"):
                 self.send_response(200)
                 self.send_header("Content-Type", ctype)
-                self.send_header("Cache-Control", "no-store")
+                self.send_header("Cache-Control", cache)
                 self.end_headers()
                 self.wfile.write(body)
 
@@ -267,10 +351,17 @@ class LiveView:
 
     def add_thumbnail(self, path: str, img):
         thumb = img.copy()
-        thumb.thumbnail((480, 480))
+        thumb.thumbnail((720, 720))
+        buf = io.BytesIO()
+        thumb.save(buf, format="JPEG", quality=80)
         with self.lock:
             self.started = self.started or time.time()
-            self.thumbs[path] = jpeg_b64(thumb, quality=80)
+            self.seq += 1
+            key = f"{self.seq}.jpg"
+            self.images[key] = buf.getvalue()
+            self.in_flight[path] = key
+            while len(self.images) > self.keep + len(self.in_flight):
+                self.images.popitem(last=False)
 
     def add_window(self, row: dict, status: str, texts):
         with self.lock:
@@ -278,16 +369,17 @@ class LiveView:
             self.pages_done += len(row["paths"])
             for i, (path, rid) in enumerate(zip(row["paths"], row["page_files"], strict=True)):
                 self.seq += 1
-                text = texts[i] if texts and i < len(texts) else "(no page text: window " + status + ")"
-                self.pages.append({"seq": self.seq, "doc": row["doc_id"], "page": row["first_page"] + i + 1,
-                                   "file": rid, "status": status, "text": text[:4000],
-                                   "thumb": self.thumbs.pop(path, "")})
+                text = texts[i] if texts and i < len(texts) else ""
+                self.pages.append({"seq": self.seq, "doc": row["doc_id"].rsplit("/", 1)[-1],
+                                   "page": row["first_page"] + i + 1, "file": rid, "status": status,
+                                   "text": text[:4000], "img": self.in_flight.pop(path, "")})
 
     def feed(self, since: int) -> dict:
         with self.lock:
             return {"stats": {"pages_total": self.pages_total, "pages_done": self.pages_done,
-                              "windows_done": self.windows_done,
+                              "windows_done": self.windows_done, "in_flight": len(self.in_flight),
                               "elapsed_s": round(time.time() - self.started) if self.started else 0},
+                    "in_flight": list(self.in_flight.values())[-24:],
                     "pages": [p for p in self.pages if p["seq"] > since]}
 
 
