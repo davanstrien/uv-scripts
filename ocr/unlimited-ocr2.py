@@ -40,8 +40,8 @@ ran out of budget or lost a page boundary (then `page_markdown` is empty and onl
 `raw` is kept). Re-running the same command resumes where it stopped.
 
 About 2% of dense 18th-century pages (mostly mathematics) send the model into a
-loop. `unlimited-ocr2-saturate.py` is the tuned version of this script: it
-re-reads those pages one at a time, decodes JPEG 2000 faster, reads PDFs and adds
+loop; a page stops at `--max-page-tokens` (8000). `unlimited-ocr2-saturate.py` is the
+tuned version of this script: it re-reads those pages one at a time, reads PDFs and adds
 Baidu's own Markdown post-processing. It may change more often.
 
 How it runs: Unlimited-OCR-2 needs Baidu's own SGLang build (no vLLM support).
@@ -73,7 +73,8 @@ SERVING = {
         "SGLANG_UOCR_EANABLE_DOC_LIMIT": "1",  # (sic) upstream spelling
         "SGLANG_UOCR_DOC_GUNDAM_PAGE_WINDOW": "10",
         "SGLANG_UOCR_DOC_BASE_PAGE_WINDOW": "10",
-        "SGLANG_UOCR_MAX_PAGE_TOKENS": "20000",
+        # Per-page output cap; --max-page-tokens sets it (default 8000).
+        "SGLANG_UOCR_MAX_PAGE_TOKENS": "8000",
         "SGLANG_OPT_UOCR_SAM_REL_POS_BIAS_MB": "64",
         "SGLANG_UOCR_SHM_WRAP_MODEL_DATA": "1",
         "SGLANG_UOCR_SHM_WRAP_MIN_MB": "1",
@@ -158,7 +159,26 @@ def load_page(fs, path: str, max_side: int) -> str:
     from PIL import Image
 
     with fs.open(path, "rb") as f:
-        img = Image.open(io.BytesIO(f.read()))
+        data = f.read()
+    img = Image.open(io.BytesIO(data))
+    if img.format == "JPEG2000":
+        # Decode straight at a lower wavelet level while the page stays >= max_side: close
+        # to the full decode after downscaling, for a fraction of the CPU. Some codestreams fail
+        # at a reduced level, so step back towards a full decode until one works.
+        reduce = 0
+        while max(img.size) >> (reduce + 1) >= max_side:
+            reduce += 1
+        while True:
+            try:
+                img = Image.open(io.BytesIO(data))
+                img.reduce = reduce
+                img.load()
+                break
+            except OSError:
+                if reduce == 0:
+                    raise
+                reduce -= 1
+    else:
         img.load()
     img = img.convert("RGB")
     img.thumbnail((max_side, max_side), Image.LANCZOS)
@@ -191,6 +211,24 @@ def clean_page(raw_page: str, keep_furniture: bool) -> str:
         else:
             blocks.append(body)
     return "\n\n".join(blocks)
+
+
+def prepare_workers() -> int:
+    """Threads that decode and encode pages: enough to keep ~40 requests fed, within the Job's CPU quota.
+
+    os.cpu_count() reports the host's cores (190 on a Jobs node), not the quota; that many
+    threads starve the loop that sends requests. Jobs sets CPU_CORES to the quota.
+    """
+    try:
+        cores = int(os.environ.get("CPU_CORES", ""))
+    except ValueError:
+        cores = 0
+    if cores <= 0:
+        try:
+            cores = len(os.sched_getaffinity(0))
+        except AttributeError:  # not Linux
+            cores = os.cpu_count() or 1
+    return max(4, min(16, cores - 6))  # leave cores for SGLang's tokenizer and scheduler
 
 
 def start_server_cmd() -> list[str]:
@@ -227,8 +265,17 @@ def main():
                          "1024 px view, so more pixels only make the requests bigger")
     ap.add_argument("--keep-furniture", action="store_true",
                     help="Keep page numbers and running heads in page_markdown")
+    ap.add_argument("--max-page-tokens", type=int, default=8000,
+                    help="Output cap per page (default 8000). A book page is ~2,000 characters; "
+                         "past 8000 tokens it is almost always a repetition loop. Raise it (up to "
+                         "20000) for very dense pages: large tables, mathematics")
     ap.add_argument("--retry-errors", action="store_true", help="Retry windows recorded as errors")
     args = ap.parse_args()
+    if args.max_side <= 0:
+        ap.error("--max-side must be a positive number of pixels")
+    if not 0 < args.max_page_tokens <= 20000:
+        ap.error("--max-page-tokens must be between 1 and 20000")
+    SERVING["env"]["SGLANG_UOCR_MAX_PAGE_TOKENS"] = str(args.max_page_tokens)
 
     import fsspec
     import saturate.transport
@@ -249,14 +296,14 @@ def main():
         return {
             "model": SERVING["served_name"],
             "messages": [{"role": "user", "content": content}],
-            "max_tokens": 8000 * n,  # output budget for the whole window
+            "max_tokens": max(8000, args.max_page_tokens) * n,  # output budget for the whole window
             "temperature": 0,
             "skip_special_tokens": False,  # <PAGE>/<BLOCK> markers are the structure
             "images_config": {"crop_mode": False},  # base mode: one 1024 px view per page
             "custom_logit_processor": NGRAM_PROCESSOR,
             "custom_params": {
                 "ngram_size": 35, "window_size": 1024 if n > 1 else 128,
-                "page_token_id": 128827, "eos_token_id": 1, "max_page_tokens": 20000,
+                "page_token_id": 128827, "eos_token_id": 1, "max_page_tokens": args.max_page_tokens,
             },
         }
 
@@ -294,7 +341,7 @@ def main():
         stats = pump(rows, to_request, parse, endpoint, output,
                      window=Auto(initial=32, max_limit=64),  # long requests: start wide
                      flush_every=4,  # each row is minutes of GPU time; write often
-                     read_timeout=3600, prepare_workers=8, retry_errors=args.retry_errors)
+                     read_timeout=3600, prepare_workers=prepare_workers(), retry_errors=args.retry_errors)
     print(f"{output}: {stats.rows_processed} windows written, {stats.rows_failed} errors", file=sys.stderr)
     print("UNLIMITED_OCR2 " + stats.to_json(), flush=True)
 

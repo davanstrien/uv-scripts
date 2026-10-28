@@ -231,7 +231,7 @@ hf jobs uv run --detach \
     your-username/britannica-1771
 ```
 
-The header picks `rtx-pro-6000` (the fastest per dollar in our tests; 24 GB GPUs are too small for 16-page requests). Results are one row per 16-page window. About 2% of pages in 18th-century print (mostly mathematics) send the model into a loop; `unlimited-ocr2-saturate.py`, an experimental tuned version, reads those pages again one at a time and adds PDF input and faster JPEG 2000 decoding.
+The header picks `rtx-pro-6000` (the fastest per dollar in our tests; 24 GB GPUs are too small for 16-page requests). Results are one row per 16-page window. About 2% of pages in 18th-century print (mostly mathematics) send the model into a loop; `unlimited-ocr2-saturate.py`, an experimental tuned version, reads those pages again one at a time and adds PDF input and Baidu's Markdown post-processing. `unlimited-ocr2-live.py`, also experimental, is the minimal script plus a live view you can open while the Job runs (add `--live-port 7860` and `--expose-public 7860`): the page being read with its text streaming in, finished pages, pages per minute and GPU load.
 
 ```bash
 hf jobs uv run --detach --timeout 4h \

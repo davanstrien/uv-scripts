@@ -700,12 +700,35 @@
     "task": "ocr (multi-page documents: book volumes, PDFs; cross-page continuations)",
     "output": "markdown per page and per window + layout-grounded raw",
     "license": "mit",
-    "notes": "Tuned version of unlimited-ocr2.py: repair pass for looping pages (fixed 28/33 in testing), faster JPEG 2000 decoding, PDF input, Baidu's own Markdown post-processing, speed flags.",
+    "notes": "Tuned version of unlimited-ocr2.py: repair pass for looping pages (fixed 28/33 in testing), PDF input, Baidu's own Markdown post-processing, speed flags.",
     "languages": {
       "evidence": "multilingual-unspecified"
     },
     "support": "experimental",
     "support_note": "Use unlimited-ocr2.py unless you need the repair pass, PDFs or the extras.",
+    "jobs": {
+      "image": "lmsysorg/sglang:v0.5.20-cu130",
+      "flavor": "rtx-pro-6000",
+      "timeout": "4h",
+      "secrets": [
+        "HF_TOKEN"
+      ]
+    }
+  },
+  "unlimited-ocr2-live.py": {
+    "model_id": "baidu/Unlimited-OCR-2",
+    "params": "3.3B (MoE, 0.5B active)",
+    "backend": "saturate (in-job SGLang from Baidu's wheel + saturate pump)",
+    "image": "lmsysorg/sglang:v0.5.20-cu130",
+    "task": "ocr (multi-page documents) with a live view of the run",
+    "output": "markdown per page + layout-grounded raw, one row per 16-page window",
+    "license": "mit",
+    "notes": "unlimited-ocr2.py plus --live-port: a dashboard served from the Job (start-up steps, the page being read with its text streaming in, finished pages, pages/min, GPU load) for watching or screen-recording a run. Measured on 1,456 Wellcome Library pages: ~130 pages/min on rtx-pro-6000.",
+    "languages": {
+      "evidence": "multilingual-unspecified"
+    },
+    "support": "experimental",
+    "support_note": "Use unlimited-ocr2.py for normal runs; this adds a live view for demos.",
     "jobs": {
       "image": "lmsysorg/sglang:v0.5.20-cu130",
       "flavor": "rtx-pro-6000",
