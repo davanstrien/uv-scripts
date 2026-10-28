@@ -390,6 +390,10 @@ def main():
                     help="Long side (px) pages are sent at. Default 1280 in base mode (the model "
                          "resizes every page to one 1024 px view, so more pixels are discarded) and "
                          "2048 with --crop-mode (tiles use the detail)")
+    ap.add_argument("--tokens-per-page", type=int, default=SERVING["tokens_per_page"],
+                    help="Output budget per page (default 8000, the card's setting for book pages). "
+                         "Dense newspaper pages need more; the server caps a page at "
+                         f"{SERVING['max_page_tokens']}")
     ap.add_argument("--pdf-dpi", type=int, default=150)
     ap.add_argument("--keep-furniture", action="store_true",
                     help="Keep page numbers, running heads and footers in `markdown`")
@@ -413,6 +417,9 @@ def main():
     ap.add_argument("--server-python", nargs="+", default=["/opt/sglang/bin/python3", "/usr/bin/python3"],
                     help="Fallback Pythons to try after PATH (the one with sglang wins)")
     args = ap.parse_args()
+    if not 0 < args.tokens_per_page <= SERVING["max_page_tokens"]:
+        sys.exit(f"--tokens-per-page must be between 1 and {SERVING['max_page_tokens']} "
+                 "(the server's per-page cap)")
     if args.max_side is None:
         # Payload matters as much as pixels: 32 concurrent 16-page bodies at 1600 px
         # (~14 MB of base64 each) stalled SGLang's HTTP front end past saturate's fixed
@@ -440,7 +447,7 @@ def main():
         body = {
             "model": SERVING["served_name"],
             "messages": [{"role": "user", "content": content}],
-            "max_tokens": SERVING["tokens_per_page"] * n,  # global budget for the window
+            "max_tokens": args.tokens_per_page * n,  # global budget for the window
             "temperature": SERVING["temperature"],
             "skip_special_tokens": False,  # <PAGE>/<BLOCK> markers are the structure
             "images_config": {"crop_mode": row.get("crop", args.crop_mode or SERVING["crop_mode"])},
