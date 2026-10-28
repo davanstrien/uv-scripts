@@ -62,7 +62,6 @@ Image: https://huggingface.co/containers/davanstrien/minicpm-ocr
 
 import argparse
 import contextlib
-import io
 import json
 import logging
 import os
@@ -231,16 +230,22 @@ def parse_batch(images: dict, work: Path, tag: str, keep_labels: list[str]) -> d
     key -> (status, markdown or None). A page that cannot be read gets an `error: ...` status and
     does not stop the batch; if the SDK run itself fails, every page in the batch gets one.
     """
-    from PIL import Image
+    from datasets import Image as ImageFeature
+    from PIL import Image, ImageOps
 
+    decoder = ImageFeature()
     image_dir = work / tag / "images"
     image_dir.mkdir(parents=True)
     results, ids = {}, {}
     for i, (key, source) in enumerate(images.items()):
         try:
-            if isinstance(source, dict):  # datasets Image(decode=False): {"bytes", "path"}
-                source = io.BytesIO(source["bytes"]) if source.get("bytes") else source["path"]
-            img = source if isinstance(source, Image.Image) else Image.open(source)
+            if isinstance(source, dict):
+                # datasets Image(decode=False): {"bytes", "path"}. The datasets decoder handles
+                # remote paths and auth, and turns EXIF-rotated photos upright.
+                img = decoder.decode_example(source)
+            else:
+                img = source if isinstance(source, Image.Image) else Image.open(source)
+                img = ImageOps.exif_transpose(img)
             img.convert("RGB").save(image_dir / f"{i:06d}.png")
             ids[f"{i:06d}"] = key
         except Exception as e:  # one unreadable page must not lose the batch
@@ -367,6 +372,11 @@ def run_files(args):
     if failed:
         logger.warning("%d pages not written (re-run the same command to retry them):\n  %s",
                        len(failed), "\n  ".join(failed))
+        stale = [f for f in failed if md_rel(f.rsplit(" (", 1)[0]) in done]
+        if args.overwrite and stale:
+            logger.warning("%d of them still have a .md from an earlier run, which a re-run without "
+                           "--overwrite will skip; delete those files to retry them:\n  %s",
+                           len(stale), "\n  ".join(stale))
 
 
 # --- Dataset mode ----------------------------------------------------------------------------
@@ -541,11 +551,14 @@ def run_dataset(args):
         dataset = dataset.remove_columns(clash)
     logger.info("%d pages from %s", len(dataset), args.input)
 
+    # Slice only the image column: slicing the full dataset would decode every other image
+    # column too, outside the per-page guard.
+    image_only = dataset.select_columns([args.image_column])
     start = datetime.now()
     texts, statuses = [], []
     with vllm_server(dspark=not args.no_dspark), tempfile.TemporaryDirectory() as work:
         for b in range(0, len(dataset), args.batch_size):
-            images = dataset[b: b + args.batch_size][args.image_column]
+            images = image_only[b: b + args.batch_size][args.image_column]
             results = parse_batch(dict(enumerate(images)), Path(work), f"batch{b:08d}", args.keep_labels)
             for i in range(len(images)):
                 status, text = results[i]
