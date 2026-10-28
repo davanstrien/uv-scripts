@@ -179,46 +179,56 @@ def load_page(fs, path: str, max_side: int, live=None) -> str:
 LIVE_PAGE = """<!doctype html><meta charset="utf-8"><title>Unlimited-OCR-2 live</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-:root{--bg:#f4f2ee;--fg:#1c1c1e;--muted:#6e6c68;--card:#fff;--line:#dfdcd5;--accent:#d9622b;--ok:#2f7d5b}
-@media (prefers-color-scheme:dark){:root{--bg:#101113;--fg:#ececef;--muted:#8b909a;--card:#191b1f;--line:#2b2e34;--accent:#ff8a3d;--ok:#5cc29a}}
+:root{--bg:#f4f2ee;--fg:#1c1c1e;--muted:#66645f;--card:#fff;--line:#dfdcd5;--accent:#d9622b;--ok:#2f7d5b}
+@media (prefers-color-scheme:dark){:root{--bg:#101113;--fg:#ececef;--muted:#9096a0;--card:#191b1f;--line:#2b2e34;--accent:#ff8a3d;--ok:#5cc29a}}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.45 system-ui,sans-serif;height:100vh;
- display:grid;grid-template-rows:auto auto 1fr auto;overflow:hidden}
-header{display:flex;align-items:baseline;gap:16px;padding:14px 20px 8px}
-h1{font-size:18px;margin:0;font-weight:650}#doc{color:var(--muted);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.label{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
-#flight{display:flex;align-items:center;gap:10px;padding:6px 20px 10px;border-bottom:1px solid var(--line);min-height:76px}
-#flightThumbs{display:flex;gap:6px;overflow:hidden;flex:1}
-#flightThumbs img{height:60px;border:1px solid var(--line);opacity:.55;animation:pulse 1.6s ease-in-out infinite}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.45 system-ui,sans-serif;height:100vh;
+ display:grid;grid-template-rows:auto auto minmax(0,1fr) auto;overflow:hidden}
+header{display:flex;align-items:center;gap:14px;padding:14px 20px 6px;min-width:0}
+h1{font-size:20px;margin:0;font-weight:650;white-space:nowrap}
+#banner{font-size:14px;padding:3px 10px;border-radius:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+#banner.done{background:var(--ok);color:#fff}#banner.stop{background:var(--accent);color:#fff}
+.label{font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+#steps p{margin:6px 0 0;text-transform:none;letter-spacing:0;max-width:520px}
+#flight{display:flex;align-items:center;gap:12px;padding:6px 20px 10px;border-bottom:1px solid var(--line);min-height:80px}
+#flightThumbs{display:flex;gap:6px;overflow:hidden;flex:1;min-width:0}
+#flightThumbs img{height:62px;border:1px solid var(--line);opacity:.55;animation:pulse 1.6s ease-in-out infinite}
 @keyframes pulse{50%{opacity:.95}}
 #middle{display:grid;grid-template-columns:minmax(0,1fr) 300px;min-height:0}
-#spot{display:grid;grid-template-columns:minmax(0,38%) minmax(0,1fr);gap:20px;padding:16px 20px;min-height:0}
+#spot{display:grid;grid-template-columns:minmax(0,38%) minmax(0,1fr);gap:24px;padding:16px 20px;min-height:0}
 #spotImg{max-width:100%;max-height:100%;object-fit:contain;justify-self:center;border:1px solid var(--line);background:var(--card)}
-#spotRight{display:flex;flex-direction:column;min-height:0}
-#spotMeta{font-size:13px;color:var(--muted);margin-bottom:8px}
-#spotText{flex:1;overflow:hidden;white-space:pre-wrap;font:16px/1.55 Georgia,serif;
- -webkit-mask-image:linear-gradient(#000 85%,transparent)}
-.caret{display:inline-block;width:.5em;background:var(--accent);animation:blink 1s steps(1) infinite}@keyframes blink{50%{opacity:0}}
-aside{border-left:1px solid var(--line);padding:16px 20px;display:flex;flex-direction:column;gap:14px}
-.big{font-size:40px;font-weight:650;font-variant-numeric:tabular-nums;line-height:1.05}
-.mid{font-size:22px;font-weight:600;font-variant-numeric:tabular-nums}
-.bar{height:6px;background:var(--line);border-radius:3px}.bar div{height:6px;background:var(--accent);border-radius:3px;width:0;transition:width .8s}
-#spark{width:100%;height:46px}.bad{color:var(--accent)}
-#strip{display:flex;gap:8px;padding:10px 20px 14px;border-top:1px solid var(--line);overflow:hidden;height:150px}
+#spotRight{display:flex;flex-direction:column;min-height:0;min-width:0}
+#spotMeta{font-size:14px;color:var(--muted);margin-bottom:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#spotText{flex:1;overflow:hidden;white-space:pre-wrap;font:19px/1.55 Georgia,serif;max-width:62ch;
+ -webkit-mask-image:linear-gradient(#000 85%,transparent);mask-image:linear-gradient(#000 85%,transparent)}
+@keyframes blink{50%{opacity:0}}
+#steps{grid-column:1/-1;align-self:center;justify-self:center;font-size:20px;display:grid;gap:12px;min-width:min(520px,100%)}
+#steps div{display:flex;justify-content:space-between;gap:24px;color:var(--muted)}
+#steps .now{color:var(--fg);font-weight:600}#steps .now::before{content:"● ";color:var(--accent);animation:blink 1s steps(1) infinite}
+#steps .past::before{content:"✓ ";color:var(--ok)}#steps span{font-variant-numeric:tabular-nums}
+aside{border-left:1px solid var(--line);padding:16px 20px;display:flex;flex-direction:column;gap:14px;min-width:0}
+.big{font-size:48px;font-weight:650;font-variant-numeric:tabular-nums;line-height:1.05}
+.mid{font-size:26px;font-weight:600;font-variant-numeric:tabular-nums}
+.bar{height:8px;background:var(--line);border-radius:4px;margin-top:6px}.bar div{height:8px;background:var(--accent);border-radius:4px;width:0;transition:width .8s}
+#spark{width:100%;height:44px;display:block}.bad{color:var(--accent)}
+#strip{display:flex;gap:8px;padding:10px 20px 14px;border-top:1px solid var(--line);overflow:hidden;height:156px}
 #strip figure{margin:0;flex:none;animation:enter .6s ease-out}
-#strip img{height:110px;border:1px solid var(--line);display:block}
-#strip figcaption{font-size:11px;color:var(--muted);text-align:center}
+#strip img{height:112px;border:1px solid var(--line);display:block}
+#strip figcaption{font-size:13px;color:var(--muted);text-align:center}
 @keyframes enter{from{opacity:0;transform:translateX(-30px)}}
-@media (max-width:800px){body{overflow:auto;height:auto}#middle,#spot{grid-template-columns:1fr}aside{border-left:0}}
+@media (max-width:800px){body{overflow:auto;height:auto;display:block}#middle,#spot{grid-template-columns:1fr}
+ aside{border-left:0}#spotImg{max-height:40vh}#strip{height:auto}}
 </style>
-<header><h1>Unlimited-OCR-2 · live</h1><span id="doc"></span></header>
-<section id="flight"><span class="label">Reading now<br><span id="flightN" class="mid">0</span></span><div id="flightThumbs"></div></section>
+<header><h1>Unlimited-OCR-2 · live</h1><span id="banner"></span></header>
+<section id="flight"><span class="label">Sent to the model<br><span id="flightN" class="mid">0</span></span><div id="flightThumbs"></div></section>
 <section id="middle">
- <div id="spot"><img id="spotImg" alt=""><div id="spotRight"><div id="spotMeta">waiting for the first pages…</div><div id="spotText"></div></div></div>
+ <div id="spot"><div id="steps"></div></div>
  <aside>
-  <div><div class="label">Pages done</div><div class="big" id="done">0</div><div id="of" class="label"></div>
-   <div class="bar" style="margin-top:8px"><div id="bar"></div></div></div>
-  <div><div class="label">Pages per minute</div><div class="mid" id="rate">–</div><svg id="spark" viewBox="0 0 100 40" preserveAspectRatio="none"></svg></div>
+  <div><div class="label">Pages per minute</div><div class="big" id="rate">–</div>
+   <svg id="spark" viewBox="0 0 100 40" preserveAspectRatio="none"></svg></div>
+  <div><div class="label">Pages read</div><div class="mid" id="done">0</div><div class="label" id="of"></div>
+   <div class="bar"><div id="bar"></div></div></div>
+  <div><div class="label">GPU</div><div class="mid" id="gpu">–</div><div class="bar"><div id="gpuMem"></div></div></div>
   <div><div class="label">Words extracted</div><div class="mid" id="words">0</div></div>
   <div><div class="label">Elapsed</div><div class="mid" id="elapsed">0:00</div></div>
   <div><div class="label">Needs a retry</div><div class="mid" id="failed">0</div></div>
@@ -227,40 +237,69 @@ aside{border-left:1px solid var(--line);padding:16px 20px;display:flex;flex-dire
 <section id="strip"></section>
 <script>
 const $ = id => document.getElementById(id), fmt = n => n.toLocaleString();
-let since = 0, words = 0, failed = 0;
-const queue = [];   // finished pages waiting for the spotlight
-const history = []; // [seconds, pages_done] for the rolling rate
+const clock = s => { s = Number.isFinite(s) ? Math.max(0, Math.round(s)) : 0;
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
+let since = 0, rate = 0, last = null, misses = 0, spotReady = false;
+const queue = [], flight = new Map();
 
-function ingest(d) {
-  const s = d.stats;
-  $("done").textContent = fmt(s.pages_done);
-  $("of").textContent = `of ${fmt(s.pages_total)} · ${s.windows_done} requests`;
-  $("bar").style.width = (100 * s.pages_done / Math.max(1, s.pages_total)) + "%";
-  $("elapsed").textContent = `${Math.floor(s.elapsed_s / 60)}:${String(s.elapsed_s % 60).padStart(2, "0")}`;
-  history.push([s.elapsed_s, s.pages_done]);
-  const recent = history.filter(h => h[0] >= s.elapsed_s - 300), first = recent[0];
-  if (s.elapsed_s - first[0] >= 30) $("rate").textContent = ((s.pages_done - first[1]) / (s.elapsed_s - first[0]) * 60).toFixed(1);
-  drawSpark();
-  $("flightN").textContent = fmt(s.in_flight);
-  const ft = $("flightThumbs"); ft.replaceChildren();
-  for (const k of d.in_flight) { const i = new Image(); i.src = "img/" + k; ft.append(i); }
-  for (const p of d.pages) {
-    since = Math.max(since, p.seq);
-    words += p.text ? p.text.split(/\\s+/).filter(Boolean).length : 0;
-    if (p.status !== "ok") failed += 1;
-    queue.push(p);
+function showSteps(s) {
+  const el = $("steps"); el.replaceChildren();
+  s.phases.forEach((p, i) => {
+    const row = document.createElement("div"), name = document.createElement("span"), t = document.createElement("span");
+    const now = i === s.phases.length - 1;
+    row.className = now ? "now" : "past"; name.textContent = p.name;
+    t.textContent = clock(Math.max(0, (now ? s.uptime_s : s.phases[i + 1].at_s) - p.at_s));
+    row.append(name, t); el.append(row);
+  });
+  if (s.phase === "Reading pages") {
+    const hint = document.createElement("p"); hint.className = "label";
+    hint.textContent = `${fmt(s.in_flight)} pages sent · each request reads up to 16 pages at once, so the first ones come back together`;
+    el.append(hint);
   }
-  $("words").textContent = fmt(words);
-  $("failed").textContent = fmt(failed); $("failed").className = "mid" + (failed ? " bad" : "");
 }
 
-function drawSpark() {
-  const pts = []; for (let i = 1; i < history.length; i++) {
-    const dt = history[i][0] - history[i - 1][0]; if (dt > 0) pts.push((history[i][1] - history[i - 1][1]) / dt * 60);
+function buildSpot() {
+  $("spot").innerHTML = '<img id="spotImg" alt=""><div id="spotRight"><div id="spotMeta"></div><div id="spotText"></div></div>';
+  spotReady = true;
+}
+
+function ingest(d) {
+  const s = d.stats; last = s;
+  if (!spotReady && (s.pages_done > 0 || queue.length)) buildSpot();
+  if (!spotReady) showSteps(s);
+  rate = s.rate_ppm;
+  $("rate").textContent = s.rate_ppm ? s.rate_ppm.toFixed(0) : "–";
+  $("done").textContent = fmt(s.pages_done);
+  $("of").textContent = `of ${fmt(s.pages_total)}`;
+  $("bar").style.width = (100 * s.pages_done / Math.max(1, s.pages_total)) + "%";
+  $("elapsed").textContent = clock(s.reading_s || 0);
+  $("words").textContent = fmt(s.words);
+  $("failed").textContent = fmt(s.pages_failed); $("failed").className = "mid" + (s.pages_failed ? " bad" : "");
+  if (s.gpu) {
+    $("gpu").textContent = `${s.gpu.util}% · ${Math.round(s.gpu.mem_used_gb)} / ${Math.round(s.gpu.mem_total_gb)} GB`;
+    $("gpuMem").style.width = (100 * s.gpu.mem_used_gb / s.gpu.mem_total_gb) + "%";
   }
-  const last = pts.slice(-60), max = Math.max(1, ...last);
-  const path = last.map((v, i) => `${i ? "L" : "M"}${(i / Math.max(1, last.length - 1) * 100).toFixed(1)},${(38 - v / max * 34).toFixed(1)}`).join("");
-  $("spark").innerHTML = `<path d="${path}" fill="none" stroke="var(--accent)" stroke-width="1.5" vector-effect="non-scaling-stroke"/>`;
+  drawSpark(s.spark);
+  $("flightN").textContent = fmt(s.in_flight);
+  const ft = $("flightThumbs"), keep = new Set(d.in_flight);
+  for (const [k, img] of flight) if (!keep.has(k)) { img.remove(); flight.delete(k); }
+  for (const k of d.in_flight) if (!flight.has(k)) { const i = new Image(); i.src = "img/" + k; ft.append(i); flight.set(k, i); }
+  // Late open or reload: start from the latest window, not the whole history.
+  const fresh = since === 0 ? d.pages.slice(-16) : d.pages;
+  for (const p of d.pages) since = Math.max(since, p.seq);
+  queue.push(...fresh);
+  if (queue.length > 32) queue.splice(0, queue.length - 32);
+  if (s.pages_total && s.pages_done >= s.pages_total) banner("done", `Finished · ${fmt(s.pages_done)} pages in ${clock(s.reading_s)}`);
+  else banner("", s.phase);
+}
+
+function banner(cls, text) { $("banner").className = cls; $("banner").textContent = text; }
+
+function drawSpark(v) {
+  if (!v || v.length < 2) { $("spark").innerHTML = ""; return; }
+  const max = Math.max(1, ...v);
+  const path = v.map((y, i) => `${i ? "L" : "M"}${(i / (v.length - 1) * 100).toFixed(1)},${(38 - y / max * 34).toFixed(1)}`).join("");
+  $("spark").innerHTML = `<path d="${path}" fill="none" stroke="var(--accent)" stroke-width="2" vector-effect="non-scaling-stroke"/>`;
 }
 
 function addToStrip(p) {
@@ -270,24 +309,23 @@ function addToStrip(p) {
   while ($("strip").children.length > 40) $("strip").lastChild.remove();
 }
 
-// Spotlight: one finished page at a time, its text typed out. A backlog shortens each page's slot,
-// so a 16-page window lands as a quick run of pages rather than a jump.
+// Spotlight: one finished page at a time, its text typed out. Each page's slot is the measured
+// time per page (60 s / pages per minute), so the cadence on screen is the real throughput.
 async function spotlight() {
   for (;;) {
     const p = queue.shift();
-    if (!p) { await new Promise(r => setTimeout(r, 300)); continue; }
-    const slot = Math.max(700, 5000 / (1 + queue.length / 3));
+    if (!p || !spotReady) { await new Promise(r => setTimeout(r, 300)); if (p) queue.unshift(p); continue; }
+    const slot = Math.min(5000, Math.max(400, rate ? 60000 / rate : 3000));
     $("spotImg").src = "img/" + p.img;
     $("spotMeta").textContent = `${p.doc} · page ${p.page}` + (p.status === "ok" ? "" : ` · ${p.status}`);
     $("spotMeta").className = p.status === "ok" ? "" : "bad";
-    $("doc").textContent = p.doc;
     addToStrip(p);
-    const text = p.text || "", el = $("spotText"), t0 = performance.now(), typeFor = slot * 0.75;
+    // Type only what fits on screen; the rest of the page is in the output, not the preview.
+    const text = (p.text || "(no text on this page)").slice(0, 1200), el = $("spotText"), t0 = performance.now(), typeFor = slot * 0.75;
     await new Promise(done => {
       function frame(now) {
         const n = Math.min(text.length, Math.ceil(text.length * (now - t0) / typeFor));
-        el.textContent = text.slice(0, n); const c = document.createElement("span"); c.className = "caret"; c.textContent = " ";
-        el.append(c);
+        el.textContent = text.slice(0, n);
         if (n < text.length) requestAnimationFrame(frame); else setTimeout(done, slot - typeFor);
       }
       requestAnimationFrame(frame);
@@ -296,7 +334,15 @@ async function spotlight() {
 }
 
 async function poll() {
-  try { ingest(await (await fetch("feed.json?since=" + since)).json()); } catch (e) {}
+  try {
+    ingest(await (await fetch("feed.json?since=" + since)).json()); misses = 0;
+  } catch (e) {
+    misses += 1;
+    if (misses >= 3 && last) {
+      if (last.pages_total && last.pages_done >= last.pages_total) banner("done", `Finished · ${fmt(last.pages_done)} pages in ${clock(last.reading_s)} · the Job has exited`);
+      else banner("stop", "Job stopped · check the Job logs");
+    }
+  }
   setTimeout(poll, 2000);
 }
 poll(); spotlight();
@@ -306,31 +352,42 @@ poll(); spotlight();
 class LiveView:
     """The last pages read, served as a web page from inside the Job (`--live-port`)."""
 
-    def __init__(self, port: int, pages_total: int, keep: int = 400):
+    def __init__(self, port: int, pages_total: int, keep: int = 300, stale_s: float = 3600):
         self.pages = collections.deque(maxlen=keep)
-        self.images: collections.OrderedDict[str, bytes] = collections.OrderedDict()  # key -> JPEG
-        self.keep = keep
-        self.in_flight: dict[str, str] = {}  # page path -> image key, loaded and sent, not yet read
+        self.images: dict[str, bytes] = {}  # key -> JPEG, for in-flight and kept pages
+        self.in_flight: dict[str, tuple[str, float]] = {}  # page path -> (image key, time loaded)
+        self.stale_s = stale_s  # a window not back after this long was given up on
         self.lock = threading.Lock()
         self.seq = 0
-        self.pages_total, self.pages_done, self.windows_done = pages_total, 0, 0
-        self.started = None  # set when the first page is loaded, so the rate leaves out server start-up
+        self.pages_total, self.pages_done, self.pages_failed, self.words = pages_total, 0, 0, 0
+        self.booted = time.time()
+        self.started = None  # first page loaded: the rate and elapsed time leave out server start-up
+        self.phases = [{"name": "Starting the Job", "at_s": 0}]
+        self.recent = collections.deque()  # (time, pages) of finished windows, for the rolling rate
+        self.spark = collections.deque(maxlen=40)  # pages per minute in 30 s buckets
+        self.gpu = None
         live = self
 
         class Handler(BaseHTTPRequestHandler):
             def do_GET(self):
-                if self.path.startswith("/feed.json"):
-                    since = int(self.path.partition("since=")[2] or 0)
-                    self.reply(json.dumps(live.feed(since)).encode(), "application/json")
-                elif self.path.startswith("/img/"):
-                    with live.lock:
-                        jpeg = live.images.get(self.path[len("/img/"):])
-                    if jpeg is None:
-                        self.send_error(404)
+                try:
+                    if self.path.startswith("/feed.json"):
+                        try:
+                            since = int(self.path.partition("since=")[2] or 0)
+                        except ValueError:
+                            since = 0
+                        self.reply(json.dumps(live.feed(since)).encode(), "application/json")
+                    elif self.path.startswith("/img/"):
+                        with live.lock:
+                            jpeg = live.images.get(self.path[len("/img/"):])
+                        if jpeg is None:
+                            self.send_error(404)
+                        else:
+                            self.reply(jpeg, "image/jpeg", cache="max-age=86400")
                     else:
-                        self.reply(jpeg, "image/jpeg", cache="max-age=86400")
-                else:
-                    self.reply(LIVE_PAGE.encode(), "text/html; charset=utf-8")
+                        self.reply(LIVE_PAGE.encode(), "text/html; charset=utf-8")
+                except (BrokenPipeError, ConnectionResetError):
+                    pass  # the viewer closed the tab mid-reply
 
             def reply(self, body: bytes, ctype: str, cache: str = "no-store"):
                 self.send_response(200)
@@ -344,42 +401,85 @@ class LiveView:
 
         server = ThreadingHTTPServer(("0.0.0.0", port), Handler)
         threading.Thread(target=server.serve_forever, daemon=True).start()
+        threading.Thread(target=self.tick, daemon=True).start()
         # An exposed Job port is served at https://<job id>--<port>.hf.jobs.
         where = (f"https://{os.environ['JOB_ID']}--{port}.hf.jobs (needs --expose-public {port})"
                  if os.environ.get("JOB_ID") else f"http://localhost:{port}")
         print(f"Live view: {where}", file=sys.stderr, flush=True)
 
+    def phase(self, name: str):
+        with self.lock:
+            self.phases.append({"name": name, "at_s": round(time.time() - self.booted)})
+
+    def tick(self):
+        """Every few seconds: GPU memory and load (so start-up visibly moves), and the sparkline."""
+        last_bucket, done_then = time.time(), 0
+        while True:
+            try:
+                out = subprocess.run(["nvidia-smi", "--query-gpu=utilization.gpu,memory.used,memory.total",
+                                      "--format=csv,noheader,nounits"], capture_output=True, text=True,
+                                     timeout=10, check=True).stdout.splitlines()[0]
+                util, used, total = (float(x) for x in out.split(","))
+                gpu = {"util": round(util), "mem_used_gb": used / 1024, "mem_total_gb": total / 1024}
+            except (OSError, subprocess.SubprocessError, ValueError, IndexError):
+                gpu = None
+            with self.lock:
+                self.gpu = gpu
+                if self.started and time.time() - last_bucket >= 30:
+                    self.spark.append(round((self.pages_done - done_then) * 60 / (time.time() - last_bucket), 1))
+                    last_bucket, done_then = time.time(), self.pages_done
+            time.sleep(3)
+
     def add_thumbnail(self, path: str, img):
         thumb = img.copy()
-        thumb.thumbnail((720, 720))
+        thumb.thumbnail((600, 600))
         buf = io.BytesIO()
         thumb.save(buf, format="JPEG", quality=80)
         with self.lock:
-            self.started = self.started or time.time()
+            if self.started is None:
+                self.started = time.time()
+                self.phases.append({"name": "Reading pages", "at_s": round(self.started - self.booted)})
             self.seq += 1
             key = f"{self.seq}.jpg"
             self.images[key] = buf.getvalue()
-            self.in_flight[path] = key
-            while len(self.images) > self.keep + len(self.in_flight):
-                self.images.popitem(last=False)
+            self.in_flight[path] = (key, time.time())
 
     def add_window(self, row: dict, status: str, texts):
+        now = time.time()
         with self.lock:
-            self.windows_done += 1
             self.pages_done += len(row["paths"])
+            self.recent.append((now, len(row["paths"])))
             for i, (path, rid) in enumerate(zip(row["paths"], row["page_files"], strict=True)):
-                self.seq += 1
                 text = texts[i] if texts and i < len(texts) else ""
+                self.words += len(text.split())
+                self.pages_failed += status != "ok"
+                if len(self.pages) == self.pages.maxlen:  # the oldest kept page leaves: drop its image
+                    self.images.pop(self.pages[0]["img"], None)
+                self.seq += 1
+                key, _ = self.in_flight.pop(path, ("", now))
                 self.pages.append({"seq": self.seq, "doc": row["doc_id"].rsplit("/", 1)[-1],
                                    "page": row["first_page"] + i + 1, "file": rid, "status": status,
-                                   "text": text[:4000], "img": self.in_flight.pop(path, "")})
+                                   "text": text[:4000], "img": key})
 
     def feed(self, since: int) -> dict:
+        now = time.time()
         with self.lock:
-            return {"stats": {"pages_total": self.pages_total, "pages_done": self.pages_done,
-                              "windows_done": self.windows_done, "in_flight": len(self.in_flight),
-                              "elapsed_s": round(time.time() - self.started) if self.started else 0},
-                    "in_flight": list(self.in_flight.values())[-24:],
+            for path, (key, t) in list(self.in_flight.items()):
+                if now - t > self.stale_s:  # never came back: stop showing it as being read
+                    del self.in_flight[path]
+                    self.images.pop(key, None)
+            while self.recent and now - self.recent[0][0] > 300:
+                self.recent.popleft()
+            span = min(300, now - self.started) if self.started else 0
+            rate = sum(n for _, n in self.recent) * 60 / span if span >= 20 else 0
+            return {"stats": {"phase": self.phases[-1]["name"], "phases": self.phases,
+                              "uptime_s": round(now - self.booted),
+                              "reading_s": round(now - self.started) if self.started else 0,
+                              "pages_total": self.pages_total, "pages_done": self.pages_done,
+                              "pages_failed": self.pages_failed, "words": self.words,
+                              "in_flight": len(self.in_flight), "rate_ppm": round(rate, 1),
+                              "spark": list(self.spark), "gpu": self.gpu},
+                    "in_flight": [key for key, _ in self.in_flight.values()][-24:],
                     "pages": [p for p in self.pages if p["seq"] > since]}
 
 
@@ -512,12 +612,20 @@ def main():
     # One request is minutes of decoding. saturate 0.2.0 caps a request's retries at
     # 300 s in total, which a retried 16-page request never fits in; match the read timeout.
     saturate.transport.RETRY_BUDGET_S = 3600.0
-    with Engine(SERVING["model"], engine="sglang", cmd=start_server_cmd()) as endpoint:
+    if live is not None:
+        live.phase("Installing Baidu's SGLang build")
+    cmd = start_server_cmd()
+    if live is not None:
+        live.phase("Loading the model")
+    with Engine(SERVING["model"], engine="sglang", cmd=cmd) as endpoint:
         stats = pump(rows, to_request, parse, endpoint, output,
                      window=Auto(initial=32, max_limit=64),  # long requests: start wide
                      flush_every=4,  # each row is minutes of GPU time; write often
                      read_timeout=3600, prepare_workers=8, retry_errors=args.retry_errors)
     print(f"{output}: {stats.rows_processed} windows written, {stats.rows_failed} errors", file=sys.stderr)
+    if live is not None:
+        live.phase("Finished")
+        time.sleep(60)  # keep the final numbers on screen for a minute before the Job exits
     print("UNLIMITED_OCR2 " + stats.to_json(), flush=True)
 
 
