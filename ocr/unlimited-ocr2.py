@@ -192,7 +192,31 @@ def load_page(fs, path: str, max_side: int, live=None) -> str:
         live.add_thumbnail(path, img)
     buf = io.BytesIO()
     img.save(buf, format="JPEG", quality=90)
-    return base64.b64encode(buf.getvalue()).decode()
+    b64 = base64.b64encode(buf.getvalue()).decode()
+    if live is not None:
+        live.offer(path, b64)
+    return b64
+
+
+def page_request(images_b64: list[str], stream: bool = False) -> dict:
+    """The chat request for consecutive pages, with the model card's sampling and guard settings."""
+    n = len(images_b64)
+    content = [{"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}} for b64 in images_b64]
+    content.append({"type": "text", "text": "<PAGE><image>" * n + "Multi page parsing."})
+    return {
+        "model": SERVING["served_name"],
+        "messages": [{"role": "user", "content": content}],
+        "max_tokens": 8000 * n,  # output budget for the whole window
+        "temperature": 0,
+        "skip_special_tokens": False,  # <PAGE>/<BLOCK> markers are the structure
+        "images_config": {"crop_mode": False},  # base mode: one 1024 px view per page
+        "custom_logit_processor": NGRAM_PROCESSOR,
+        "custom_params": {
+            "ngram_size": 35, "window_size": 1024 if n > 1 else 128,
+            "page_token_id": 128827, "eos_token_id": 1, "max_page_tokens": 20000,
+        },
+        "stream": stream,
+    }
 
 
 LIVE_PAGE = """<!doctype html><meta charset="utf-8"><title>Unlimited-OCR-2 live</title>
@@ -217,8 +241,9 @@ h1{font-size:20px;margin:0;font-weight:650;white-space:nowrap}
 #spotImg{max-width:100%;max-height:100%;object-fit:contain;justify-self:center;border:1px solid var(--line);background:var(--card)}
 #spotRight{display:flex;flex-direction:column;min-height:0;min-width:0}
 #spotMeta{font-size:14px;color:var(--muted);margin-bottom:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#spotMeta.live::before{content:"● ";color:var(--accent);animation:blink 1s steps(1) infinite}
 #spotText{flex:1;overflow:hidden;white-space:pre-wrap;font:19px/1.55 Georgia,serif;max-width:62ch;
- -webkit-mask-image:linear-gradient(#000 85%,transparent);mask-image:linear-gradient(#000 85%,transparent)}
+ -webkit-mask-image:linear-gradient(transparent,#000 12%);mask-image:linear-gradient(transparent,#000 12%)}
 .fade{animation:fade .5s ease-out}@keyframes fade{from{opacity:0}}
 #wait{grid-column:1/-1;display:flex;flex-direction:column;gap:16px;min-height:0;min-width:0}
 #steps{font-size:17px;color:var(--muted);display:flex;flex-wrap:wrap;gap:6px 22px}
@@ -329,9 +354,27 @@ function addToStrip(p) {
   while ($("strip").children.length > 40) $("strip").lastChild.remove();
 }
 
-// Spotlight: every 2.5 s, the newest finished page, large, with the text the model returned for it.
+// Spotlight: the page the model is reading right now, its text arriving token by token (one
+// streaming request beside the batch). Between live pages: the newest finished page.
+let live = null, liveImg = "";
+async function pollStream() {
+  try {
+    live = await (await fetch("stream.json")).json();
+    if (live && !spotReady) buildSpot();
+    if (live && spotReady) {
+      if (live.img && live.img !== liveImg) { liveImg = live.img; $("spotImg").src = "img/" + live.img; }
+      $("spotMeta").className = live.done ? "" : "live";
+      $("spotMeta").textContent = (live.done ? "Just read · " : `Reading now · ${live.tok_s} tokens/s · `) + `${live.doc} · page ${live.page}`;
+      const el = $("spotText");
+      el.textContent = live.text.replace(/^#+ /gm, "") || "…";
+      el.scrollTop = el.scrollHeight;
+    }
+  } catch (e) {}
+  setTimeout(pollStream, live && !live.done ? 250 : 1000);
+}
+
 function spotlight() {
-  if (spotReady && newest && newest !== shown) {
+  if (spotReady && !live && newest && newest !== shown) {
     const p = newest; shown = p;
     $("spotImg").src = "img/" + p.img;
     $("spotMeta").textContent = `${p.doc} · page ${p.page}` + (p.status === "ok" ? "" : ` · ${p.status}`);
@@ -355,14 +398,14 @@ async function poll() {
   }
   setTimeout(poll, 2000);
 }
-poll(); spotlight();
+poll(); spotlight(); pollStream();
 </script>"""
 
 
 class LiveView:
     """The last pages read, served as a web page from inside the Job (`--live-port`)."""
 
-    def __init__(self, port: int, pages_total: int, keep: int = 300, stale_s: float = 3600):
+    def __init__(self, port: int, pages_total: int, names: dict, keep: int = 300, stale_s: float = 3600):
         self.pages = collections.deque(maxlen=keep)
         self.images: dict[str, bytes] = {}  # key -> JPEG, for in-flight and kept pages
         self.in_flight: dict[str, tuple[str, float]] = {}  # page path -> (image key, time loaded)
@@ -376,12 +419,19 @@ class LiveView:
         self.recent = collections.deque()  # (time, pages) of finished windows, for the rolling rate
         self.spark = collections.deque(maxlen=30)  # pages per minute in 60 s buckets
         self.gpu = None
+        self.names = names  # page path -> (document, page number)
+        self.offered = None  # (path, base64 JPEG) of the newest prepared page
+        self.stream = None  # the page being read live, token by token
         live = self
 
         class Handler(BaseHTTPRequestHandler):
             def do_GET(self):
                 try:
-                    if self.path.startswith("/feed.json"):
+                    if self.path.startswith("/stream.json"):
+                        with live.lock:
+                            body = json.dumps(live.stream)
+                        self.reply(body.encode(), "application/json")
+                    elif self.path.startswith("/feed.json"):
                         try:
                             since = int(self.path.partition("since=")[2] or 0)
                         except ValueError:
@@ -416,6 +466,55 @@ class LiveView:
         where = (f"https://{os.environ['JOB_ID']}--{port}.hf.jobs (needs --expose-public {port})"
                  if os.environ.get("JOB_ID") else f"http://localhost:{port}")
         print(f"Live view: {where}", file=sys.stderr, flush=True)
+
+    def offer(self, path: str, b64: str):
+        with self.lock:
+            self.offered = (path, b64)
+
+    def start_streaming(self, url: str):
+        """Read one page at a time with streaming on, so the page can show the model's text as it is produced.
+
+        This is one extra single-page request beside the batch (a few percent of the GPU); its
+        output is only shown, never written.
+        """
+        threading.Thread(target=self._stream_loop, args=(url,), daemon=True).start()
+
+    def _stream_loop(self, url: str):
+        import urllib.request
+
+        while True:
+            with self.lock:
+                offered, self.offered = self.offered, None
+                key = self.in_flight.get(offered[0], ("",))[0] if offered else ""
+            if not offered:
+                time.sleep(0.5)
+                continue
+            path, b64 = offered
+            doc, page = self.names.get(path, ("", 0))
+            raw, tokens, t0 = "", 0, time.time()
+            with self.lock:
+                self.stream = {"img": key, "doc": doc, "page": page, "text": "", "tok_s": 0, "done": False}
+            try:
+                req = urllib.request.Request(f"{url}/v1/chat/completions",
+                                             data=json.dumps(page_request([b64], stream=True)).encode(),
+                                             headers={"Content-Type": "application/json"})
+                with urllib.request.urlopen(req, timeout=600) as resp:
+                    for line in resp:
+                        line = line.decode("utf-8", "replace").strip()
+                        if not line.startswith("data: ") or line == "data: [DONE]":
+                            continue
+                        delta = (json.loads(line[6:])["choices"][0].get("delta") or {}).get("content") or ""
+                        raw += delta
+                        tokens += 1
+                        text = clean_page(raw.split("<PAGE>")[-1], keep_furniture=False)
+                        with self.lock:
+                            self.stream.update(text=text[-1500:], tok_s=round(tokens / max(0.1, time.time() - t0)))
+            except (OSError, ValueError, KeyError, IndexError) as e:  # the live view must never affect the run
+                print(f"Live view stream: {type(e).__name__}: {e}", file=sys.stderr)
+                time.sleep(5)
+            with self.lock:
+                self.stream["done"] = True
+            time.sleep(3)  # leave the finished page on screen for a moment
 
     def phase(self, name: str):
         with self.lock:
@@ -571,28 +670,14 @@ def main():
     print(f"{len({r['doc_id'] for _, r in rows})} documents, "
           f"{sum(len(r['paths']) for _, r in rows)} pages, {len(rows)} requests", file=sys.stderr)
     fs = fsspec.core.url_to_fs(args.input.split("*")[0] or ".")[0]
-    live = LiveView(args.live_port, sum(len(r["paths"]) for _, r in rows)) if args.live_port else None
+    live = None
+    if args.live_port:
+        names = {p: (r["doc_id"].rsplit("/", 1)[-1], r["first_page"] + i + 1)
+                 for _, r in rows for i, p in enumerate(r["paths"])}
+        live = LiveView(args.live_port, sum(len(r["paths"]) for _, r in rows), names)
 
     def to_request(row):
-        n = len(row["paths"])
-        content = [{"type": "image_url",
-                    "image_url": {"url": f"data:image/jpeg;base64,{load_page(fs, p, args.max_side, live)}"}}
-                   for p in row["paths"]]
-        content.append({"type": "text", "text": "<PAGE><image>" * n + "Multi page parsing."})
-        # Sampling and guard settings from the model card's client example.
-        return {
-            "model": SERVING["served_name"],
-            "messages": [{"role": "user", "content": content}],
-            "max_tokens": 8000 * n,  # output budget for the whole window
-            "temperature": 0,
-            "skip_special_tokens": False,  # <PAGE>/<BLOCK> markers are the structure
-            "images_config": {"crop_mode": False},  # base mode: one 1024 px view per page
-            "custom_logit_processor": NGRAM_PROCESSOR,
-            "custom_params": {
-                "ngram_size": 35, "window_size": 1024 if n > 1 else 128,
-                "page_token_id": 128827, "eos_token_id": 1, "max_page_tokens": 20000,
-            },
-        }
+        return page_request([load_page(fs, p, args.max_side, live) for p in row["paths"]])
 
     def parse(row, body):
         choice = body["choices"][0]
@@ -632,6 +717,8 @@ def main():
     if live is not None:
         live.phase("Loading the model")
     with Engine(SERVING["model"], engine="sglang", cmd=cmd) as endpoint:
+        if live is not None:
+            live.start_streaming("http://127.0.0.1:8000")
         stats = pump(rows, to_request, parse, endpoint, output,
                      window=Auto(initial=32, max_limit=64),  # long requests: start wide
                      flush_every=4,  # each row is minutes of GPU time; write often
