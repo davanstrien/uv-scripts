@@ -19,7 +19,8 @@
 #       vllm/vllm-openai:v0.32.0 -- \
 #       bash /recipe/nemotron-transcribe-image.sh cr.hf.co/uv-scripts/nemotron-transcribe
 #
-# Optional env: NEMO_REF (NeMo Speech branch/tag/commit, default main) and
+# Optional env: NEMO_REF (NeMo Speech branch/tag/commit, default main:
+# a new image pins a new commit; update DEFAULT_NEMO_REF in the recipe to match) and
 # TAG_SUFFIX (appended to the tag, to keep an earlier build of the same commit).
 set -euo pipefail
 
@@ -40,9 +41,14 @@ NEMO_SHA="$(cat "$WORKDIR/nemo-speech/.nemo-ref")"
 TAG="v0.32.0-nemo-${NEMO_SHA:0:12}${TAG_SUFFIX:-}"
 
 # 2. One layer: the serving stack and the warm caches, not the checkpoint.
+# A cache directory may not exist (e.g. every kernel came precompiled).
+paths=("${WORKDIR#/}")
+for cache in root/.cache/flashinfer root/.cache/vllm; do
+    if [ -d "/$cache" ]; then paths+=("$cache"); fi
+done
 tar -C / -cf /tmp/layer.tar \
     --exclude="${WORKDIR#/}/model" --exclude="${WORKDIR#/}/nemo-speech.tar.gz" \
-    "${WORKDIR#/}" root/.cache/flashinfer root/.cache/vllm
+    "${paths[@]}"
 ls -lh /tmp/layer.tar
 
 # 3. Append it to the base image and push (also tag :latest).
