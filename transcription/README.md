@@ -22,30 +22,45 @@ Scripts that transcribe audio files on a GPU with [Hugging Face Jobs](https://hu
 
 First, [install the `hf` CLI and sign in](https://huggingface.co/docs/hub/jobs-quickstart). Jobs needs pay-as-you-go credit.
 
-Transcribe two four-minute clips of [Apollo 11 mission audio](https://huggingface.co/buckets/uv-scripts/transcription-demo) (the landing and the first step) and label who is speaking. Create a Bucket for the results, then run [MOSS-Transcribe-Diarize](https://huggingface.co/OpenMOSS-Team/MOSS-Transcribe-Diarize) on the demo clips. Replace `your-username` with your Hugging Face username:
+Transcribe four minutes of NASA's [*Houston We Have a Podcast*](https://huggingface.co/buckets/uv-scripts/transcription-demo) (a host and a guest) with [Nemotron 3.5 Transcribe](https://huggingface.co/nvidia/NVIDIA-Nemotron-3.5-Transcribe-30B-A4B), and get word timestamps and speaker tags. Create a Bucket for the results, then run the script on the demo clip. Replace `your-username` with your Hugging Face username:
 
 ```bash
 hf buckets create your-username/transcripts --private
+hf jobs uv run --timeout 45m \
+    -v hf://buckets/uv-scripts/transcription-demo/podcast:/input:ro \
+    -v hf://buckets/your-username/transcripts/podcast:/output \
+    https://huggingface.co/datasets/uv-scripts/transcription/raw/main/nemotron-transcribe.py \
+    /input /output --timestamps
+```
+
+The Job writes `nasa-podcast-ep100.txt`, `nasa-podcast-ep100.json` and a `summary.jsonl` under the `podcast/` prefix of your Bucket. The `.txt` has the text with speaker tags:
+
+```
+<spk:0> Jim, thank you so much for coming on the podcast today. This is a very exciting day for you to be here at the Johnson Space Center. <spk:3> It is, uh, the mission control room, of course, is now open for business ...
+```
+
+The JSON has every word with its start and end time and speaker (`parts[].alignment.words`), plus diarization segments (`parts[].alignment.diarization`):
+
+```json
+{"word": "sustainable", "start": 0.02, "end": 0.98, "speaker": "0", "part": 0}
+```
+
+In our test run the Job took about 7.5 minutes on `rtx-pro-6000` (about $0.34). Almost all of that is fixed setup (loading a 30B model into vLLM), so a batch of hours of audio costs little more. Read the output with `hf buckets cp hf://buckets/your-username/transcripts/podcast/nasa-podcast-ep100.txt -`.
+
+**Faster and cheaper for speaker labels:** [MOSS-Transcribe-Diarize](https://huggingface.co/OpenMOSS-Team/MOSS-Transcribe-Diarize) on the same clip took under 2 minutes on `l4x1` (about $0.02) and wrote one line per segment (`[61.82 - 67.06] S02: The mission control room, ...`):
+
+```bash
 hf jobs uv run --flavor l4x1 -s HF_TOKEN --timeout 30m \
     -e UV_TORCH_BACKEND=cu128 \
-    -v hf://buckets/uv-scripts/transcription-demo/audio:/input:ro \
-    -v hf://buckets/your-username/transcripts/apollo11:/output \
+    -v hf://buckets/uv-scripts/transcription-demo/podcast:/input:ro \
+    -v hf://buckets/your-username/transcripts/podcast-moss:/output \
     https://huggingface.co/datasets/uv-scripts/transcription/raw/main/moss-transcribe-diarize.py \
     /input /output --emit-txt
 ```
 
-The Job writes `apollo11-landing.json` (speaker segments), `apollo11-landing.txt` and the same pair for the first-step clip, plus a `summary.jsonl`, under the `apollo11/` prefix of your Bucket. Each `.txt` line has the times, an anonymous speaker label and the text:
+For harder audio, mount `/apollo11` instead: two clips of 1969 mission tapes (the landing and the first step) with radio noise and crosstalk. No download or upload step in any of these: the `-v` flags mount the Buckets in the Job via [hf-mount](https://github.com/huggingface/hf-mount). The [demo Bucket's README](https://huggingface.co/buckets/uv-scripts/transcription-demo) gives the sources and licences (NASA, public domain).
 
-```
-[160.47 - 161.91] S03: We copy you down, Eagle.
-[166.35 - 168.95] S01: Tranquility Base here, the Eagle has landed.
-```
-
-In our test run the Job took about 2 minutes on `l4x1` (about $0.03), most of it installing dependencies and loading the model. Read the output with `hf buckets cp hf://buckets/your-username/transcripts/apollo11/apollo11-landing.txt -`.
-
-No download or upload step: the `-v` flags mount the Buckets in the Job via [hf-mount](https://github.com/huggingface/hf-mount). The [demo Bucket's README](https://huggingface.co/buckets/uv-scripts/transcription-demo) gives the source and licence (NASA, public domain).
-
-> **Note:** most scripts here take their GPU and image from flags, as above. The two Nemotron scripts have a [`[tool.hf-jobs]` header](https://huggingface.co/docs/hub/jobs-configuration#define-the-launch-config-in-the-script) that sets the GPU, image and secrets, so they need no flags. The `hf` CLI reads the header from version 1.32; older CLIs ignore it without a warning (check with `hf version`). `hf jobs uv run --dry-run <script>` shows the resolved settings.
+> **Note:** the Nemotron command needs no GPU or image flags because the script's [`[tool.hf-jobs]` header](https://huggingface.co/docs/hub/jobs-configuration#define-the-launch-config-in-the-script) sets them; the two Nemotron scripts are the only ones with a header so far, so the others take flags, as in the MOSS command. The `hf` CLI reads the header from version 1.32; older CLIs ignore it without a warning, and the Job then fails on a CPU (check with `hf version`). `hf jobs uv run --dry-run <script>` shows the resolved settings.
 
 ## Use your own audio
 
