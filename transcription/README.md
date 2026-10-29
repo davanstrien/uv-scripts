@@ -86,7 +86,7 @@ hf jobs uv run --detach --expose 8000 --timeout 2h \
     https://huggingface.co/datasets/uv-scripts/transcription/raw/main/nemotron-transcribe.py \
     --serve
 
-# Scale: the same script as a driver, from a laptop or a CPU job
+# Scale: the same script as a driver, from a laptop
 uv run https://huggingface.co/datasets/uv-scripts/transcription/raw/main/nemotron-transcribe.py \
     ./audio ./transcripts --server https://<job_id>--8000.hf.jobs
 ```

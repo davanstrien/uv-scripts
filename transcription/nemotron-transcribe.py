@@ -251,12 +251,22 @@ def shift_alignment(alignment: dict, offset_s: float, part_index: int) -> dict:
 def is_local(server: str) -> bool:
     from urllib.parse import urlparse
 
-    return urlparse(server).hostname in {"127.0.0.1", "localhost"}
+    return urlparse(server).hostname in {"127.0.0.1", "localhost", "::1", "0.0.0.0"}
+
+
+def is_jobs_endpoint(server: str) -> bool:
+    from urllib.parse import urlparse
+
+    url = urlparse(server)
+    return url.scheme == "https" and (url.hostname or "").endswith(".hf.jobs")
 
 
 def auth_headers(server: str) -> dict:
-    """An HF token for a remote server: Jobs exposed ports require one."""
-    if is_local(server):
+    """An HF token for a Jobs exposed port (https://<job_id>--<port>.hf.jobs).
+
+    Other servers get no token, so it never leaves for a host that is not HF.
+    """
+    if not is_jobs_endpoint(server):
         return {}
     from huggingface_hub import get_token
 
@@ -285,6 +295,13 @@ def launch_local_server(server: str, workdir: Path, nemo_ref: str) -> subprocess
     # Only start a server where the requests will go: this machine, on the
     # port named in --server.
     port = urlparse(server).port
+    if is_jobs_endpoint(server):
+        logger.error(
+            f"No server answers at {server}. Check that the --serve job is "
+            "running and started with --expose, and that you are logged in "
+            "(hf auth login) with a token that can read the job."
+        )
+        sys.exit(1)
     if not is_local(server) or port is None:
         logger.error(
             f"No server answers at {server}. To start one here, pass "
@@ -318,7 +335,10 @@ def serve(server: str, workdir: Path, nemo_ref: str):
             )
         else:
             logger.info(f"Serving {MODEL} at {server}. Ctrl-C to stop.")
-        process.wait()
+        code = process.wait()
+        if code != 0:
+            logger.error(f"vllm serve exited with code {code}")
+            sys.exit(1)
     finally:
         stop_server(process)
 
@@ -622,6 +642,8 @@ def main():
     args = parser.parse_args()
 
     if args.serve:
+        if args.input_dir or args.output_dir:
+            parser.error("--serve takes no input_dir or output_dir")
         serve(args.server, Path(args.workdir), args.nemo_ref)
         return
     if args.input_dir is None or args.output_dir is None:
