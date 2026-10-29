@@ -41,6 +41,21 @@ Run on HF Jobs (image, flavor and HF_TOKEN secret come from the
       https://huggingface.co/datasets/uv-scripts/transcription/raw/main/nemotron-transcribe.py \\
       /input /output
 
+Serve, explore, scale: to pay the setup once and reuse a hot model, run the
+server on its own with an exposed port, then send requests to it from
+anywhere with an HF token (Bearer auth):
+
+  hf jobs uv run --detach --expose 8000 --timeout 2h \\
+      https://huggingface.co/datasets/uv-scripts/transcription/raw/main/nemotron-transcribe.py \\
+      --serve
+  # -> https://<job_id>--8000.hf.jobs (OpenAI-compatible: /v1/chat/completions)
+
+  uv run nemotron-transcribe.py ./audio ./transcripts \\
+      --server https://<job_id>--8000.hf.jobs
+
+Cancel the serving job (`hf jobs cancel <job_id>`) when done; exposed ports
+are billed on top of the hardware price.
+
 Setup is a fixed ~8 min per job on the prebuilt image (2 min image pull,
 35 s checkpoint download, ~4 min engine warmup); ~10 min with
 `--image vllm/vllm-openai:v0.32.0`, which installs the stack at runtime. Batch
@@ -198,7 +213,12 @@ def transcribe_part(
         "max_tokens": MAX_TOKENS,
         **extra,
     }
-    resp = requests.post(f"{server}/v1/chat/completions", json=body, timeout=timeout_s)
+    resp = requests.post(
+        f"{server}/v1/chat/completions",
+        json=body,
+        headers=auth_headers(server),
+        timeout=timeout_s,
+    )
     resp.raise_for_status()
     return resp.json()
 
@@ -233,13 +253,102 @@ def shift_alignment(alignment: dict, offset_s: float, part_index: int) -> dict:
     }
 
 
+def is_local(server: str) -> bool:
+    from urllib.parse import urlparse
+
+    return urlparse(server).hostname in {"127.0.0.1", "localhost", "::1", "0.0.0.0"}
+
+
+def is_jobs_endpoint(server: str) -> bool:
+    from urllib.parse import urlparse
+
+    url = urlparse(server)
+    return url.scheme == "https" and (url.hostname or "").endswith(".hf.jobs")
+
+
+def auth_headers(server: str) -> dict:
+    """An HF token for a Jobs exposed port (https://<job_id>--<port>.hf.jobs).
+
+    Other servers get no token, so it never leaves for a host that is not HF.
+    """
+    if not is_jobs_endpoint(server):
+        return {}
+    from huggingface_hub import get_token
+
+    token = get_token()
+    return {"Authorization": f"Bearer {token}"} if token else {}
+
+
 def server_is_up(server: str) -> bool:
     import requests
 
     try:
-        return requests.get(f"{server}/health", timeout=5).status_code == 200
+        resp = requests.get(
+            f"{server}/health", headers=auth_headers(server), timeout=10
+        )
+        return resp.status_code == 200
     except requests.RequestException:
         return False
+
+
+def launch_local_server(server: str, workdir: Path, nemo_ref: str) -> subprocess.Popen:
+    """Install the stack if needed, download the checkpoint and start vllm serve."""
+    from urllib.parse import urlparse
+
+    from huggingface_hub import snapshot_download
+
+    # Only start a server where the requests will go: this machine, on the
+    # port named in --server.
+    port = urlparse(server).port
+    if is_jobs_endpoint(server):
+        logger.error(
+            f"No server answers at {server}. Check that the --serve job is "
+            "running and started with --expose, and that you are logged in "
+            "(hf auth login) with a token that can read the job."
+        )
+        sys.exit(1)
+    if not is_local(server) or port is None:
+        logger.error(
+            f"No server answers at {server}. To start one here, pass "
+            "--server http://127.0.0.1:<port> (the default is port 8000)."
+        )
+        sys.exit(1)
+    if shutil.which("nvidia-smi") is None:
+        logger.error("No GPU found: run on a GPU flavor (see the header)")
+        sys.exit(1)
+    workdir.mkdir(parents=True, exist_ok=True)
+    venv = install_serving_stack(workdir, nemo_ref)
+    logger.info(f"Downloading {MODEL}...")
+    model_dir = Path(snapshot_download(MODEL, local_dir=workdir / "model"))
+    return start_server(venv, model_dir, port)
+
+
+def serve(server: str, workdir: Path, nemo_ref: str):
+    """Start the server and keep it up until the job is cancelled or times out."""
+    from urllib.parse import urlparse
+
+    if server_is_up(server):
+        logger.error(f"A server already answers at {server}")
+        sys.exit(1)
+    process = launch_local_server(server, workdir, nemo_ref)
+    try:
+        wait_for_server(server, process)
+        port = urlparse(server).port
+        job_id = os.environ.get("JOB_ID")
+        if job_id:
+            logger.info(
+                f"Serving {MODEL} at https://{job_id}--{port}.hf.jobs "
+                f"(start the job with --expose {port}; send an HF token as "
+                "Bearer). Cancel the job to stop."
+            )
+        else:
+            logger.info(f"Serving {MODEL} at {server}. Ctrl-C to stop.")
+        code = process.wait()
+        if code != 0:
+            logger.error(f"vllm serve exited with code {code}")
+            sys.exit(1)
+    finally:
+        stop_server(process)
 
 
 def install_serving_stack(workdir: Path, nemo_ref: str) -> Path:
@@ -474,13 +583,21 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="See module docstring for the full `hf jobs run` command.",
     )
-    parser.add_argument("input_dir", help="Directory containing audio files")
-    parser.add_argument("output_dir", help="Directory to write transcripts")
+    parser.add_argument("input_dir", nargs="?", help="Directory containing audio files")
+    parser.add_argument("output_dir", nargs="?", help="Directory to write transcripts")
     parser.add_argument(
         "--server",
         default="http://127.0.0.1:8000",
         help="vLLM server base URL (default: in-job localhost:8000). If no "
-        "server answers there, the script installs and starts one.",
+        "server answers there, the script installs and starts one. A remote "
+        "URL, such as a serving job's https://<job_id>--8000.hf.jobs, gets "
+        "your HF token as Bearer auth.",
+    )
+    parser.add_argument(
+        "--serve",
+        action="store_true",
+        help="Only start the server and keep it up (for a job started with "
+        "--expose 8000); no input/output directories",
     )
     parser.add_argument(
         "--nemo-ref",
@@ -542,6 +659,14 @@ def main():
 
     args = parser.parse_args()
 
+    if args.serve:
+        if args.input_dir or args.output_dir:
+            parser.error("--serve takes no input_dir or output_dir")
+        serve(args.server, Path(args.workdir), args.nemo_ref)
+        return
+    if args.input_dir is None or args.output_dir is None:
+        parser.error("input_dir and output_dir are required (unless --serve)")
+
     input_dir = Path(args.input_dir)
     output_dir = Path(args.output_dir)
     if not input_dir.is_dir():
@@ -588,28 +713,9 @@ def main():
     if server_is_up(args.server):
         logger.info(f"Using the running server at {args.server}")
     else:
-        from urllib.parse import urlparse
-
-        from huggingface_hub import snapshot_download
-
-        # Only start a server where the requests will go: this machine, on
-        # the port named in --server.
-        url = urlparse(args.server)
-        if url.hostname not in {"127.0.0.1", "localhost"} or url.port is None:
-            logger.error(
-                f"No server answers at {args.server}. To start one here, pass "
-                "--server http://127.0.0.1:<port> (the default is port 8000)."
-            )
-            sys.exit(1)
-        if shutil.which("nvidia-smi") is None:
-            logger.error("No GPU found: run on a GPU flavor (see the header)")
-            sys.exit(1)
-        workdir = Path(args.workdir)
-        workdir.mkdir(parents=True, exist_ok=True)
-        venv = install_serving_stack(workdir, args.nemo_ref)
-        logger.info(f"Downloading {MODEL}...")
-        model_dir = Path(snapshot_download(MODEL, local_dir=workdir / "model"))
-        server_process = start_server(venv, model_dir, url.port)
+        server_process = launch_local_server(
+            args.server, Path(args.workdir), args.nemo_ref
+        )
 
     # Results are appended as files finish, so a crash keeps what completed
     # and a resumed run adds to the earlier records instead of replacing them.
