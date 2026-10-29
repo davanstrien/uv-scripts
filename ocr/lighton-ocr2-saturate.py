@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.11"
 # dependencies = [
-#     "saturate[hf]>=0.1.1",
+#     "saturate[hf] @ git+https://github.com/davanstrien/saturate@main",
 #     "pillow>=10",
 # ]
 #
@@ -135,6 +135,7 @@ def main():
                     help="Re-admit rows whose only record is an error row")
     args = ap.parse_args()
 
+    import pyarrow as pa
     from saturate import Auto, Engine, dataset_rows, pump
 
     target_size = 0 if args.no_resize else args.target_size
@@ -155,6 +156,13 @@ def main():
             "max_tokens": args.max_tokens,
         }
 
+    # Declared, so a part holding only error rows has the same columns as the rest
+    # (datasets.load_dataset reads every part with one schema).
+    schema = pa.schema([
+        ("id", pa.string()), ("error", pa.string()), ("markdown", pa.string()),
+        ("model", pa.string()), ("prompt_tokens", pa.int64()), ("completion_tokens", pa.int64()),
+    ])  # fmt: skip
+
     def parse(row, body):
         usage = body.get("usage") or {}
         return {
@@ -169,7 +177,7 @@ def main():
     with Engine(SERVING["model"], engine="vllm", extra_args=extra) as endpoint:
         stats = pump(rows, to_request, parse, endpoint, output,
                      window=Auto(initial=8, max_limit=48),
-                     retry_errors=args.retry_errors)
+                     retry_errors=args.retry_errors, schema=schema)
 
     print(f"https://huggingface.co/datasets/{args.output_dataset} "
           f"({stats.rows_processed} ok, {stats.rows_failed} error rows)", file=sys.stderr)

@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.11"
 # dependencies = [
-#     "saturate[hf]==0.2.0",
+#     "saturate[hf] @ git+https://github.com/davanstrien/saturate@main",
 #     "pillow>=10",
 #     "pymupdf>=1.24",
 # ]
@@ -527,14 +527,8 @@ def main():
     # headroom (a100-large: 8 x 32-page windows used ~25% of KV) and flush often,
     # since each row is expensive to redo.
     window = Auto(initial=32, max_limit=64)
-    # saturate caps a row's retries at RETRY_BUDGET_S (300 s, counted from the first
-    # attempt), which is shorter than one legitimate multi-page generation here, so a
-    # transient first-attempt failure always ended in a TimeoutError row. Match the
-    # read timeout until saturate exposes this as a pump() argument.
-    import saturate.transport
-
-    saturate.transport.RETRY_BUDGET_S = 3600.0
-
+    # read_timeout=3600: one window is minutes of decode. A row's retries then get
+    # 2 x read_timeout in total (saturate's default retry budget).
     def run_passes(endpoint, headers=None):
         common = {"retry_errors": args.retry_errors, "headers": headers,
                   "prepare_workers": args.prepare_workers, "read_timeout": 3600}

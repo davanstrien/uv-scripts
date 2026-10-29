@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.11"
 # dependencies = [
-#     "saturate[hf]==0.2.0",
+#     "saturate[hf] @ git+https://github.com/davanstrien/saturate@main",
 #     "pillow>=10",
 # ]
 #
@@ -279,7 +279,6 @@ def main():
     SERVING["env"]["SGLANG_UOCR_MAX_PAGE_TOKENS"] = str(args.max_page_tokens)
 
     import fsspec
-    import saturate.transport
     from saturate import Auto, Engine, pump
 
     rows = list(list_windows(args.input, args.pages_per_request, args.max_pages))
@@ -335,9 +334,8 @@ def main():
     is_repo_id = re.fullmatch(r"[\w-][\w.-]*/[\w.-]*[\w-]", args.output) and not os.path.exists(args.output)
     output = f"hf://datasets/{args.output}/data" if is_repo_id else args.output
 
-    # One request is minutes of decoding. saturate 0.2.0 caps a request's retries at
-    # 300 s in total, which a retried 16-page request never fits in; match the read timeout.
-    saturate.transport.RETRY_BUDGET_S = 3600.0
+    # One request is minutes of decoding: read_timeout=3600 below, and a row's retries get
+    # 2 x read_timeout in total (saturate's default retry budget).
     with Engine(SERVING["model"], engine="sglang", cmd=start_server_cmd()) as endpoint:
         stats = pump(rows, to_request, parse, endpoint, output,
                      window=Auto(initial=32, max_limit=64),  # long requests: start wide

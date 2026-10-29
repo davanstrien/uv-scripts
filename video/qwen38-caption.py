@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.11"
 # dependencies = [
-#     "saturate[hf]==0.2.0",
+#     "saturate[hf] @ git+https://github.com/davanstrien/saturate@main",
 # ]
 #
 # [tool.hf-jobs]
