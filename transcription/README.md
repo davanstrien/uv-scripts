@@ -61,6 +61,7 @@ Audio already on your machine? Mount the folder directly — `-v ./audio:/input`
 | `moss-transcribe-diarize.py` | [MOSS-Transcribe-Diarize](https://huggingface.co/OpenMOSS-Team/MOSS-Transcribe-Diarize) (0.9B) | transformers (remote code) | JSON speaker segments `{start, end, speaker, text}` (+ optional `.txt` / `.srt`) | 3.2x RT (A10G, 74-min file) |
 | `moss-transcribe-diarize-server.py` | [MOSS-Transcribe-Diarize](https://huggingface.co/OpenMOSS-Team/MOSS-Transcribe-Diarize) (0.9B) | in-job sgl-omni server | JSON speaker segments (+ optional `.txt`) | 47.4x RT aggregate (A100, 6 streams) |
 | `nemotron-transcribe.py` | [Nemotron 3.5 Transcribe](https://huggingface.co/nvidia/NVIDIA-Nemotron-3.5-Transcribe-30B-A4B) (30B MoE, ~4B active, 40 languages) | in-job vLLM 0.32 + NeMo Speech server | `.txt` (+ JSON word timestamps, speakers and diarization with `--timestamps`) | 116x RT aggregate (RTX PRO 6000, 10 files) + ~8 min fixed setup |
+| `nemotron-transcribe-saturate.py` | Nemotron 3.5 Transcribe (same model) | in-job SGLang-Omni server, driven by [saturate](https://github.com/davanstrien/saturate) | parquet `{id, text, finish_reason, duration_s, model, prompt, error}` | 81x RT aggregate (RTX PRO 6000, 10 files) + ~9 min fixed setup |
 
 **`cohere-transcribe.py`** (recommended for plain text) — uses `model.transcribe()` with automatic long-form chunking, overlap, and reassembly. Stable dependencies.
 
@@ -92,6 +93,8 @@ uv run https://huggingface.co/datasets/uv-scripts/transcription/raw/main/nemotro
 ```
 
 For exploring, any OpenAI-compatible client works: `base_url="https://<job_id>--8000.hf.jobs/v1"`, `api_key=<HF token>`, with the audio as a `data:audio/flac;base64,...` `audio_url` part (see the model card). Measured from a laptop: a warm 2-minute clip came back in 2.4 s, and the driver did two half-hour episodes with `--timestamps` in 54 s. The first requests after start are slow (~1 min) while vLLM compiles two Triton kernels that its warmup misses. Cancel the job when done (`hf jobs cancel <job_id>`); exposed ports are billed on top of the hardware price, and each half-hour file is uploaded as ~30 MB, so for bulk work the in-job driver is still cheaper.
+
+**`nemotron-transcribe-saturate.py`** — the same model on **SGLang-Omni** (no NeMo), with saturate as the driver: a fixed window of files in flight (`--concurrency`), resumable parquet output keyed by input path, and durable error rows (`--retry-errors`). Input is a glob (`"hf://buckets/user/audio/**/*.mp3"`), output a dataset id or fsspec URI. It is plain transcription only, because SGLang-Omni's integration has no timestamps, speaker tags or translation; each file is one request of up to an hour. On the same 10 episodes it ran at 81x realtime once up (vLLM path: 116x) in a 12.8 min job; its text differs from the vLLM recipe's by 2.4% of words and from Cohere's by 7.3%, with no looping or truncated files. Two workarounds are pinned in its `SERVING` dict. The model card names SGLang-Omni 0.2.0, but that wheel predates the Nemotron integration, so a `main` commit is installed. The integration also expects the architecture name `NeMoSpeechLMForConditionalGeneration` while the Hub checkpoint declares `Nemotron3_5TranscribeForConditionalGeneration`, so the local copy's `config.json` is renamed before serving.
 
 #### Options — `nemotron-transcribe.py`
 
