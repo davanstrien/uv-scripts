@@ -16,14 +16,17 @@ Transcribe audio with NVIDIA Nemotron 3.5 Transcribe on SGLang-Omni, via saturat
 
 Batch companion to `nemotron-transcribe.py`: same model, but served by
 SGLang-Omni (no NeMo) on `/v1/audio/transcriptions`, with the driver half
-(concurrency, retries, output, resume) handled by the `saturate` package. What
-that buys over the vLLM recipe:
+(concurrency, output, resume) handled by the `saturate` package. What that buys
+over the vLLM recipe:
 
-- **Adaptive concurrency**: the in-flight window sizes itself (no
-  `--concurrency` flag to tune).
+- **A fixed window of files in flight** (`--concurrency`, default 32). It is
+  fixed because transcription responses carry no token counts, which saturate's
+  adaptive window needs to grow. Each in-flight file is held in memory, about
+  two windows' worth, so lower it for large WAV inputs.
 - **Crash-safe, resumable output**: results stream to the output as parquet
   parts; re-running the same command skips files already done (by path).
-- **Durable error rows**: a failed file is recorded as `{id, error}`;
+- **Durable error rows**: each file is sent once (saturate does not retry
+  multipart uploads); a failed file is recorded as `{id, error}`, and
   `--retry-errors` re-admits only those on a later run.
 - **No NeMo install**: SGLang-Omni is one pip install on the image below.
 
@@ -48,6 +51,11 @@ input path relative to the glob's folder. Read it with
 `finish_reason == "length"` hit the token budget: SGLang-Omni's cookbook warns that
 long recordings can repeat sentences until it runs out. The model card's
 generation-loop guardrail is applied to every transcript.
+
+With `--endpoint https://<job_id>--8000.hf.jobs/v1` the script uses a running
+SGLang-Omni server instead of starting one, and sends HF_TOKEN as Bearer (only to
+https `*.hf.jobs` hosts). Run it locally with `uv run`, or as a job with
+`--flavor cpu-basic --image python:3.12`: the header's GPU is not needed.
 
 Model: nvidia/NVIDIA-Nemotron-3.5-Transcribe-30B-A4B (30B MoE, ~4B active,
 OpenMDW-1.1). 40 transcription languages; the prompt presets are the card's.
@@ -170,8 +178,7 @@ def install_sglang_omni() -> Path:
         return sgl_omni
     uv = shutil.which("uv")
     if uv is None:
-        subprocess.run([sys.executable, "-m", "pip", "install", "-q", "uv"], check=True)
-        uv = shutil.which("uv")
+        sys.exit("uv is not on PATH: it is needed to install SGLang-Omni")
     env = {**os.environ}
     env.pop("VIRTUAL_ENV", None)  # never install into this script's venv
     print(f"installing {SERVING['package']} into {venv}", file=sys.stderr)
@@ -205,14 +212,17 @@ def main():
     ap.add_argument(
         "--retry-errors", action="store_true", help="Re-admit files recorded as errors"
     )
+    ap.add_argument("--concurrency", type=int, default=32,
+                    help="Files in flight (default: 32; the server runs up to 64)")  # fmt: skip
     ap.add_argument("--endpoint", default=None,
                     help="Use a running SGLang-Omni server (e.g. https://<job_id>--8000.hf.jobs/v1) "
                     "instead of starting one; sends HF_TOKEN as Bearer")  # fmt: skip
     args = ap.parse_args()
 
+    import pyarrow as pa
     from saturate import (
-        Auto,
         Engine,
+        Fixed,
         bucket_rows,
         existing_ids,
         make_multipart_request,
@@ -229,6 +239,12 @@ def main():
     skip = existing_ids(output, retry_errors=args.retry_errors)
     rows = bucket_rows(args.input, skip=skip, limit=args.max_files)
     total_audio = [0.0]
+    # Declared, so a part holding only error rows has the same columns as the rest.
+    schema = pa.schema([
+        ("id", pa.string()), ("error", pa.string()), ("text", pa.string()),
+        ("finish_reason", pa.string()), ("duration_s", pa.float64()),
+        ("model", pa.string()), ("prompt", pa.string()),
+    ])  # fmt: skip
 
     def to_request(row):
         path = row["path"]
@@ -252,11 +268,11 @@ def main():
 
     def run(endpoint, headers=None):
         start = time.time()
-        # One request is a whole recording (up to an hour of decode), so start the
-        # window near the server's 64 running requests and flush often.
+        # One request is a whole recording (up to an hour of decode): flush often.
         stats = pump(rows, to_request, parse, endpoint, output,
-                     window=Auto(initial=16, max_limit=64), flush_every=4,
-                     read_timeout=3600, headers=headers, retry_errors=args.retry_errors)  # fmt: skip
+                     window=Fixed(args.concurrency), flush_every=4,
+                     read_timeout=3600, headers=headers, retry_errors=args.retry_errors,
+                     schema=schema)  # fmt: skip
         elapsed = time.time() - start
         rtfx = f", {total_audio[0] / elapsed:.1f}x realtime" if total_audio[0] else ""
         print(f"{output}: {stats.rows_processed} ok, {stats.rows_failed} error rows, "
@@ -265,7 +281,11 @@ def main():
         print("NEMOTRON_TRANSCRIBE_SATURATE " + stats.to_json(), flush=True)
 
     if args.endpoint:
-        token = os.environ.get("HF_TOKEN")
+        from urllib.parse import urlparse
+
+        url = urlparse(args.endpoint)
+        is_jobs = url.scheme == "https" and (url.hostname or "").endswith(".hf.jobs")
+        token = os.environ.get("HF_TOKEN") if is_jobs else None
         run(args.endpoint, {"Authorization": f"Bearer {token}"} if token else None)
         return
 
