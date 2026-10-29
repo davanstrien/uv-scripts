@@ -106,11 +106,13 @@ import zlib
 # - crop_mode False (base, one global view per page): the card's multi-page
 #   default (infer_multi). On a 32-page 1861 scan gundam (crop) mode read the
 #   same text with 6.7x the image tokens (58k vs 8.7k).
+# - wheel: the URL names a model-repo commit, because Baidu replaces the wheel on
+#   main (dev10 was removed 2026-10-29).
 SERVING = {
     "model": "baidu/Unlimited-OCR-2",
     "served_name": "Unlimited-OCR-2",
     "image": "lmsysorg/sglang:v0.5.20-cu130",
-    "wheel": "https://huggingface.co/baidu/Unlimited-OCR-2/resolve/main/wheel/"
+    "wheel": "https://huggingface.co/baidu/Unlimited-OCR-2/resolve/91da6546d8ed91e02525f59c012a1d243266d7dd/wheel/"
              "sglang-0.5.20.dev10%2Bg8d62f5fb9c-py3-none-any.whl",
     "extra_pip": ["fastokens==0.3.2"],
     "env": {
