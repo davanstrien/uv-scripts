@@ -2,6 +2,7 @@
 viewer: false
 tags:
   - uv-script
+  - hf-jobs
   - audio
   - transcription
   - automatic-speech-recognition
@@ -9,47 +10,71 @@ tags:
   - multilingual
 ---
 
-# Transcription
+# Transcription UV Scripts
 
-Scripts for transcribing — and diarizing — audio files using HF Buckets and Jobs. English and the major European/Asian languages via Cohere Transcribe; 102 languages via the BuzzASR monolingual Whisper fine-tunes.
+<a href="https://huggingface.co/uv-scripts"><picture><source media="(prefers-color-scheme: dark)" srcset="https://huggingface.co/datasets/huggingface/badges/resolve/main/follow-us-on-hf-md-dark.svg"><img src="https://huggingface.co/datasets/huggingface/badges/resolve/main/follow-us-on-hf-md.svg" alt="Follow uv-scripts on Hugging Face"></picture></a>
+
+> Part of [uv-scripts](https://huggingface.co/uv-scripts): self-contained UV scripts you run on Hugging Face Jobs in one command.
+
+Scripts that transcribe audio files on a GPU with [Hugging Face Jobs](https://huggingface.co/docs/hub/jobs). Audio comes in from a [Bucket](https://huggingface.co/docs/hub/storage-buckets) or a local folder, and the transcripts go out as `.txt`, JSON (speaker segments or word timestamps), `.srt` or parquet. Six models: Cohere Transcribe (14 languages), Granite Speech TurboCTC (English, fast), BuzzASR (102 languages), MOSS-Transcribe-Diarize (who said what), Nemotron 3.5 Transcribe (40 languages, speakers and timestamps), and Whisper variants through easytranscriber.
 
 ## Quick Start
 
-Scripts run directly from their Hub URL — no clone or local checkout needed:
+First, [install the `hf` CLI and sign in](https://huggingface.co/docs/hub/jobs-quickstart). Jobs needs pay-as-you-go credit.
+
+Transcribe two four-minute clips of [Apollo 11 mission audio](https://huggingface.co/buckets/uv-scripts/transcription-demo) (the landing and the first step) and label who is speaking. Create a Bucket for the results, then run [MOSS-Transcribe-Diarize](https://huggingface.co/OpenMOSS-Team/MOSS-Transcribe-Diarize) on the demo clips. Replace `your-username` with your Hugging Face username:
 
 ```bash
-# 1. Download audio from Internet Archive straight into a bucket
-hf jobs uv run \
-    -v hf://buckets/user/audio-files:/output \
-    https://huggingface.co/datasets/uv-scripts/transcription/raw/main/download-ia.py \
-    SUSPENSE /output
-
-# 2. Transcribe — audio bucket in, transcript bucket out
-hf jobs uv run --flavor l4x1 -s HF_TOKEN \
+hf buckets create your-username/transcripts --private
+hf jobs uv run --flavor l4x1 -s HF_TOKEN --timeout 30m \
     -e UV_TORCH_BACKEND=cu128 \
-    -v hf://buckets/user/audio-files:/input:ro \
-    -v hf://buckets/user/transcripts:/output \
-    https://huggingface.co/datasets/uv-scripts/transcription/raw/main/cohere-transcribe.py \
-    /input /output --language en --compile
-
-# Or: transcribe + figure out WHO said what (speaker diarization + timestamps)
-hf jobs uv run --flavor l4x1 -s HF_TOKEN \
-    -e UV_TORCH_BACKEND=cu128 \
-    -v hf://buckets/user/audio-files:/input:ro \
-    -v hf://buckets/user/transcripts:/output \
+    -v hf://buckets/uv-scripts/transcription-demo/audio:/input:ro \
+    -v hf://buckets/your-username/transcripts/apollo11:/output \
     https://huggingface.co/datasets/uv-scripts/transcription/raw/main/moss-transcribe-diarize.py \
     /input /output --emit-txt
 ```
 
-No download/upload step. Buckets are mounted directly as volumes via [hf-mount](https://github.com/huggingface/hf-mount).
+The Job writes `apollo11-landing.json` (speaker segments), `apollo11-landing.txt` and the same pair for the first-step clip, plus a `summary.jsonl`, under the `apollo11/` prefix of your Bucket. Each `.txt` line has the times, an anonymous speaker label and the text:
 
-Audio already on your machine? Mount the folder directly — `-v ./audio:/input` syncs it to a private bucket and mounts it in the job (re-runs only sync changed files; `huggingface_hub` ≥ 1.22), so you can skip the `download-ia`/bucket step.
+```
+[160.47 - 161.91] S03: We copy you down, Eagle.
+[166.35 - 168.95] S01: Tranquility Base here, the Eagle has landed.
+```
+
+In our test run the Job took about 2 minutes on `l4x1` (about $0.03), most of it installing dependencies and loading the model. Read the output with `hf buckets cp hf://buckets/your-username/transcripts/apollo11/apollo11-landing.txt -`.
+
+No download or upload step: the `-v` flags mount the Buckets in the Job via [hf-mount](https://github.com/huggingface/hf-mount). The [demo Bucket's README](https://huggingface.co/buckets/uv-scripts/transcription-demo) gives the source and licence (NASA, public domain).
+
+> **Note:** most scripts here take their GPU and image from flags, as above. The two Nemotron scripts have a [`[tool.hf-jobs]` header](https://huggingface.co/docs/hub/jobs-configuration#define-the-launch-config-in-the-script) that sets the GPU, image and secrets, so they need no flags. The `hf` CLI reads the header from version 1.32; older CLIs ignore it without a warning (check with `hf version`). `hf jobs uv run --dry-run <script>` shows the resolved settings.
+
+## Use your own audio
+
+**Audio on your machine:** mount the folder directly. `-v ./audio:/input` syncs it to a private Bucket and mounts it in the Job; re-runs only sync changed files (`huggingface_hub` ≥ 1.22). Start with `--max-files 2`.
+
+**Audio in a Bucket:** replace the demo input with `-v hf://buckets/your-username/your-audio:/input:ro`. The scripts walk the input folder recursively and mirror its layout in the output. `nemotron-transcribe-saturate.py` is the exception: it takes a glob (`"hf://buckets/user/audio/**/*.mp3"`) and writes parquet.
+
+**Audio on the Internet Archive:** `download-ia.py` downloads an item's audio straight into a mounted Bucket:
+
+```bash
+hf jobs uv run \
+    -v hf://buckets/your-username/audio-files:/output \
+    https://huggingface.co/datasets/uv-scripts/transcription/raw/main/download-ia.py \
+    SUSPENSE /output
+```
 
 > **Local dev**: if you've cloned this repo, swap the URL for the local filename (e.g. `cohere-transcribe.py /input /output ...`).
 
-## Scripts
+## Pick a model
 
-### Transcription
+| You need | Script | Trade-off |
+|---|---|---|
+| Punctuated text in one of 14 languages (en, de, fr, it, es, pt, el, nl, pl, ar, vi, zh, ja, ko) | `cohere-transcribe.py` | Gated: accept the model terms first |
+| A lot of English audio, as fast as possible | `granite-turboctc-transcribe.py` | Lowercase, no punctuation |
+| A language Cohere doesn't cover (102 FLEURS languages) | `buzzasr-transcribe.py` | One model per language; mostly lowercase, no punctuation |
+| Word-level timestamps (subtitles, search, alignment) | `easytranscriber-transcribe.py` | Four-stage pipeline, slower |
+| Who said what, in English or Chinese | `moss-transcribe-diarize.py` (`-server.py` for many files) | Slow on long files; server version needs `a100-large` |
+| Speaker tags, word timestamps and 40 languages from one model | `nemotron-transcribe.py` | ~8 min fixed setup before the first file |
+| Nemotron text for a large batch, resumable | `nemotron-transcribe-saturate.py` | Plain text only |
 
 | Script | Model | Backend | Output | Speed |
 |--------|-------|---------|--------|-------|
@@ -79,7 +104,15 @@ Audio already on your machine? Mount the folder directly — `-v ./audio:/input`
 
 **`nemotron-transcribe.py`** — when you want **punctuated text, speaker tags and word timestamps from one model, in 40 languages** (speaker tags in 13, up to 8 speakers), and have enough audio to amortise a fixed ~8 min setup. The model only serves on vLLM 0.32.0 with the NeMo Speech plugin, so the script starts that server inside the job and posts files concurrently: 10 half-hour 1940s radio episodes (4.9 h) took 2.5 min once the server was up, a $0.48 job on `rtx-pro-6000`. The `[tool.hf-jobs]` header sets the flavor and a prebuilt image (`cr.hf.co/davanstrien/nemotron-transcribe`, built in a Job by `nemotron-transcribe-image.sh`) that pins NeMo Speech to one commit and carries FlashInfer kernels already compiled for that GPU. `--image vllm/vllm-openai:v0.32.0` makes the script install the stack at runtime instead (~2 min slower; it downloads FlashInfer's precompiled kernels). Prompts are the model card's presets (`--style verbatim|clean|speakers`, or `--prompt` with `Context terms: <names>` for jargon), and the card's generation-loop guardrail is applied to every transcript. `--timestamps` adds a JSON per file with word start/end times, speaker tags and diarization segments, from the CTC head bundled in the checkpoint. Files over 55 min are split into equal parts, and speaker tags reset between parts. On the same 10 episodes, after Whisper-style text normalisation, its words differ from Cohere's by 7.0% (Granite vs Cohere: 7.7%; Nemotron vs Granite: 8.4%); there is no ground truth for these episodes, so this measures agreement, not accuracy. Once loaded it matches Cohere's speed (116x vs 120x RT on the same audio), but the fixed setup makes a 5-hour batch cost $0.48 against Cohere's $0.16 and Granite's $0.20, so reach for it when you need the speaker tags, timestamps or languages. The vLLM integration is NVIDIA's development path; the card says it is about 2x slower than their NIM.
 
-**Serve, explore, scale with `nemotron-transcribe.py --serve`.** To pay the ~8 min setup once and reuse a hot model, run the server on its own with an [exposed port](https://huggingface.co/docs/hub/jobs-serving), then send requests from anywhere with an HF token (Bearer auth):
+**`nemotron-transcribe-saturate.py`** — the same model on **SGLang-Omni** (no NeMo), with saturate as the driver: a fixed window of files in flight (`--concurrency`), resumable parquet output keyed by input path, and durable error rows (`--retry-errors`). Input is a glob (`"hf://buckets/user/audio/**/*.mp3"`), output a dataset id or fsspec URI. It is plain transcription only, because SGLang-Omni's integration has no timestamps, speaker tags or translation; each file is one request of up to an hour. On the same 10 episodes it ran at 81x realtime once up (vLLM path: 116x) in a 12.8 min job; its text differs from the vLLM recipe's by 2.4% of words and from Cohere's by 7.3%, with no looping or truncated files. Two workarounds are pinned in its `SERVING` dict. The model card names SGLang-Omni 0.2.0, but that wheel predates the Nemotron integration, so a `main` commit is installed. The integration also expects the architecture name `NeMoSpeechLMForConditionalGeneration` while the Hub checkpoint declares `Nemotron3_5TranscribeForConditionalGeneration`, so the local copy's `config.json` is renamed before serving.
+
+## Serve as a live endpoint
+
+Two models can run as a server in a Job with an [exposed port](https://huggingface.co/docs/hub/jobs-serving), so you pay the setup once and send requests from anywhere with an HF token.
+
+### Nemotron: serve, explore, scale
+
+To pay the ~8 min setup once and reuse a hot model, run the server on its own with an [exposed port](https://huggingface.co/docs/hub/jobs-serving), then send requests from anywhere with an HF token (Bearer auth):
 
 ```bash
 # Serve: the job logs https://<job_id>--8000.hf.jobs once the model is up
@@ -94,9 +127,44 @@ uv run https://huggingface.co/datasets/uv-scripts/transcription/raw/main/nemotro
 
 For exploring, any OpenAI-compatible client works: `base_url="https://<job_id>--8000.hf.jobs/v1"`, `api_key=<HF token>`, with the audio as a `data:audio/flac;base64,...` `audio_url` part (see the model card). Measured from a laptop: a warm 2-minute clip came back in 2.4 s, and the driver did two half-hour episodes with `--timestamps` in 54 s. The first requests after start are slow (~1 min) while vLLM compiles two Triton kernels that its warmup misses. Cancel the job when done (`hf jobs cancel <job_id>`); exposed ports are billed on top of the hardware price, and each half-hour file is uploaded as ~30 MB, so for bulk work the in-job driver is still cheaper.
 
-**`nemotron-transcribe-saturate.py`** — the same model on **SGLang-Omni** (no NeMo), with saturate as the driver: a fixed window of files in flight (`--concurrency`), resumable parquet output keyed by input path, and durable error rows (`--retry-errors`). Input is a glob (`"hf://buckets/user/audio/**/*.mp3"`), output a dataset id or fsspec URI. It is plain transcription only, because SGLang-Omni's integration has no timestamps, speaker tags or translation; each file is one request of up to an hour. On the same 10 episodes it ran at 81x realtime once up (vLLM path: 116x) in a 12.8 min job; its text differs from the vLLM recipe's by 2.4% of words and from Cohere's by 7.3%, with no looping or truncated files. Two workarounds are pinned in its `SERVING` dict. The model card names SGLang-Omni 0.2.0, but that wheel predates the Nemotron integration, so a `main` commit is installed. The integration also expects the architecture name `NeMoSpeechLMForConditionalGeneration` while the Hub checkpoint declares `Nemotron3_5TranscribeForConditionalGeneration`, so the local copy's `config.json` is renamed before serving.
+### MOSS-Transcribe-Diarize as an OpenAI-compatible API
 
-#### Options — `nemotron-transcribe.py`
+MOSS-Transcribe-Diarize can be served as an OpenAI-compatible transcription API on Jobs (see [Serving on Jobs](https://huggingface.co/docs/hub/jobs-serving)). Two verified paths; both expose `/v1/audio/transcriptions` at `https://<job-id>--8000.hf.jobs` (requests need an HF token with read access to your namespace).
+
+**vLLM** (simplest; returns the raw `[start][Sxx]text[end]` transcript). Model support was merged into vLLM on 2026-07-08 — after the v0.24.0 release — so use a commit-pinned nightly image until the next release (then plain `vllm/vllm-openai:latest` works). The image needs the audio extras installed first:
+
+```bash
+hf jobs run --detach --expose 8000 --flavor l4x1 -s HF_TOKEN --timeout 2h \
+    vllm/vllm-openai:nightly-2c17d33f4291a55b447317640c81eb61077b1b00 -- \
+    bash -c "pip install librosa soundfile && vllm serve OpenMOSS-Team/MOSS-Transcribe-Diarize --trust-remote-code"
+```
+
+Parse the response `text` into segments with `parse_transcript` from the model's [GitHub package](https://github.com/OpenMOSS/MOSS-Transcribe-Diarize).
+
+**sglang-omni** (upstream's recommended production server; adds `response_format=verbose_json` with parsed speaker segments). Its prebuilt image predates this model, so install it at job start over a current [sglang nightly image](https://hub.docker.com/r/lmsysorg/sglang/tags) — the tag below is the tested pin; newer nightlies should also work. The clone + fresh-venv sequence is [upstream's documented install](https://github.com/sgl-project/sglang-omni/blob/main/docs/get_started/installation.md) and adds under a minute:
+
+```bash
+hf jobs run --detach --expose 8000 --flavor l4x1 -s HF_TOKEN --timeout 2h \
+    lmsysorg/sglang:nightly-dev-cu13-20260709-074bb928 -- \
+    bash -c "pip install -q uv 2>/dev/null; git clone --depth 1 https://github.com/sgl-project/sglang-omni.git && cd sglang-omni && uv venv .venv -p 3.12 && . .venv/bin/activate && uv pip install . && sgl-omni serve --model-path OpenMOSS-Team/MOSS-Transcribe-Diarize --host 0.0.0.0 --port 8000 --max-running-requests 16 --mem-fraction-static 0.80"
+```
+
+Query either server the same way (`response_format=verbose_json` on sglang-omni only; raise `max_new_tokens`, e.g. `65536`, for long recordings). **Caution — long audio on the serve path**: sglang-omni silently truncates input past ~62 minutes (observed deterministically at ~62.5 min on the same tape that transcribes fully via the transformers recipe, regardless of `max_new_tokens`). Split longer recordings before posting — `moss-transcribe-diarize-server.py` does this automatically:
+
+```bash
+curl -X POST https://<job-id>--8000.hf.jobs/v1/audio/transcriptions \
+    -H "Authorization: Bearer $HF_TOKEN" \
+    -F model=OpenMOSS-Team/MOSS-Transcribe-Diarize \
+    -F file=@meeting.wav \
+    -F response_format=verbose_json \
+    -F max_new_tokens=65536
+```
+
+The job — and its billing — stops at `--timeout` or `hf jobs cancel <job_id>`.
+
+## Options
+
+### Options — `nemotron-transcribe.py`
 
 | Flag | Default | Description |
 |------|---------|-------------|
@@ -112,7 +180,7 @@ For exploring, any OpenAI-compatible client works: `base_url="https://<job_id>--
 | `--request-timeout` | 3600 | Per-request timeout in seconds |
 | `--max-files` | all | Limit files to process (for testing) |
 
-#### Options — `cohere-transcribe.py` / `cohere-transcribe-vllm.py`
+### Options — `cohere-transcribe.py` / `cohere-transcribe-vllm.py`
 
 | Flag | Default | Description |
 |------|---------|-------------|
@@ -121,7 +189,7 @@ For exploring, any OpenAI-compatible client works: `base_url="https://<job_id>--
 | `--batch-size` | 16 | Batch size for inference |
 | `--max-files` | all | Limit files to process (for testing) |
 
-#### Options — `granite-turboctc-transcribe.py`
+### Options — `granite-turboctc-transcribe.py`
 
 | Flag | Default | Description |
 |------|---------|-------------|
@@ -130,7 +198,7 @@ For exploring, any OpenAI-compatible client works: `base_url="https://<job_id>--
 | `--decode-workers` | CPU count | Threads for mp3/wav decoding, overlapped with model load and inference |
 | `--max-files` | all | Limit files to process (for testing) |
 
-#### Options — `buzzasr-transcribe.py`
+### Options — `buzzasr-transcribe.py`
 
 | Flag | Default | Description |
 |------|---------|-------------|
@@ -141,7 +209,7 @@ For exploring, any OpenAI-compatible client works: `base_url="https://<job_id>--
 | `--decode-workers` | CPU count | Threads for mp3/wav decoding, overlapped with model load |
 | `--max-files` | all | Limit files to process (for testing) |
 
-#### Options — `easytranscriber-transcribe.py`
+### Options — `easytranscriber-transcribe.py`
 
 | Flag | Default | Description |
 |------|---------|-------------|
@@ -157,7 +225,7 @@ For exploring, any OpenAI-compatible client works: `base_url="https://<job_id>--
 | `--batch-size-transcribe` | 16 | ASR batch size (where backend supports it) |
 | `--max-files` | all | Limit files to process (for testing) |
 
-#### Options — `moss-transcribe-diarize-server.py`
+### Options — `moss-transcribe-diarize-server.py`
 
 | Flag | Default | Description |
 |------|---------|-------------|
@@ -168,7 +236,7 @@ For exploring, any OpenAI-compatible client works: `base_url="https://<job_id>--
 | `--emit-txt` | off | Also write `.txt` transcripts |
 | `--max-files` | all | Limit files to process (for testing) |
 
-#### Options — `moss-transcribe-diarize.py`
+### Options — `moss-transcribe-diarize.py`
 
 | Flag | Default | Description |
 |------|---------|-------------|
@@ -179,7 +247,7 @@ For exploring, any OpenAI-compatible client works: `base_url="https://<job_id>--
 | `--emit-srt` | off | Also write `.srt` subtitles with speaker prefixes |
 | `--max-files` | all | Limit files to process (for testing) |
 
-#### Benchmarks
+## Benchmarks
 
 CBS Suspense (1940s radio drama), 66 episodes, 33 hours of audio.
 
@@ -224,47 +292,6 @@ Long files are generation-bound (the whole diarized transcript is decoded in one
 | A100 | 174.5 h (103 tapes) | 3.8 h | 47.4x realtime aggregate | $9.46 | 45k speaker segments, 97% coverage |
 
 Result published as [`davanstrien/apollo-11-diarized`](https://huggingface.co/datasets/davanstrien/apollo-11-diarized) with a searchable demo at [`davanstrien/apollo-11-search`](https://huggingface.co/spaces/davanstrien/apollo-11-search).
-
-### Data
-
-| Script | Description |
-|--------|-------------|
-| `download-ia.py` | Download audio from Internet Archive into a mounted bucket |
-
-## Serve as a live endpoint
-
-MOSS-Transcribe-Diarize can be served as an OpenAI-compatible transcription API on Jobs (see [Serving on Jobs](https://huggingface.co/docs/hub/jobs-serving)). Two verified paths; both expose `/v1/audio/transcriptions` at `https://<job-id>--8000.hf.jobs` (requests need an HF token with read access to your namespace).
-
-**vLLM** (simplest; returns the raw `[start][Sxx]text[end]` transcript). Model support was merged into vLLM on 2026-07-08 — after the v0.24.0 release — so use a commit-pinned nightly image until the next release (then plain `vllm/vllm-openai:latest` works). The image needs the audio extras installed first:
-
-```bash
-hf jobs run --detach --expose 8000 --flavor l4x1 -s HF_TOKEN --timeout 2h \
-    vllm/vllm-openai:nightly-2c17d33f4291a55b447317640c81eb61077b1b00 -- \
-    bash -c "pip install librosa soundfile && vllm serve OpenMOSS-Team/MOSS-Transcribe-Diarize --trust-remote-code"
-```
-
-Parse the response `text` into segments with `parse_transcript` from the model's [GitHub package](https://github.com/OpenMOSS/MOSS-Transcribe-Diarize).
-
-**sglang-omni** (upstream's recommended production server; adds `response_format=verbose_json` with parsed speaker segments). Its prebuilt image predates this model, so install it at job start over a current [sglang nightly image](https://hub.docker.com/r/lmsysorg/sglang/tags) — the tag below is the tested pin; newer nightlies should also work. The clone + fresh-venv sequence is [upstream's documented install](https://github.com/sgl-project/sglang-omni/blob/main/docs/get_started/installation.md) and adds under a minute:
-
-```bash
-hf jobs run --detach --expose 8000 --flavor l4x1 -s HF_TOKEN --timeout 2h \
-    lmsysorg/sglang:nightly-dev-cu13-20260709-074bb928 -- \
-    bash -c "pip install -q uv 2>/dev/null; git clone --depth 1 https://github.com/sgl-project/sglang-omni.git && cd sglang-omni && uv venv .venv -p 3.12 && . .venv/bin/activate && uv pip install . && sgl-omni serve --model-path OpenMOSS-Team/MOSS-Transcribe-Diarize --host 0.0.0.0 --port 8000 --max-running-requests 16 --mem-fraction-static 0.80"
-```
-
-Query either server the same way (`response_format=verbose_json` on sglang-omni only; raise `max_new_tokens`, e.g. `65536`, for long recordings). **Caution — long audio on the serve path**: sglang-omni silently truncates input past ~62 minutes (observed deterministically at ~62.5 min on the same tape that transcribes fully via the transformers recipe, regardless of `max_new_tokens`). Split longer recordings before posting — `moss-transcribe-diarize-server.py` does this automatically:
-
-```bash
-curl -X POST https://<job-id>--8000.hf.jobs/v1/audio/transcriptions \
-    -H "Authorization: Bearer $HF_TOKEN" \
-    -F model=OpenMOSS-Team/MOSS-Transcribe-Diarize \
-    -F file=@meeting.wav \
-    -F response_format=verbose_json \
-    -F max_new_tokens=65536
-```
-
-The job — and its billing — stops at `--timeout` or `hf jobs cancel <job_id>`.
 
 ## Notes
 
