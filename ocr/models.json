@@ -1,14 +1,14 @@
 {
   "_meta": {
     "description": "Machine-readable catalog of the OCR recipes in this directory: script -> model, params, backend, support level, the tested Jobs launch config (the script's [tool.hf-jobs] header), and what the model's own card claims about language coverage. Human-readable language notes: LANGUAGES.md. Language evidence levels, strongest first: per-language-benchmark | count-claim | named-list | multilingual-unspecified | english-only | not-stated | not-applicable. Claims come from model cards (compiled 2026-07-15) - treat as claims, not guarantees.",
-    "updated": "2026-10-22",
+    "updated": "2026-10-27",
     "run_pattern": "hf jobs uv run https://huggingface.co/datasets/uv-scripts/ocr/raw/main/<script> <input-dataset> <output-dataset>  (hf CLI >= 1.32 reads image/flavor/secrets from the script's [tool.hf-jobs] header; add --timeout for long runs. Scripts without a `jobs` entry need --flavor/-s HF_TOKEN (and any --image in their docstring).)",
     "support_levels": {
       "core": "Maintained. Smoke-tested flagless on HF Jobs on 2026-09-23/24 with the pinned launch config in `jobs`.",
       "tool": "Maintained companion (judge, layout, text extraction), not a page-OCR recipe.",
       "legacy": "Works (smoke-tested 2026-09-23) but superseded or little used; no header yet. See support_note for the alternative.",
       "unsupported": "Known broken as of 2026-09-23; kept in the repo for now. See support_note.",
-    "experimental": "Works in testing on HF Jobs with the launch config in `jobs`, but changes often and may break. See support_note for the stable alternative."
+      "experimental": "Works in testing on HF Jobs with the launch config in `jobs`, but changes often and may break. See support_note for the stable alternative."
     }
   },
   "tesseract-ocr.py": {
@@ -700,7 +700,7 @@
     "task": "ocr (multi-page documents: book volumes, PDFs; cross-page continuations)",
     "output": "markdown per page and per window + layout-grounded raw",
     "license": "mit",
-    "notes": "Tuned version of unlimited-ocr2.py: repair pass for looping pages (fixed 28/33 in testing), faster JPEG 2000 decoding, PDF input, Baidu's own Markdown post-processing, speed flags.",
+    "notes": "Tuned version of unlimited-ocr2.py: repair pass for looping pages (fixed 28/33 in testing), PDF input, Baidu's own Markdown post-processing, speed flags.",
     "languages": {
       "evidence": "multilingual-unspecified"
     },
@@ -723,7 +723,7 @@
     "task": "ocr (multi-page documents) with a live view of the run",
     "output": "markdown per page + layout-grounded raw, one row per 16-page window",
     "license": "mit",
-    "notes": "unlimited-ocr2.py plus --live-port: a dashboard served from the Job (start-up steps, the page being read with its text streaming in, finished pages, pages/min, GPU load) for watching or screen-recording a run. Also reduced-resolution JPEG 2000 decode, preparation threads from the CPU quota and an 8000-token page cap. Measured on 1,456 Wellcome Library pages: ~130 pages/min on rtx-pro-6000.",
+    "notes": "unlimited-ocr2.py plus --live-port: a dashboard served from the Job (start-up steps, the page being read with its text streaming in, finished pages, pages/min, GPU load) for watching or screen-recording a run. Measured on 1,456 Wellcome Library pages: ~130 pages/min on rtx-pro-6000.",
     "languages": {
       "evidence": "multilingual-unspecified"
     },
@@ -733,6 +733,34 @@
       "image": "lmsysorg/sglang:v0.5.20-cu130",
       "flavor": "rtx-pro-6000",
       "timeout": "4h",
+      "secrets": [
+        "HF_TOKEN"
+      ]
+    }
+  },
+  "minicpm-ocr.py": {
+    "model_id": "openbmb/MiniCPM-OCR-1.0",
+    "params": "1.3B",
+    "backend": "in-job vLLM (nightly) + OpenBMB's minicpm-ocr SDK (PP-DocLayoutV3 layout, per-region prompts, Markdown assembly)",
+    "image": "cr.hf.co/davanstrien/minicpm-ocr:1.0-vllm-5d35ce3",
+    "task": "ocr (page images -> Markdown; tables as HTML, formulas as LaTeX); Hub dataset or Bucket/folder I/O",
+    "output": "dataset mode: markdown + markdown_status columns; Bucket/folder mode: one .md per image (failed pages not written, re-run retries)",
+    "license": "apache-2.0",
+    "notes": "A region reader behind a layout model, run through the vendor SDK unchanged. Custom public image (Dockerfile in images/minicpm-ocr/): the architecture is in vLLM main but not a release, and the SDK needs PaddlePaddle in its own venv. DSpark speculative decoding on by default (--no-dspark). Bucket I/O via bucketbag v0.3.1 (no mount), resume-by-skip. Smoke-tested 2026-10-27 on BHL pages (dataset mode) and 1771 Britannica .jp2 (Bucket mode), a10g-large.",
+    "languages": {
+      "evidence": "named-list",
+      "count": 2,
+      "named": [
+        "zh",
+        "en"
+      ],
+      "notes": "Card: 'Primary languages: Chinese and English'; card metadata lists en, zh. Card examples include historical scans; fine-tuning guide uses French handwriting."
+    },
+    "support": "experimental",
+    "jobs": {
+      "image": "cr.hf.co/davanstrien/minicpm-ocr:1.0-vllm-5d35ce3",
+      "flavor": "a10g-large",
+      "timeout": "2h",
       "secrets": [
         "HF_TOKEN"
       ]

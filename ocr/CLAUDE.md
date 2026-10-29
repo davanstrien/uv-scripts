@@ -95,6 +95,7 @@ Legend: ✅ production-ready · ⚠️ works only with a required pinned image �
 | `unlimited-ocr2.py` | ✅+image | SGLang (Baidu wheel) on `lmsysorg/sglang:v0.5.20-cu130` | rtx-pro-6000 | 16-page windows; ≥48 GB GPU |
 | `unlimited-ocr2-saturate.py` | 🧪+image | same | rtx-pro-6000 | tuned/experimental: repair pass, JP2 fast decode, PDFs |
 | `unlimited-ocr2-live.py` | 🧪+image | same | rtx-pro-6000 | experimental: minimal script + `--live-port` dashboard (streams the page being read) |
+| `minicpm-ocr.py` | 🧪+image | in-job vLLM nightly + minicpm-ocr SDK on `cr.hf.co/davanstrien/minicpm-ocr` | a10g-large | vendor pipeline; custom public image; dataset **or** bucket I/O (bucketbag), `markdown_status` |
 | `surya-ocr.py` | ✅+image | vLLM `:v0.20.1` | l4x1 | offline backend inject; site-packages PYTHONPATH |
 | `surya-ocr-bucket.py` | ✅+image | vLLM `:v0.20.1` | l4x1 | bucket I/O; pin `surya-ocr==0.20.0` |
 | `lift-extract.py` | ✅ | hf / vLLM | a100-large | schema-constrained extraction; naming gotcha |
@@ -168,6 +169,26 @@ runs on **`vllm/vllm-openai:unlimited-ocr`** (`:unlimited-ocr-cu129` on Hopper),
 hard scans) and belongs to **serving** — both engines read clean multi-page docs, but **SGLang is more
 robust on hard/degraded scans**. Serving setup (SGLang pin `lmsysorg/sglang:v0.5.10.post1`, a100+flashinfer
 — HF `h200` nodes fail with `CUDA error 802`) is in `serving-unlimited-ocr.md`.
+
+### `minicpm-ocr.py` — vendor SDK pipeline on a custom `cr.hf.co` image
+MiniCPM-OCR 1.0 is a region reader: OpenBMB's SDK runs PP-DocLayoutV3, crops regions, prompts each by
+type and assembles Markdown. The recipe runs that SDK unchanged (separate venv `/opt/sdk`, as OpenBMB
+require) against `vllm serve` started in the job. Measured/learned 2026-10-27:
+- `MiniCPMOcrForConditionalGeneration` is in vLLM main (18343393b4, 23 Oct) but not in v0.32.0, and
+  OpenBMB's install builds vLLM from source (~40 min). The image uses nightly 5d35ce3 pinned by digest
+  instead; Dockerfile + digest in `images/minicpm-ocr/`. Move to a stock tag when a release has the arch.
+- pip warns `transformers 5.21.0.dev0` (OpenBMB's pin 549e5b4) violates vLLM's `<5.21.0` (a pre-release
+  of 5.21.0 is excluded by `<5.21.0`); vLLM serves the model anyway.
+- The SDK's default layout path is `${ASSETS_DIR}/PP-DocLayoutV3`, not the docs' `models/PP-DocLayoutV3_infer`;
+  the recipe passes the baked path explicitly. The layout tar is sha256-checked at build time.
+- Built with kaniko on a `cpu-upgrade` Job (~20 min); container repo creation needed the stored `cli` token
+  (the OAuth login gets 403). `l4x1` had no capacity on 27 Oct; smoke ran on `a10g-large`.
+- The SDK reads a folder: the recipe writes each batch as `{i:06d}.png` and reads `output/{i:06d}.md` back.
+- The SDK writes a `.md` even when regions fail (empty for a failed text region); the page status lives in
+  `per_page_metrics.jsonl` (`ok` / `partial_failed` / `failed`). The recipe reads it: dataset mode keeps it in
+  `markdown_status`; bucket mode writes only `ok` pages so a re-run retries the rest (Codex review, 27 Oct).
+- vLLM runs in its own process group and is terminated → killed → reaped on every exit path; one bad
+  image or a failed SDK run marks its pages `error: ...` instead of losing finished batches.
 
 ### `unlimited-ocr2.py` / `unlimited-ocr2-saturate.py` — Baidu SGLang wheel, multi-page windows
 v2 has no vLLM support; Baidu ships a custom SGLang wheel in the model repo. Its pins (torch 2.13.0,
@@ -322,6 +343,9 @@ ARM wheels) — if a nightly-recipe install fails on resolution, wait and retry 
 
 ## Change log
 
+- **2026-10-27** — added `minicpm-ocr.py` (experimental) for `openbmb/MiniCPM-OCR-1.0`: OpenBMB's SDK
+  pipeline on a public custom image `cr.hf.co/davanstrien/minicpm-ocr` (first recipe on the HF container
+  registry; Dockerfile in `images/minicpm-ocr/`).
 - **2026-10-27** — added `unlimited-ocr2.py` (minimal) and `unlimited-ocr2-saturate.py` (tuned, experimental)
   for `baidu/Unlimited-OCR-2`: whole-document OCR in 16-page windows on Baidu's SGLang build, driven by
   saturate (pinned `==0.2.0`). First recipes whose unit of work is a document, not a page; input is a
