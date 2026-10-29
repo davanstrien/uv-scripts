@@ -38,6 +38,42 @@ hf jobs uv run --image vllm/vllm-openai:latest --flavor a10g-small \
 
 ## Scripts
 
+### qwen38-caption.py
+
+Runs [Qwen/Qwen3.8-27B](https://huggingface.co/Qwen/Qwen3.8-27B) (27B dense VLM,
+Apache 2.0, not gated) over a directory of videos via vLLM — **whole videos, no
+chunking**. The model ingests video natively at hour scale: an 11-minute film is
+one request. The default video processor caps each video at 768 frames and a
+fixed pixel budget, so videos longer than ~6.4 min are seen at a lower frame rate
+and resolution (an hour at ~1 frame per 4.7 s). Output is a resumable parquet dataset, one row per video with
+`caption` (and, with `--timestamps`, an `events` column of `<start - end>`
+descriptions in global seconds).
+
+`--timestamps` asks for a full event timeline instead of a prose caption. The
+model reads times off per-frame time tags rather than estimating. On one
+11-minute film (96 events), spot-checked event times matched extracted frames to
+within ~2 s, and on-screen text was quoted verbatim; that is one measured
+example, not a guarantee.
+
+Thinking mode is on for `--timestamps` (without it, the model sometimes answered
+a timeline request with a one-line summary) and off for captions.
+`--thinking` / `--no-thinking` override this. A truncated, empty or
+event-less answer is stored as an error row; `--retry-errors` tries it again.
+Row ids include the prompt and mode, so changing them re-processes videos
+instead of reusing old rows.
+
+**Hardware**: bf16 weights are ~52 GB. The script's `[tool.hf-jobs]` header
+sets `a100-large` and a pinned vLLM image, so `hf jobs uv run` needs no flavor
+or image flags (hf CLI 1.32+). `--flavor h200` generated ~2.3x faster in our
+test.
+
+**vs marlin-caption.py**: Marlin is ~13x smaller and cheaper per minute of
+footage, but must chunk at 60s (with per-chunk timestamp offsetting) and returns
+grounding candidates rather than reliable timelines. Qwen3.8 handles the whole
+film in one pass with verbatim on-screen-text reading. Rough guide: bulk
+captioning of large collections → Marlin; rich timelines, text-heavy or
+long-form material → Qwen3.8.
+
 ### marlin-caption.py
 
 Runs [NemoStation/Marlin-2B](https://huggingface.co/NemoStation/Marlin-2B) (2B video
