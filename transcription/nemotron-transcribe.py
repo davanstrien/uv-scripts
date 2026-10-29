@@ -88,6 +88,7 @@ import concurrent.futures
 import io
 import json
 import logging
+import math
 import os
 import re
 import shutil
@@ -107,6 +108,9 @@ MODEL = "nvidia/NVIDIA-Nemotron-3.5-Transcribe-30B-A4B"
 # Where the prebuilt image (nemotron-transcribe-image.sh) installs the serving
 # stack and its warm kernel caches.
 PREBUILT_WORKDIR = Path("/opt/nemotron-transcribe")
+# The NeMo Speech main commit the prebuilt image carries. The card asks for the
+# latest main, which changes daily; pass --nemo-ref main to follow it.
+DEFAULT_NEMO_REF = "7b05f096d54db47078fd1569a54d1f3ba4a4c51f"
 
 # Written last by install_serving_stack, so a half-finished install is redone.
 INSTALL_MARKER = ".install-complete"
@@ -117,6 +121,7 @@ SAMPLE_RATE = 16000
 
 # The model is trained on recordings up to one hour. Stay a little under it.
 DEFAULT_PART_SECONDS = 3300  # 55 min
+MAX_PART_SECONDS = 3600  # the server's audio decode limit
 
 # A dense one-hour conversation can need about 20,000 output tokens (card).
 MAX_TOKENS = 24576
@@ -308,6 +313,9 @@ def launch_local_server(server: str, workdir: Path, nemo_ref: str) -> subprocess
             "--server http://127.0.0.1:<port> (the default is port 8000)."
         )
         sys.exit(1)
+    if shutil.which("nvidia-smi") is None:
+        logger.error("No GPU found: run on a GPU flavor (see the header)")
+        sys.exit(1)
     workdir.mkdir(parents=True, exist_ok=True)
     venv = install_serving_stack(workdir, nemo_ref)
     logger.info(f"Downloading {MODEL}...")
@@ -376,12 +384,13 @@ def install_serving_stack(workdir: Path, nemo_ref: str) -> Path:
 
     uv = shutil.which("uv")
     if uv is None:
-        subprocess.run([sys.executable, "-m", "pip", "install", "-q", "uv"], check=True)
-        uv = shutil.which("uv")
+        sys.exit("uv is not on PATH: it is needed to install the serving stack")
     python = str(venv / "bin" / "python")
     env = {**os.environ, "UV_PROJECT_ENVIRONMENT": str(venv)}
     steps = [
-        [uv, "venv", "-q", "-p", "3.13", str(venv)],
+        # The image's own Python: a uv-downloaded one would live outside the
+        # workdir, so a prebuilt image made from this workdir would lose it.
+        [uv, "venv", "-q", "-p", "3.12", str(venv)],
         [uv, "sync", "-q", "--extra", "asr", "--extra", "vllm", "--locked", "--no-install-project"],
         [uv, "pip", "install", "-q", "--python", python, "--no-deps", "-e", "."],
         # PyAV decodes compressed audio; vLLM needs OpenCV, which NeMo excludes.
@@ -410,7 +419,7 @@ def start_server(venv: Path, model_dir: Path, port: int) -> subprocess.Popen:
         **os.environ,
         "VLLM_PLUGINS": "nemo_speechlm",
         # Allow recordings up to one hour (the default is 600 seconds).
-        "VLLM_MAX_AUDIO_DECODE_DURATION_S": "3600",
+        "VLLM_MAX_AUDIO_DECODE_DURATION_S": str(MAX_PART_SECONDS),
         "VLLM_MAX_AUDIO_CLIP_FILESIZE_MB": "180",
         # Word timestamps require the V1 model runner.
         "VLLM_USE_V2_MODEL_RUNNER": "0",
@@ -485,14 +494,24 @@ def process_file(
 
     audio, _ = librosa.load(str(file_path), sr=SAMPLE_RATE, mono=True)
     duration = len(audio) / SAMPLE_RATE
+    if len(audio) == 0:
+        raise ValueError("decoded to no audio")
+
+    # Equal parts of at most part_seconds, so there is no short tail part
+    # with its own speaker-tag namespace.
+    n_parts = math.ceil(duration / part_seconds)
+    part_length = duration / n_parts
 
     texts = []
     parts = []
-    offset = 0.0
-    part_index = 0
-    while offset < duration:
+    for part_index in range(n_parts):
+        offset = part_index * part_length
         lo = int(offset * SAMPLE_RATE)
-        hi = int(min(offset + part_seconds, duration) * SAMPLE_RATE)
+        hi = (
+            len(audio)
+            if part_index == n_parts - 1
+            else int((offset + part_length) * SAMPLE_RATE)
+        )
         payload = transcribe_part(
             server, encode_flac(audio[lo:hi]), prompt, timestamps, request_timeout
         )
@@ -516,8 +535,6 @@ def process_file(
         if part["finish_reason"] == "length":
             logger.warning(f"  {rel}: part {part_index} hit max_tokens — truncated")
         parts.append(part)
-        offset += part_seconds
-        part_index += 1
 
     txt_path = output_dir / rel.with_suffix(".txt")
     txt_path.parent.mkdir(parents=True, exist_ok=True)
@@ -584,9 +601,9 @@ def main():
     )
     parser.add_argument(
         "--nemo-ref",
-        default="main",
-        help="NeMo Speech branch, tag or commit to install (default: main, "
-        "as the model card requires)",
+        default=DEFAULT_NEMO_REF,
+        help="NeMo Speech branch, tag or commit to install when the image has "
+        "no prebuilt stack (default: the image's commit; `main` follows the card)",
     )
     parser.add_argument(
         "--workdir",
@@ -625,7 +642,8 @@ def main():
         "--part-minutes",
         type=float,
         default=DEFAULT_PART_SECONDS / 60,
-        help="Split audio into parts of this length (default: 55 min — the "
+        help="Split audio into equal parts of at most this length, up to 60 "
+        "(default: 55 min — the "
         "model is trained on recordings up to one hour). Speaker tags reset "
         "between parts.",
     )
@@ -657,8 +675,8 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
 
     part_seconds = int(args.part_minutes * 60)
-    if part_seconds < 1:
-        logger.error("--part-minutes must be at least 1/60 (one second)")
+    if part_seconds < 1 or part_seconds > MAX_PART_SECONDS:
+        logger.error("--part-minutes must be between 1/60 (one second) and 60")
         sys.exit(1)
 
     if args.prompt:
@@ -672,8 +690,6 @@ def main():
     if not files:
         logger.error(f"No audio files found in {input_dir}")
         sys.exit(1)
-    if args.max_files:
-        files = files[: args.max_files]
 
     # Resume: outputs are written per file, so a rerun after a timeout or
     # crash only processes what's missing.
@@ -689,6 +705,8 @@ def main():
         if not files:
             logger.info("Nothing to do — all outputs exist")
             return
+    if args.max_files:
+        files = files[: args.max_files]
     logger.info(f"Found {len(files)} audio file(s) to process")
 
     server_process = None
