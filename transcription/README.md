@@ -20,7 +20,7 @@ Scripts that transcribe audio files on a GPU with [Hugging Face Jobs](https://hu
 
 ## Quick Start
 
-First, [install the `hf` CLI and sign in](https://huggingface.co/docs/hub/jobs-quickstart). Jobs needs pay-as-you-go credit.
+First, [install the `hf` CLI and sign in](https://huggingface.co/docs/hub/jobs-quickstart). Jobs needs pay-as-you-go credit. Use `hf` 1.32 or newer (`hf version`): older CLIs ignore the script's launch header without a warning, and the Job then runs on a CPU.
 
 Transcribe four minutes of NASA's *Houston We Have a Podcast* (a host and a guest, from the [demo Bucket](https://huggingface.co/buckets/uv-scripts/transcription-demo)) with [Nemotron 3.5 Transcribe](https://huggingface.co/nvidia/NVIDIA-Nemotron-3.5-Transcribe-30B-A4B). Replace `your-username` with your Hugging Face username:
 
@@ -42,7 +42,7 @@ The Job writes a `.txt` with speaker tags and a `.json` with word timestamps to 
 Our test run took about 7.5 minutes on `rtx-pro-6000` (about $0.34), almost all of it model setup. Read the result with `hf buckets cp hf://buckets/your-username/transcripts/podcast/nasa-podcast-ep100.txt -`.
 
 <details>
-<summary>More on this example: JSON output, a cheaper model, harder audio, older CLIs</summary>
+<summary>More on this example: JSON output, MOSS on the same clip, harder audio, launch headers</summary>
 
 **JSON output.** Every word has a start and end time and a speaker (`parts[].alignment.words`), plus diarization segments (`parts[].alignment.diarization`):
 
@@ -50,7 +50,7 @@ Our test run took about 7.5 minutes on `rtx-pro-6000` (about $0.34), almost all 
 {"word": "sustainable", "start": 0.02, "end": 0.98, "speaker": "0", "part": 0}
 ```
 
-**Faster and cheaper speaker labels.** [MOSS-Transcribe-Diarize](https://huggingface.co/OpenMOSS-Team/MOSS-Transcribe-Diarize) on the same clip took under 2 minutes on `l4x1` (about $0.02) and wrote one line per segment (`[61.82 - 67.06] S02: The mission control room, ...`):
+**MOSS on the same clip.** [MOSS-Transcribe-Diarize](https://huggingface.co/OpenMOSS-Team/MOSS-Transcribe-Diarize) on the same clip took under 2 minutes on `l4x1` (about $0.02) and wrote one line per segment (`[61.82 - 67.06] S02: The mission control room, ...`):
 
 ```bash
 hf jobs uv run --flavor l4x1 -s HF_TOKEN --timeout 30m \
@@ -63,7 +63,7 @@ hf jobs uv run --flavor l4x1 -s HF_TOKEN --timeout 30m \
 
 **Harder audio.** Mount `/apollo11` instead of `/podcast`: two clips of 1969 mission tapes with radio noise and crosstalk. The [demo Bucket's README](https://huggingface.co/buckets/uv-scripts/transcription-demo) gives the sources and licences (NASA, public domain).
 
-**Why no flags.** The Nemotron scripts carry a [`[tool.hf-jobs]` header](https://huggingface.co/docs/hub/jobs-configuration#define-the-launch-config-in-the-script) that sets the GPU, image and secrets. The other scripts have no header yet and take flags, as in the MOSS command. The `hf` CLI reads the header from version 1.32; older CLIs ignore it without a warning and the Job fails on a CPU (check with `hf version`). `hf jobs uv run --dry-run <script>` shows the resolved settings.
+**Why no flags.** The Nemotron scripts carry a [`[tool.hf-jobs]` header](https://huggingface.co/docs/hub/jobs-configuration#define-the-launch-config-in-the-script) that sets the GPU, image and secrets. The other scripts have no header yet and take flags, as in the MOSS command. `hf jobs uv run --dry-run <script>` shows the resolved settings.
 
 </details>
 
@@ -71,7 +71,7 @@ hf jobs uv run --flavor l4x1 -s HF_TOKEN --timeout 30m \
 
 **Audio on your machine:** mount the folder directly. `-v ./audio:/input` syncs it to a private Bucket and mounts it in the Job; re-runs only sync changed files (`huggingface_hub` ≥ 1.22). Start with `--max-files 2`.
 
-**Audio in a Bucket:** replace the demo input with `-v hf://buckets/your-username/your-audio:/input:ro`. The scripts walk the input folder recursively and mirror its layout in the output. `nemotron-transcribe-saturate.py` is the exception: it takes a glob (`"hf://buckets/user/audio/**/*.mp3"`) and writes parquet.
+**Audio in a Bucket:** replace the demo input with `-v hf://buckets/your-username/your-audio:/input:ro`. The scripts walk the input folder recursively and mirror its layout in the output (easytranscriber puts its JSON under `alignments/`). `nemotron-transcribe-saturate.py` is the exception: it takes a glob (`"hf://buckets/user/audio/**/*.mp3"`) and writes parquet.
 
 **Audio on the Internet Archive:** `download-ia.py` downloads an item's audio straight into a mounted Bucket:
 
@@ -93,8 +93,28 @@ hf jobs uv run \
 | A language Cohere doesn't cover (102 FLEURS languages) | `buzzasr-transcribe.py` | One model per language; mostly lowercase, no punctuation |
 | Word-level timestamps (subtitles, search, alignment) | `easytranscriber-transcribe.py` | Four-stage pipeline, slower |
 | Who said what, in English or Chinese | `moss-transcribe-diarize.py` (`-server.py` for many files) | Slow on long files; server version needs `a100-large` |
-| Speaker tags, word timestamps and 40 languages from one model | `nemotron-transcribe.py` | ~8 min fixed setup before the first file |
+| Word timestamps and speaker tags from one model, in 40 languages (speaker tags in 13) | `nemotron-transcribe.py` | ~8 min fixed setup before the first file |
 | Nemotron text for a large batch, resumable | `nemotron-transcribe-saturate.py` | Plain text only |
+
+Only the two Nemotron scripts set their own GPU and image. The others need flags, for example Cohere on an L4:
+
+<details>
+<summary>Cohere Transcribe command</summary>
+
+Accept the terms on the [model page](https://huggingface.co/CohereLabs/cohere-transcribe-03-2026) first; the model is gated.
+
+```bash
+hf jobs uv run --flavor l4x1 -s HF_TOKEN \
+    -e UV_TORCH_BACKEND=cu128 \
+    -v hf://buckets/your-username/audio-files:/input:ro \
+    -v hf://buckets/your-username/transcripts:/output \
+    https://huggingface.co/datasets/uv-scripts/transcription/raw/main/cohere-transcribe.py \
+    /input /output --language en --compile
+```
+
+Each script's docstring has its own `hf jobs uv run` example.
+
+</details>
 
 [MODELS.md](MODELS.md) has the details for each script: speed, quality notes, pins and known issues. [BENCHMARKS.md](BENCHMARKS.md) has the measured runs.
 
@@ -126,13 +146,25 @@ The folder scripts take `/input /output` and `--max-files N` for a test run (the
 </details>
 
 <details>
-<summary><code>cohere-transcribe.py</code> / <code>cohere-transcribe-vllm.py</code></summary>
+<summary><code>cohere-transcribe.py</code></summary>
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--language` | required | en, de, fr, it, es, pt, el, nl, pl, ar, vi, zh, ja, ko |
 | `--compile` | off | torch.compile encoder (one-time warmup, faster after) |
 | `--batch-size` | 16 | Batch size for inference |
+| `--max-files` | all | Limit files to process (for testing) |
+
+</details>
+
+<details>
+<summary><code>cohere-transcribe-vllm.py</code></summary>
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--language` | required | Same 14 languages as `cohere-transcribe.py` |
+| `--gpu-memory-utilization` | 0.8 | Fraction of GPU memory vLLM may use |
+| `--verbose` | off | More logging |
 | `--max-files` | all | Limit files to process (for testing) |
 
 </details>
@@ -213,7 +245,5 @@ The folder scripts take `/input /output` and `--max-files N` for a test run (the
 ## Notes
 
 - **Gated model**: Accept terms at the [model page](https://huggingface.co/CohereLabs/cohere-transcribe-03-2026) before use.
-- **Tokenizer workaround**: `cohere-transcribe.py` applies a one-line patch for a tokenizer compat issue. Will be removed once upstream fixes land ([model discussion](https://huggingface.co/CohereLabs/cohere-transcribe-03-2026/discussions/11)).
 - **easytranscriber**: the Cohere backend requires `transformers>=5.4.0` (pinned in the script). Pyannote VAD is gated — accept terms at [pyannote/segmentation-3.0](https://huggingface.co/pyannote/segmentation-3.0) and [pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1) if using `--vad pyannote`. Otherwise stick with the default Silero VAD.
-- **moss-transcribe-diarize**: not gated (Apache 2.0). Uses `trust_remote_code=True` (model code lives in the [model repo](https://huggingface.co/OpenMOSS-Team/MOSS-Transcribe-Diarize)); inference helpers install from the model's [GitHub repo](https://github.com/OpenMOSS/MOSS-Transcribe-Diarize) pinned to a commit (the package isn't on PyPI). Generation time scales with audio length — long multi-speaker recordings emit tens of thousands of tokens, so watch the `truncated` flag in the output JSON.
-- **sglang-omni install**: the `lmsysorg/sglang-omni:dev` image predates this model — don't use it. Install from git over a current `lmsysorg/sglang` nightly image as shown in [SERVING.md](SERVING.md), and follow the clone + fresh-venv sequence exactly: installing outside the repo skips its `[tool.uv]` dependency overrides and fails on a protobuf conflict. Once they publish a fresh image, `sgl-omni serve` alone will do.
+- **MOSS-Transcribe-Diarize**: not gated (Apache 2.0). Runs remote code from the model repo; see [MODELS.md](MODELS.md#notes).

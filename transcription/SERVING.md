@@ -2,12 +2,11 @@
 
 > Part of [uv-scripts/transcription](README.md).
 
-
 Two models can run as a server in a Job with an [exposed port](https://huggingface.co/docs/hub/jobs-serving), so you pay the setup once and send requests from anywhere with an HF token.
 
-### Nemotron: serve, explore, scale
+## Nemotron: serve, explore, scale
 
-To pay the ~8 min setup once and reuse a hot model, run the server on its own with an [exposed port](https://huggingface.co/docs/hub/jobs-serving), then send requests from anywhere with an HF token (Bearer auth):
+Run the server on its own to pay the ~8 min setup once, then send requests with an HF token as Bearer auth:
 
 ```bash
 # Serve: the job logs https://<job_id>--8000.hf.jobs once the model is up
@@ -22,7 +21,7 @@ uv run https://huggingface.co/datasets/uv-scripts/transcription/raw/main/nemotro
 
 For exploring, any OpenAI-compatible client works: `base_url="https://<job_id>--8000.hf.jobs/v1"`, `api_key=<HF token>`, with the audio as a `data:audio/flac;base64,...` `audio_url` part (see the model card). Measured from a laptop: a warm 2-minute clip came back in 2.4 s, and the driver did two half-hour episodes with `--timestamps` in 54 s. The first requests after start are slow (~1 min) while vLLM compiles two Triton kernels that its warmup misses. Cancel the job when done (`hf jobs cancel <job_id>`); exposed ports are billed on top of the hardware price, and each half-hour file is uploaded as ~30 MB, so for bulk work the in-job driver is still cheaper.
 
-### MOSS-Transcribe-Diarize as an OpenAI-compatible API
+## MOSS-Transcribe-Diarize as an OpenAI-compatible API
 
 MOSS-Transcribe-Diarize can be served as an OpenAI-compatible transcription API on Jobs (see [Serving on Jobs](https://huggingface.co/docs/hub/jobs-serving)). Two verified paths; both expose `/v1/audio/transcriptions` at `https://<job-id>--8000.hf.jobs` (requests need an HF token with read access to your namespace).
 
@@ -56,3 +55,7 @@ curl -X POST https://<job-id>--8000.hf.jobs/v1/audio/transcriptions \
 ```
 
 The job — and its billing — stops at `--timeout` or `hf jobs cancel <job_id>`.
+
+## sglang-omni install
+
+the `lmsysorg/sglang-omni:dev` image predates this model — don't use it. Install from git over a current `lmsysorg/sglang` nightly image as shown above, and follow the clone + fresh-venv sequence exactly: installing outside the repo skips its `[tool.uv]` dependency overrides and fails on a protobuf conflict. Once they publish a fresh image, `sgl-omni serve` alone will do.

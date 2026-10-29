@@ -2,7 +2,6 @@
 
 > Part of [uv-scripts/transcription](README.md).
 
-
 CBS Suspense (1940s radio drama), 66 episodes, 33 hours of audio.
 
 **`cohere-transcribe.py`** (plain text):
