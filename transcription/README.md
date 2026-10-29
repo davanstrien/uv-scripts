@@ -60,6 +60,7 @@ Audio already on your machine? Mount the folder directly — `-v ./audio:/input`
 | `easytranscriber-transcribe.py` | Cohere Transcribe 2B (default) or Whisper variants | [easytranscriber](https://github.com/kb-labb/easytranscriber) | JSON word timestamps (+ optional `.txt` / `.srt`) | 42.9x RT (L4) |
 | `moss-transcribe-diarize.py` | [MOSS-Transcribe-Diarize](https://huggingface.co/OpenMOSS-Team/MOSS-Transcribe-Diarize) (0.9B) | transformers (remote code) | JSON speaker segments `{start, end, speaker, text}` (+ optional `.txt` / `.srt`) | 3.2x RT (A10G, 74-min file) |
 | `moss-transcribe-diarize-server.py` | [MOSS-Transcribe-Diarize](https://huggingface.co/OpenMOSS-Team/MOSS-Transcribe-Diarize) (0.9B) | in-job sgl-omni server | JSON speaker segments (+ optional `.txt`) | 47.4x RT aggregate (A100, 6 streams) |
+| `nemotron-transcribe.py` | [Nemotron 3.5 Transcribe](https://huggingface.co/nvidia/NVIDIA-Nemotron-3.5-Transcribe-30B-A4B) (30B MoE, ~4B active, 40 languages) | in-job vLLM 0.32 + NeMo Speech server | `.txt` (+ JSON word timestamps, speakers and diarization with `--timestamps`) | 116x RT aggregate (RTX PRO 6000, 10 files) + ~8 min fixed setup |
 
 **`cohere-transcribe.py`** (recommended for plain text) — uses `model.transcribe()` with automatic long-form chunking, overlap, and reassembly. Stable dependencies.
 
@@ -74,6 +75,23 @@ Audio already on your machine? Mount the folder directly — `-v ./audio:/input`
 **`moss-transcribe-diarize.py`** — when you need **who said what**. Joint transcription + speaker diarization + timestamps in one generation pass (no separate ASR/diarization/alignment stages). 128k context handles up to ~90 min of audio per file internally, so files are never pre-chunked and the anonymous speaker labels (`[S01]`, `[S02]`, ...) stay consistent across the whole recording. English + Chinese; also accepts video containers (mp4, mkv, ...); supports hotword biasing for names/jargon.
 
 **`moss-transcribe-diarize-server.py`** — same model at **~12x the throughput** for many files: serves it behind sglang-omni inside the job and posts files concurrently (continuous batching). Splits long tapes into ≤55-min clips to fit the context window (speaker labels reset between clips, recorded as `part` on each segment) and automatically continues from the last timestamp when the model stops early, reporting `coverage_s` per file. Needs `a100-large` — 24 GB cards OOM on long-tape KV. The `hf jobs run` command lives in the script docstring (server + driver in one job).
+
+**`nemotron-transcribe.py`** — when you want **punctuated text, speaker tags and word timestamps from one model, in 40 languages** (speaker tags in 13, up to 8 speakers), and have enough audio to amortise a fixed ~8 min setup. The model only serves on vLLM 0.32.0 with the NeMo Speech plugin, so the script starts that server inside the job and posts files concurrently: 10 half-hour 1940s radio episodes (4.9 h) took 2.5 min once the server was up, a $0.48 job on `rtx-pro-6000`. The `[tool.hf-jobs]` header sets the flavor and a prebuilt image (`cr.hf.co/davanstrien/nemotron-transcribe`, built in a Job by `nemotron-transcribe-image.sh`) that pins NeMo Speech to one commit and carries FlashInfer kernels already compiled for that GPU. `--image vllm/vllm-openai:v0.32.0` makes the script install the stack at runtime instead (~2 min slower; it downloads FlashInfer's precompiled kernels). Prompts are the model card's presets (`--style verbatim|clean|speakers`, or `--prompt` with `Context terms: <names>` for jargon), and the card's generation-loop guardrail is applied to every transcript. `--timestamps` adds a JSON per file with word start/end times, speaker tags and diarization segments, from the CTC head bundled in the checkpoint. Files over 55 min are split into equal parts, and speaker tags reset between parts. On the same 10 episodes, after Whisper-style text normalisation, its words differ from Cohere's by 7.0% (Granite vs Cohere: 7.7%; Nemotron vs Granite: 8.4%); there is no ground truth for these episodes, so this measures agreement, not accuracy. Once loaded it matches Cohere's speed (116x vs 120x RT on the same audio), but the fixed setup makes a 5-hour batch cost $0.48 against Cohere's $0.16 and Granite's $0.20, so reach for it when you need the speaker tags, timestamps or languages. The vLLM integration is NVIDIA's development path; the card says it is about 2x slower than their NIM.
+
+#### Options — `nemotron-transcribe.py`
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--style` | `verbatim` | Model-card prompt preset: `verbatim` (fillers kept), `clean` (fillers dropped) or `speakers` (`<spk:N>` tags) |
+| `--prompt` | none | Custom user prompt (overrides `--style`), e.g. `Transcribe with punctuation and capitalization. Context terms: <names>.` |
+| `--timestamps` | off | Also write JSON with word timestamps, speaker tags and diarization segments (uses the `speakers` prompt) |
+| `--concurrency` | 16 | Files in flight against the server |
+| `--part-minutes` | 55 | Split longer audio into equal parts of at most this length, up to 60 (the model is trained on recordings up to 1 h); speaker tags reset between parts |
+| `--server` | `http://127.0.0.1:8000` | Use a server already running there instead of starting one |
+| `--nemo-ref` | the image's commit (`7b05f096`) | NeMo Speech ref to install when the image has no prebuilt stack; `main` follows the model card |
+| `--workdir` | `/opt/nemotron-transcribe` (prebuilt image), else `/tmp/nemotron-transcribe` | Where the serving stack and checkpoint live (the prebuilt image's stack is used when present) |
+| `--request-timeout` | 3600 | Per-request timeout in seconds |
+| `--max-files` | all | Limit files to process (for testing) |
 
 #### Options — `cohere-transcribe.py` / `cohere-transcribe-vllm.py`
 
