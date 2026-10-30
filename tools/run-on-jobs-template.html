@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<base target="_blank">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Run on Jobs</title>
 <meta name="description" content="Run Hugging Face models over your own data on HF Jobs, with one command.">
@@ -86,7 +87,7 @@ body .more{margin-left:16px}
 <h1>Use Hub models on your own data</h1>
 <p>Run a model over your whole dataset, or fine-tune it on your own examples. Each command starts a job on Hugging Face Jobs and saves the results to the Hub. There is nothing to clone.</p>
 <p class="small muted">Each recipe is a <a href="https://docs.astral.sh/uv/guides/scripts/">uv script</a>: one Python file that lists its own dependencies, so it runs straight from its URL.</p>
-<p class="entry"><a href="#find">Find your model</a> · New to Jobs? Try an example below, or read the <a href="https://huggingface.co/docs/hub/jobs-quickstart">quickstart</a>.</p>
+<p class="entry"><a href="#find" target="_self">Find your model</a> · New to Jobs? Try an example below, or read the <a href="https://huggingface.co/docs/hub/jobs-quickstart">quickstart</a>.</p>
 <section class="steps">
 <div class="switch"><button data-show="OCR">OCR</button><button data-show="Transcription">Transcription</button><button data-show="Embeddings">Embeddings</button><button data-show="Fine-tuning">Fine-tuning</button></div>
 <div data-step="OCR"><p>Read seven scanned NASA pages with GLM-OCR and save the text to a new public dataset on your account. Add <code>--private</code> to keep it private.</p><div class="cmd"><pre>hf jobs uv run \
