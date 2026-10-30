@@ -34,7 +34,7 @@ TASKS = {
     "classification": "Classification",
     "gliner": "Entities",
     "embeddings": "Embeddings",
-    "vllm": "Text generation",
+    "vllm": "Bulk inference",
 }
 TRAINING_TASK = "Fine-tuning"
 TASK_ORDER = [*TASKS.values(), TRAINING_TASK]
