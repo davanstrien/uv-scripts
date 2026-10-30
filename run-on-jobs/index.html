@@ -1,0 +1,376 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Run on Jobs</title>
+<meta name="description" content="Run Hugging Face models over your own data on HF Jobs, with one command.">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono&display=swap">
+<style>
+:root{--bg:#ffffff;--code:#f3f4f6;--fg:#1b1b1b;--muted:#666;--rule:#ddd;--link:#1f4e8c;--warn:#9a4a00;--panel:transparent;
+  --text:"Instrument Sans",system-ui,-apple-system,sans-serif;--mono:"JetBrains Mono",ui-monospace,Menlo,monospace}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#151515;--code:#242424;--fg:#e6e6e6;--muted:#a0a0a0;--rule:#383838;--link:#8db4e8;--warn:#e0a060;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#151515;--code:#242424;--fg:#e6e6e6;--muted:#a0a0a0;--rule:#383838;--link:#8db4e8;--warn:#e0a060;color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font:16px/1.5 var(--text);padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:32px 64px}
+main{max-width:860px;margin-inline:auto}
+a{color:var(--link)}
+h1{font-size:clamp(26px,5vw,34px);font-weight:600;line-height:1.15;margin:0 0 8px;text-wrap:balance}
+h2{font-size:16px;font-weight:600;margin:32px 0 4px}
+p{margin:0 0 10px}
+.muted{color:var(--muted)}
+.small{font-size:14.5px}
+code,pre,input,summary{font-family:var(--mono)}
+code{font-size:.86em}
+pre{font-size:12.5px;line-height:1.55;margin:0;padding:10px 12px;background:var(--code);border-radius:4px;white-space:pre;overflow-x:auto;min-width:0}
+.cmd{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px;align-items:start;margin:6px 0 8px;min-width:0}
+.copy{font:500 12px var(--text);padding:3px 8px;background:var(--bg);color:var(--fg);border:1px solid var(--rule);border-radius:4px;cursor:pointer}
+:focus-visible{outline:2px solid var(--link);outline-offset:2px}
+.switch{display:flex;flex-wrap:wrap;gap:4px 14px;margin:18px 0 8px}
+.switch button{all:unset;cursor:pointer;color:var(--link)}
+.switch button:focus-visible{outline:2px solid var(--link)}
+.switch button[aria-pressed="true"]{color:var(--fg);font-weight:600}
+.proof{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;margin:12px 0 10px}
+.proof figure{margin:0;min-width:0}
+.proof figcaption{font-size:13px;color:var(--muted);margin-bottom:4px}
+.proof img{display:block;width:100%;height:380px;object-fit:cover;object-position:top;border:1px solid var(--rule)}
+.proof pre{height:380px;overflow-y:auto;white-space:pre-wrap}
+.needs{margin-top:14px}
+input{width:100%;font-size:15px;padding:9px 11px;border:1px solid var(--rule);border-radius:6px;background:var(--panel);color:var(--fg);margin-top:6px}
+ul.models{list-style:none;margin:0;padding:0}
+ul.models>li{border-top:1px solid var(--rule)}
+summary{font-size:13.5px;padding:7px 0;cursor:pointer;overflow-wrap:anywhere;list-style:none;display:flex;flex-wrap:wrap;gap:0 12px}
+.name{flex:1 1 240px;min-width:0}
+.state{font:13px var(--text);white-space:nowrap}
+summary::-webkit-details-marker{display:none}
+summary::before{content:"\203A";display:inline-block;width:12px;color:var(--muted);font-family:var(--text);transition:transform .1s}
+details[open]>summary::before{transform:rotate(90deg)}
+.recipe{margin:2px 0 14px 16px;min-width:0}
+.recipe p{margin:0;font-size:14.5px}
+.warn{color:var(--warn)}
+.more{margin-left:16px}
+.more>summary{font:14px var(--text);color:var(--link);padding:0 0 10px}
+.more .recipe{margin-left:0}
+ul.plain{list-style:none;margin:4px 0 0;padding:0;font-size:14.5px}
+.foot{margin-top:32px;padding-top:14px;border-top:1px solid var(--rule)}
+@media (max-width:640px){.proof{grid-template-columns:minmax(0,1fr)}.proof img,.proof pre{height:260px}}
+
+
+nav{display:flex;flex-wrap:wrap;gap:5px 12px;margin-top:10px;font-size:14.5px}
+nav button{all:unset;cursor:pointer;color:var(--link)}
+nav button:focus-visible{outline:2px solid var(--link)}
+nav button[aria-pressed="true"]{color:var(--fg);font-weight:600}
+/* B Hub */
+body{--bg:#f9fafb;--code:#eef0f3;--rule:#e5e7eb;--panel:#ffffff}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) body{--bg:#0b0f19;--code:#1f2937;--rule:#2b3544;--panel:#111827}}
+:root[data-theme="dark"] body{--bg:#0b0f19;--code:#1f2937;--rule:#2b3544;--panel:#111827}
+body .steps{background:var(--panel);border:1px solid var(--rule);border-radius:8px;padding:14px 16px;margin-top:16px}
+body .switch{margin-top:0}
+body .switch button,body nav button{border:1px solid var(--rule);background:var(--panel);border-radius:6px;padding:2px 9px;color:var(--fg);font-size:14px}
+body .switch button[aria-pressed="true"],body nav button[aria-pressed="true"]{background:var(--fg);color:var(--bg);border-color:var(--fg);font-weight:400}
+body h2{font-size:14px;margin:24px 0 6px}
+body ul.models{background:var(--panel);border:1px solid var(--rule);border-radius:8px}
+body ul.models>li:first-child{border-top:0}
+body summary{padding:9px 12px}
+body .more>summary{padding:0 12px 10px}
+body .recipe{margin:2px 12px 14px 28px}
+body .more{margin-left:16px}
+
+
+</style>
+</head>
+<body>
+<main>
+<h1>Run Hub models on your own data</h1>
+<p>One command starts a GPU on Hugging Face Jobs, runs the model over your whole dataset and saves the results to the Hub. There is nothing to clone.</p>
+<section class="steps">
+<div class="switch"><button data-show="OCR">OCR</button><button data-show="Transcription">Transcription</button><button data-show="Embeddings">Embeddings</button></div>
+<div data-step="OCR"><p>Read seven scanned NASA pages with GLM-OCR and save the text to a new dataset on your account.</p><div class="cmd"><pre>hf jobs uv run \
+    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/glm-ocr.py \
+    uv-scripts/ocr-demo your-username/ocr-demo-results</pre><button class="copy">Copy</button></div><div class="proof"><figure><figcaption>The scan</figcaption><img alt="Scanned page listing Space Shuttle foods" src="assets/nasa-food-list.jpg"></figure><figure><figcaption>What the Job wrote</figcaption><pre>Space Shuttle Food and Beverage List
+
+Foods*
+
+Applesauce (T)
+Apricots, dried (IM)
+Asparagus (R)
+Bananas (FD)
+Beef almondine (R)
+Beef, corned (I) (T)
+Beef and gravy (T)
+Beef, ground w/pickle sauce (T)
+Beef jerky (IM)
+Beef patty (R)
+Beef, slices w/barbeque sauce (T)
+Beef steak (I) (T)
+Beef stroganoff w/noodles (R)
+Bread, seedless rye (I) (NF)
+Broccoli au gratin (R)
+Breakfast roll (I) (NF)
+Candy, Life Savers*, assorted flavors (NF)
+Cauliflower w/cheese (R)
+Cereal, bran flakes (R)
+Cereal, cornflakes (R)
+Cereal, granola (R)
+Cereal, granola w/blueberries (R)
+Cereal, granola w/raisins (R)
+Cheddar cheese spread (T)
+Chicken a la king (T)
+
+Chicken and noodles (R)
+Chicken and rice (R)
+Chili mac w/beef (R)
+Cookies, pecan (NF)
+Cookies, shortbread (NF)
+Crackers, graham (NF)
+Eggs, scrambled (R)
+Food bar, almond crunch (NF)
+Food bar, chocolate chip (NF)
+Food bar, granola (NF)
+Food bar, granola/raisin (NF)
+Food bar, peanut butter/granola (NF)
+Frankfurters (Vienna sausage) (T)
+Fruitcake (NF)
+Fruit cocktail (T)
+Green beans, french w/mushrooms (R)
+Green beans and broccoli (R)
+Ham (I) (T)
+Jam/Jelly (T)
+Macaroni and cheese (R)
+Meatballs w/barbeque sauce (T)
+Nuts, almonds (NF)
+Nuts, cashews (NF)
+Nuts, peanuts (NF)
+
+Peach ambrosia (R)
+Peaches, dried (IM)
+Peaches, (T)
+Peanut butter
+Pears (FD)
+Pears (T)
+Peas w/butter sauce (R)
+Pineapple, crushed (T)
+Pudding, butterscotch (T)
+Pudding, chocolate (R) (T)
+Pudding, lemon (T)
+Pudding, vanilla (R) (T)
+Rice pilaf (R)
+Salmon (T)
+Sausage patty (R)
+Shrimp creole (R)
+Shrimp cocktail (R)
+Soup, cream of mushroom (R)
+Spaghetti w/meatless sauce (R)
+Strawberries (R)
+Tomatoes, stewed (T)
+Tuna (T)
+Turkey and gravy (T)
+Turkey, smoked/sliced (I) (T)
+Turkey tetrazzini (R)
+Vegetables, mixed Italian (R)
+
+Beverages
+
+Apple drink
+Cocoa
+Coffee, black
+Coffee w/cream
+Coffee w/cream and sugar
+Coffee w/sugar
+Grape drink
+Grapefruit drink
+Instant breakfast, chocolate
+Instant breakfast, strawberry
+
+Instant breakfast, vanilla
+Lemonade
+Orange drink
+Orange-grapefruit drink
+Orange-pineapple drink
+Strawberry drink
+Tea
+Tea w/lemon and sugar
+Tea w/sugar
+Tropical punch
+
+Condiments
+
+Barbeque sauce
+Catsup
+Mustard
+Pepper
+Salt
+Hot pepper sauce
+Mayonnaise
+
+*Abbreviations in parentheses indicate type of food T = thermostabilized, I = irradiated, IM = intermediate moisture, FD = freeze dried, R = rehydratable, and NF = natural form.
+
+Shuttle Menu
+
+The Space Shuttle menu currently features more than 70 food items and 20 beverages. Shuttle travelers will have a varied menu every day for six days rather than the personal preference meals used in previous space missions. Each day, three meals are allowed, with a repeat of menus after six days. The pantry also provides plenty of foods for snacks and between meal beverages and for individual menu changes. The pantry also stores additional contingency food to last 96 hours.
+
+Food System Constraints
+
+The primary objective in designing a food system for the Space Shuttle is to provide food that is safe and nutritious, light in weight and compact, and is packaged in a convenient form that allows easy manipulation in the weightless environment of an orbiting spacecraft. To achieve this objective requires a careful consideration of three important factors: biological, operational, and engineering. Under each factor are many constraints that affect the final choice of food and how it is</pre></figure></div><p class="small muted">Our run: <a href="https://huggingface.co/datasets/davanstrien/ocr-demo-results">davanstrien/ocr-demo-results</a>. 7 pages, 2.4 minutes of processing on <code>a10g-small</code>, after a few minutes of setup.</p></div>
+<div data-step="Transcription"><p>Transcribe four minutes of a NASA podcast, with speaker tags and word timestamps, into your own Bucket.</p><div class="cmd"><pre>hf buckets create your-username/transcripts --private
+hf jobs uv run --timeout 45m \
+    -v hf://buckets/uv-scripts/transcription-demo/podcast:/input:ro \
+    -v hf://buckets/your-username/transcripts/podcast:/output \
+    https://huggingface.co/datasets/uv-scripts/transcription/raw/main/nemotron-transcribe.py \
+    /input /output --timestamps</pre><button class="copy">Copy</button></div><div class="cmd"><pre>&lt;spk:0&gt; Jim, thank you so much for coming on the podcast today. ... &lt;spk:3&gt; It is, uh, the mission control room, of course, is now open for business ...</pre></div><p class="small muted">Our run: about 7.5 minutes on <code>rtx-pro-6000</code>, about $0.34. Most of that was model setup.</p></div>
+<div data-step="Embeddings"><p>Embed the first 100 IMDb reviews and save them as a private dataset.</p><div class="cmd"><pre>hf jobs uv run --flavor l4x1 -s HF_TOKEN \
+    https://huggingface.co/datasets/uv-scripts/embeddings/raw/main/generate-embeddings.py \
+    stanfordnlp/imdb your-username/imdb-embeddings \
+    --column text --max-samples 100 --private</pre><button class="copy">Copy</button></div><p class="small muted">One L4 GPU embeds about 900 rows per second with <code>all-MiniLM-L6-v2</code>.</p></div>
+</section>
+<p class="small muted needs">You need the <a href="https://huggingface.co/docs/hub/jobs-quickstart">hf CLI</a> (1.32 or newer), a login and pay-as-you-go credit. Add <code>--dry-run</code> to see the GPU and settings without starting a job.</p>
+<h2>Find your model</h2>
+<p class="small muted">In the commands, <code>INPUT</code> and <code>OUTPUT</code> are dataset IDs unless the recipe says otherwise.</p>
+<input id="q" type="search" aria-label="Search models, tasks and scripts" placeholder="Search a model, task or script" autocomplete="off">
+<nav aria-label="Filter by task"><button data-task="All" aria-pressed="true">All</button><button data-task="OCR" aria-pressed="false">OCR</button><button data-task="Transcription" aria-pressed="false">Transcription</button><button data-task="Segmentation" aria-pressed="false">Segmentation</button><button data-task="Object detection" aria-pressed="false">Object detection</button><button data-task="Video" aria-pressed="false">Video</button><button data-task="Classification" aria-pressed="false">Classification</button><button data-task="Embeddings" aria-pressed="false">Embeddings</button><button data-task="Text generation" aria-pressed="false">Text generation</button><button data-task="Fine-tuning" aria-pressed="false">Fine-tuning</button></nav>
+<p id="none" class="muted small" hidden>No recipe matches that search. <button id="clear" class="copy">Show all models</button></p>
+<section data-group><h2>OCR</h2><ul class="models"><li data-task="OCR" data-text="allenai/olmocr-2-7b-1025-fp8 ocr ocr/olmocr2-vllm.py convert document images to markdown using olmocr-2 with vllm."><details><summary><span class="name">allenai/olmOCR-2-7B-1025-FP8</span><span class="state muted">ready · a10g-small</span></summary><div class="recipe"><p><a href="https://huggingface.co/datasets/uv-scripts/ocr/raw/main/olmocr2-vllm.py"><code>olmocr2-vllm.py</code></a> <span class="muted small">ready to run · a10g-small</span></p><p class="muted">Convert document images to markdown using olmOCR-2 with vLLM.</p><div class="cmd"><pre>hf jobs uv run \
+    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/olmocr2-vllm.py \
+    INPUT_DATASET OUTPUT_DATASET</pre><button class="copy">Copy</button></div></div></details></li><li data-task="OCR" data-text="ath-maas/ovisocr2 ocr ocr/ovis-ocr2.py convert document images to markdown using ovisocr2 with vllm. ocr/ovis-ocr2-saturate.py convert document images to markdown using ovisocr2 via saturate."><details><summary><span class="name">ATH-MaaS/OvisOCR2</span><span class="state muted">ready · a10g-small</span></summary><div class="recipe"><p><a href="https://huggingface.co/datasets/uv-scripts/ocr/raw/main/ovis-ocr2.py"><code>ovis-ocr2.py</code></a> <span class="muted small">ready to run · a10g-small</span></p><p class="muted">Convert document images to markdown using OvisOCR2 with vLLM.</p><div class="cmd"><pre>hf jobs uv run \
+    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/ovis-ocr2.py \
+    INPUT_DATASET OUTPUT_DATASET</pre><button class="copy">Copy</button></div></div><details class="more"><summary>1 more recipe</summary><div class="recipe"><p><a href="https://huggingface.co/datasets/uv-scripts/ocr/raw/main/ovis-ocr2-saturate.py"><code>ovis-ocr2-saturate.py</code></a> <span class="muted small">ready to run · a10g-small</span></p><p class="muted">Convert document images to markdown using OvisOCR2 via saturate.</p><div class="cmd"><pre>hf jobs uv run \
+    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/ovis-ocr2-saturate.py \
+    INPUT_DATASET OUTPUT_DATASET</pre><button class="copy">Copy</button></div></div></details></details></li><li data-task="OCR" data-text="baidu/qianfan-ocr ocr ocr/qianfan-ocr.py convert document images to markdown using qianfan-ocr with vllm."><details><summary><span class="name">baidu/Qianfan-OCR</span><span class="state muted">ready · a10g-small</span></summary><div class="recipe"><p><a href="https://huggingface.co/datasets/uv-scripts/ocr/raw/main/qianfan-ocr.py"><code>qianfan-ocr.py</code></a> <span class="muted small">ready to run · a10g-small</span></p><p class="muted">Convert document images to markdown using Qianfan-OCR with vLLM.</p><div class="cmd"><pre>hf jobs uv run \
+    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/qianfan-ocr.py \
+    INPUT_DATASET OUTPUT_DATASET</pre><button class="copy">Copy</button></div></div></details></li><li data-task="OCR" data-text="baidu/unlimited-ocr ocr ocr/unlimited-ocr-vllm.py convert document images to markdown using baidu unlimited-ocr with vllm."><details><summary><span class="name">baidu/Unlimited-OCR</span><span class="state muted">ready · a10g-small</span></summary><div class="recipe"><p><a href="https://huggingface.co/datasets/uv-scripts/ocr/raw/main/unlimited-ocr-vllm.py"><code>unlimited-ocr-vllm.py</code></a> <span class="muted small">ready to run · a10g-small</span></p><p class="muted">Convert document images to markdown using Baidu Unlimited-OCR with vLLM.</p><div class="cmd"><pre>hf jobs uv run \
+    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/unlimited-ocr-vllm.py \
+    INPUT_DATASET OUTPUT_DATASET</pre><button class="copy">Copy</button></div></div></details></li><li data-task="OCR" data-text="baidu/unlimited-ocr-2 ocr ocr/unlimited-ocr2.py ocr whole documents (book volumes, folders of scans) with baidu unlimited-ocr-2. ocr/unlimited-ocr2-live.py unlimited-ocr2.py with a live view you can watch (and screen-record) while the job runs. ocr/unlimited-ocr2-saturate.py ocr whole documents (book volumes, pdfs) with baidu unlimited-ocr-2 via saturate."><details><summary><span class="name">baidu/Unlimited-OCR-2</span><span class="state muted">ready · rtx-pro-6000</span></summary><div class="recipe"><p><a href="https://huggingface.co/datasets/uv-scripts/ocr/raw/main/unlimited-ocr2.py"><code>unlimited-ocr2.py</code></a> <span class="muted small">ready to run · rtx-pro-6000</span></p><p class="muted">OCR whole documents (book volumes, folders of scans) with Baidu Unlimited-OCR-2.</p><div class="cmd"><pre>hf jobs uv run \
+    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/unlimited-ocr2.py \
+    INPUT OUTPUT</pre><button class="copy">Copy</button></div></div><details class="more"><summary>2 more recipes</summary><div class="recipe"><p><a href="https://huggingface.co/datasets/uv-scripts/ocr/raw/main/unlimited-ocr2-live.py"><code>unlimited-ocr2-live.py</code></a> <span class="muted small">ready to run, experimental · rtx-pro-6000</span></p><p class="muted">unlimited-ocr2.py with a live view you can watch (and screen-record) while the Job runs.</p><div class="cmd"><pre>hf jobs uv run \
+    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/unlimited-ocr2-live.py \
+    INPUT OUTPUT</pre><button class="copy">Copy</button></div></div><div class="recipe"><p><a href="https://huggingface.co/datasets/uv-scripts/ocr/raw/main/unlimited-ocr2-saturate.py"><code>unlimited-ocr2-saturate.py</code></a> <span class="muted small">ready to run, experimental · rtx-pro-6000</span></p><p class="muted">OCR whole documents (book volumes, PDFs) with Baidu Unlimited-OCR-2 via saturate.</p><div class="cmd"><pre>hf jobs uv run \
+    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/unlimited-ocr2-saturate.py \
+    INPUT OUTPUT</pre><button class="copy">Copy</button></div></div></details></details></li><li data-task="OCR" data-text="datalab-to/lift ocr ocr/lift-extract.py extract structured json from document images or multi-page pdfs using datalab&#x27;s lift model (datalab-to/lift, 9b, qwen3.5-based)."><details><summary><span class="name">datalab-to/lift</span><span class="state muted">ready · a100-large</span></summary><div class="recipe"><p><a href="https://huggingface.co/datasets/uv-scripts/ocr/raw/main/lift-extract.py"><code>lift-extract.py</code></a> <span class="muted small">ready to run · a100-large</span></p><p class="muted">Extract structured JSON from document images OR multi-page PDFs using Datalab&#x27;s lift model (datalab-to/lift, 9B, Qwen3.5-based).</p><div class="cmd"><pre>hf jobs uv run \
+    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/lift-extract.py \
+    INPUT_DATASET OUTPUT_DATASET --schema SCHEMA</pre><button class="copy">Copy</button></div></div></details></li><li data-task="OCR" data-text="datalab-to/surya-ocr-2 ocr ocr/surya-ocr.py document intelligence on images or multi-page pdfs with datalab&#x27;s surya ocr 2 (datalab-to/surya-ocr-2, 650m, qwen3.5-style)."><details><summary><span class="name">datalab-to/surya-ocr-2</span><span class="state muted">ready · a10g-small</span></summary><div class="recipe"><p><a href="https://huggingface.co/datasets/uv-scripts/ocr/raw/main/surya-ocr.py"><code>surya-ocr.py</code></a> <span class="muted small">ready to run · a10g-small</span></p><p class="muted">Document intelligence on images OR multi-page PDFs with Datalab&#x27;s Surya OCR 2 (datalab-to/surya-ocr-2, 650M, Qwen3.5-style).</p><div class="cmd"><pre>hf jobs uv run \
+    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/surya-ocr.py \
+    INPUT_DATASET OUTPUT_DATASET</pre><button class="copy">Copy</button></div></div></details></li><li data-task="OCR" data-text="deepseek-ai/deepseek-ocr ocr ocr/deepseek-ocr-vllm.py convert document images to markdown using deepseek-ocr with vllm."><details><summary><span class="name">deepseek-ai/DeepSeek-OCR</span><span class="state muted">ready · a10g-small</span></summary><div class="recipe"><p><a href="https://huggingface.co/datasets/uv-scripts/ocr/raw/main/deepseek-ocr-vllm.py"><code>deepseek-ocr-vllm.py</code></a> <span class="muted small">ready to run · a10g-small</span></p><p class="muted">Convert document images to markdown using DeepSeek-OCR with vLLM.</p><div class="cmd"><pre>hf jobs uv run \
+    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/deepseek-ocr-vllm.py \
+    INPUT_DATASET OUTPUT_DATASET</pre><button class="copy">Copy</button></div></div></details></li><li data-task="OCR" data-text="deepseek-ai/deepseek-ocr-2 ocr ocr/deepseek-ocr2-vllm.py convert document images to markdown using deepseek-ocr-2 with vllm."><details><summary><span class="name">deepseek-ai/DeepSeek-OCR-2</span><span class="state muted">ready · a10g-small</span></summary><div class="recipe"><p><a href="https://huggingface.co/datasets/uv-scripts/ocr/raw/main/deepseek-ocr2-vllm.py"><code>deepseek-ocr2-vllm.py</code></a> <span class="muted small">ready to run · a10g-small</span></p><p class="muted">Convert document images to markdown using DeepSeek-OCR-2 with vLLM.</p><div class="cmd"><pre>hf jobs uv run \
+    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/deepseek-ocr2-vllm.py \
+    INPUT_DATASET OUTPUT_DATASET</pre><button class="copy">Copy</button></div></div></details></li><li data-task="OCR" data-text="lightonai/lightonocr-2-1b ocr ocr/lighton-ocr2.py convert document images to markdown using lightonocr-2 with vllm. ocr/lighton-ocr2-saturate.py convert document images to markdown using lightonocr-2 via saturate."><details><summary><span class="name">lightonai/LightOnOCR-2-1B</span><span class="state muted">ready · a10g-small</span></summary><div class="recipe"><p><a href="https://huggingface.co/datasets/uv-scripts/ocr/raw/main/lighton-ocr2.py"><code>lighton-ocr2.py</code></a> <span class="muted small">ready to run · a10g-small</span></p><p class="muted">Convert document images to markdown using LightOnOCR-2 with vLLM.</p><div class="cmd"><pre>hf jobs uv run \
+    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/lighton-ocr2.py \
+    INPUT_DATASET OUTPUT_DATASET</pre><button class="copy">Copy</button></div></div><details class="more"><summary>1 more recipe</summary><div class="recipe"><p><a href="https://huggingface.co/datasets/uv-scripts/ocr/raw/main/lighton-ocr2-saturate.py"><code>lighton-ocr2-saturate.py</code></a> <span class="muted small">ready to run · a10g-small</span></p><p class="muted">Convert document images to markdown using LightOnOCR-2 via saturate.</p><div class="cmd"><pre>hf jobs uv run \
+    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/lighton-ocr2-saturate.py \
+    INPUT_DATASET OUTPUT_DATASET</pre><button class="copy">Copy</button></div></div></details></details></li><li data-task="OCR" data-text="lightonai/lightonocr-3-4b ocr ocr/lighton-ocr3-bucket.py ocr images and pdfs from an hf bucket (or a directory) using lightonocr-3, writing markdown files. ocr/lighton-ocr3.py convert document images to markdown (or layout blocks) using lightonocr-3 with vllm."><details><summary><span class="name">lightonai/LightOnOCR-3-4B</span><span class="state muted">ready · a10g-small</span></summary><div class="recipe"><p><a href="https://huggingface.co/datasets/uv-scripts/ocr/raw/main/lighton-ocr3-bucket.py"><code>lighton-ocr3-bucket.py</code></a> <span class="muted small">ready to run · a10g-small</span></p><p class="muted">OCR images and PDFs from an HF Bucket (or a directory) using LightOnOCR-3, writing markdown files.</p><div class="cmd"><pre>hf jobs uv run \
+    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/lighton-ocr3-bucket.py \
+    INPUT OUTPUT</pre><button class="copy">Copy</button></div></div><details class="more"><summary>1 more recipe</summary><div class="recipe"><p><a href="https://huggingface.co/datasets/uv-scripts/ocr/raw/main/lighton-ocr3.py"><code>lighton-ocr3.py</code></a> <span class="muted small">ready to run · a10g-small</span></p><p class="muted">Convert document images to markdown (or layout blocks) using LightOnOCR-3 with vLLM.</p><div class="cmd"><pre>hf jobs uv run \
+    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/lighton-ocr3.py \
+    INPUT_DATASET OUTPUT_DATASET</pre><button class="copy">Copy</button></div></div></details></details></li><li data-task="OCR" data-text="numind/nuextract3 ocr ocr/nuextract3.py convert document images to markdown or extract structured json using nuextract3 with vllm."><details><summary><span class="name">numind/NuExtract3</span><span class="state muted">ready · a10g-small</span></summary><div class="recipe"><p><a href="https://huggingface.co/datasets/uv-scripts/ocr/raw/main/nuextract3.py"><code>nuextract3.py</code></a> <span class="muted small">ready to run · a10g-small</span></p><p class="muted">Convert document images to markdown OR extract structured JSON using NuExtract3 with vLLM.</p><div class="cmd"><pre>hf jobs uv run \
+    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/nuextract3.py \
+    INPUT_DATASET OUTPUT_DATASET</pre><button class="copy">Copy</button></div></div></details></li><li data-task="OCR" data-text="openbmb/minicpm-ocr-1.0 ocr ocr/minicpm-ocr.py convert document images to markdown with openbmb&#x27;s minicpm-ocr 1.0 pipeline."><details><summary><span class="name">openbmb/MiniCPM-OCR-1.0</span><span class="state muted">ready · a10g-large</span></summary><div class="recipe"><p><a href="https://huggingface.co/datasets/uv-scripts/ocr/raw/main/minicpm-ocr.py"><code>minicpm-ocr.py</code></a> <span class="muted small">ready to run, experimental · a10g-large</span></p><p class="muted">Convert document images to markdown with OpenBMB&#x27;s MiniCPM-OCR 1.0 pipeline.</p><div class="cmd"><pre>hf jobs uv run \
+    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/minicpm-ocr.py \
+    INPUT OUTPUT</pre><button class="copy">Copy</button></div></div></details></li><li data-task="OCR" data-text="paddlepaddle/paddleocr-vl-1.6 ocr ocr/paddleocr-vl-1.6.py convert document images to text/tables/formulas using paddleocr-vl-1.6 with vllm."><details><summary><span class="name">PaddlePaddle/PaddleOCR-VL-1.6</span><span class="state muted">ready · a10g-small</span></summary><div class="recipe"><p><a href="https://huggingface.co/datasets/uv-scripts/ocr/raw/main/paddleocr-vl-1.6.py"><code>paddleocr-vl-1.6.py</code></a> <span class="muted small">ready to run · a10g-small</span></p><p class="muted">Convert document images to text/tables/formulas using PaddleOCR-VL-1.6 with vLLM.</p><div class="cmd"><pre>hf jobs uv run \
+    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/paddleocr-vl-1.6.py \
+    INPUT_DATASET OUTPUT_DATASET</pre><button class="copy">Copy</button></div></div></details></li><li data-task="OCR" data-text="rednote-hilab/dots.mocr ocr ocr/dots-mocr.py convert document images to markdown using dots.mocr with vllm."><details><summary><span class="name">rednote-hilab/dots.mocr</span><span class="state muted">ready · a10g-small</span></summary><div class="recipe"><p><a href="https://huggingface.co/datasets/uv-scripts/ocr/raw/main/dots-mocr.py"><code>dots-mocr.py</code></a> <span class="muted small">ready to run · a10g-small</span></p><p class="muted">Convert document images to markdown using dots.mocr with vLLM.</p><div class="cmd"><pre>hf jobs uv run \
+    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/dots-mocr.py \
+    INPUT_DATASET OUTPUT_DATASET</pre><button class="copy">Copy</button></div></div></details></li><li data-task="OCR" data-text="rednote-hilab/dots.ocr ocr ocr/dots-ocr.py convert document images to markdown using dots.ocr with vllm."><details><summary><span class="name">rednote-hilab/dots.ocr</span><span class="state muted">ready · a10g-small</span></summary><div class="recipe"><p><a href="https://huggingface.co/datasets/uv-scripts/ocr/raw/main/dots-ocr.py"><code>dots-ocr.py</code></a> <span class="muted small">ready to run · a10g-small</span></p><p class="muted">Convert document images to markdown using DoTS.ocr with vLLM.</p><div class="cmd"><pre>hf jobs uv run \
+    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/dots-ocr.py \
+    INPUT_DATASET OUTPUT_DATASET</pre><button class="copy">Copy</button></div></div></details></li><li data-task="OCR" data-text="tencent/hunyuanocr ocr ocr/hunyuan-ocr-1.5.py convert document images to markdown using hunyuanocr-1.5 with vllm."><details><summary><span class="name">tencent/HunyuanOCR</span><span class="state muted">ready · a10g-small</span></summary><div class="recipe"><p><a href="https://huggingface.co/datasets/uv-scripts/ocr/raw/main/hunyuan-ocr-1.5.py"><code>hunyuan-ocr-1.5.py</code></a> <span class="muted small">ready to run · a10g-small</span></p><p class="muted">Convert document images to markdown using HunyuanOCR-1.5 with vLLM.</p><div class="cmd"><pre>hf jobs uv run \
+    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/hunyuan-ocr-1.5.py \
+    INPUT_DATASET OUTPUT_DATASET</pre><button class="copy">Copy</button></div></div></details></li><li data-task="OCR" data-text="zai-org/glm-ocr ocr ocr/glm-ocr.py convert document images to markdown using glm-ocr with vllm."><details><summary><span class="name">zai-org/GLM-OCR</span><span class="state muted">ready · a10g-small</span></summary><div class="recipe"><p><a href="https://huggingface.co/datasets/uv-scripts/ocr/raw/main/glm-ocr.py"><code>glm-ocr.py</code></a> <span class="muted small">ready to run · a10g-small</span></p><p class="muted">Convert document images to markdown using GLM-OCR with vLLM.</p><div class="cmd"><pre>hf jobs uv run \
+    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/glm-ocr.py \
+    INPUT_DATASET OUTPUT_DATASET</pre><button class="copy">Copy</button></div></div></details></li></ul></section><section data-group><h2>Transcription</h2><ul class="models"><li data-task="Transcription" data-text="coherelabs/cohere-transcribe-03-2026 transcription transcription/cohere-transcribe-vllm.py transcribe audio files from a directory using cohere transcribe via vllm. transcription/cohere-transcribe.py transcribe audio files from a directory using cohere transcribe via transformers. transcription/easytranscriber-transcribe.py transcribe audio with word-level timestamps using kb-labb/easytranscriber."><details><summary><span class="name">CohereLabs/cohere-transcribe-03-2026</span><span class="state warn">options needed</span></summary><div class="recipe"><p><a href="https://huggingface.co/datasets/uv-scripts/transcription/raw/main/cohere-transcribe-vllm.py"><code>cohere-transcribe-vllm.py</code></a> <span class="warn small">set options first</span></p><p class="muted">Transcribe audio files from a directory using Cohere Transcribe via vLLM.</p><p class="small"><a href="https://huggingface.co/datasets/uv-scripts/transcription/raw/main/cohere-transcribe-vllm.py">Read the script</a> for its options. It has no launch settings yet.</p></div><details class="more"><summary>2 more recipes</summary><div class="recipe"><p><a href="https://huggingface.co/datasets/uv-scripts/transcription/raw/main/cohere-transcribe.py"><code>cohere-transcribe.py</code></a> <span class="warn small">set options first</span></p><p class="muted">Transcribe audio files from a directory using Cohere Transcribe via transformers.</p><p class="small"><a href="https://huggingface.co/datasets/uv-scripts/transcription/raw/main/cohere-transcribe.py">Read the script</a> for its options. It has no launch settings yet.</p></div><div class="recipe"><p><a href="https://huggingface.co/datasets/uv-scripts/transcription/raw/main/easytranscriber-transcribe.py"><code>easytranscriber-transcribe.py</code></a> <span class="warn small">set options first</span></p><p class="muted">Transcribe audio with word-level timestamps using kb-labb/easytranscriber.</p><p class="small"><a href="https://huggingface.co/datasets/uv-scripts/transcription/raw/main/easytranscriber-transcribe.py">Read the script</a> for its options. It has no launch settings yet.</p></div></details></details></li><li data-task="Transcription" data-text="distil-whisper/distil-large-v3.5 transcription transcription/easytranscriber-transcribe.py transcribe audio with word-level timestamps using kb-labb/easytranscriber."><details><summary><span class="name">distil-whisper/distil-large-v3.5</span><span class="state warn">options needed</span></summary><div class="recipe"><p><a href="https://huggingface.co/datasets/uv-scripts/transcription/raw/main/easytranscriber-transcribe.py"><code>easytranscriber-transcribe.py</code></a> <span class="warn small">set options first</span></p><p class="muted">Transcribe audio with word-level timestamps using kb-labb/easytranscriber.</p><p class="small"><a href="https://huggingface.co/datasets/uv-scripts/transcription/raw/main/easytranscriber-transcribe.py">Read the script</a> for its options. It has no launch settings yet.</p></div></details></li><li data-task="Transcription" data-text="facebook/mms-1b-all transcription transcription/easytranscriber-transcribe.py transcribe audio with word-level timestamps using kb-labb/easytranscriber."><details><summary><span class="name">facebook/mms-1b-all</span><span class="state warn">options needed</span></summary><div class="recipe"><p><a href="https://huggingface.co/datasets/uv-scripts/transcription/raw/main/easytranscriber-transcribe.py"><code>easytranscriber-transcribe.py</code></a> <span class="warn small">set options first</span></p><p class="muted">Transcribe audio with word-level timestamps using kb-labb/easytranscriber.</p><p class="small"><a href="https://huggingface.co/datasets/uv-scripts/transcription/raw/main/easytranscriber-transcribe.py">Read the script</a> for its options. It has no launch settings yet.</p></div></details></li><li data-task="Transcription" data-text="ibm-granite/granite-speech-5.0-470m-turboctc transcription transcription/granite-turboctc-transcribe.py transcribe english audio files with ibm granite speech 5.0 turboctc (470m)."><details><summary><span class="name">ibm-granite/granite-speech-5.0-470m-turboctc</span><span class="state warn">options needed</span></summary><div class="recipe"><p><a href="https://huggingface.co/datasets/uv-scripts/transcription/raw/main/granite-turboctc-transcribe.py"><code>granite-turboctc-transcribe.py</code></a> <span class="warn small">set options first</span></p><p class="muted">Transcribe English audio files with IBM Granite Speech 5.0 TurboCTC (470M).</p><p class="small"><a href="https://huggingface.co/datasets/uv-scripts/transcription/raw/main/granite-turboctc-transcribe.py">Read the script</a> for its options. It has no launch settings yet.</p></div></details></li><li data-task="Transcription" data-text="nvidia/nvidia-nemotron-3.5-transcribe-30b-a4b transcription transcription/nemotron-transcribe.py transcribe audio with nvidia nemotron 3.5 transcribe via an in-job vllm server."><details><summary><span class="name">nvidia/NVIDIA-Nemotron-3.5-Transcribe-30B-A4B</span><span class="state muted">ready · rtx-pro-6000</span></summary><div class="recipe"><p><a href="https://huggingface.co/datasets/uv-scripts/transcription/raw/main/nemotron-transcribe.py"><code>nemotron-transcribe.py</code></a> <span class="muted small">ready to run · rtx-pro-6000</span></p><p class="muted">Transcribe audio with NVIDIA Nemotron 3.5 Transcribe via an in-job vLLM server.</p><div class="cmd"><pre>hf jobs uv run \
+    https://huggingface.co/datasets/uv-scripts/transcription/raw/main/nemotron-transcribe.py \
+    INPUT_DIR OUTPUT_DIR</pre><button class="copy">Copy</button></div></div></details></li><li data-task="Transcription" data-text="openmoss-team/moss-transcribe-diarize transcription transcription/moss-transcribe-diarize.py transcribe + diarize audio files using moss-transcribe-diarize (0.9b). transcription/moss-transcribe-diarize-server.py high-throughput transcription + diarization via an in-job sgl-omni server."><details><summary><span class="name">OpenMOSS-Team/MOSS-Transcribe-Diarize</span><span class="state warn">options needed</span></summary><div class="recipe"><p><a href="https://huggingface.co/datasets/uv-scripts/transcription/raw/main/moss-transcribe-diarize.py"><code>moss-transcribe-diarize.py</code></a> <span class="warn small">set options first</span></p><p class="muted">Transcribe + diarize audio files using MOSS-Transcribe-Diarize (0.9B).</p><p class="small"><a href="https://huggingface.co/datasets/uv-scripts/transcription/raw/main/moss-transcribe-diarize.py">Read the script</a> for its options. It has no launch settings yet.</p></div><details class="more"><summary>1 more recipe</summary><div class="recipe"><p><a href="https://huggingface.co/datasets/uv-scripts/transcription/raw/main/moss-transcribe-diarize-server.py"><code>moss-transcribe-diarize-server.py</code></a> <span class="warn small">set options first</span></p><p class="muted">High-throughput transcription + diarization via an in-job sgl-omni server.</p><p class="small"><a href="https://huggingface.co/datasets/uv-scripts/transcription/raw/main/moss-transcribe-diarize-server.py">Read the script</a> for its options. It has no launch settings yet.</p></div></details></details></li></ul></section><section data-group><h2>Segmentation</h2><ul class="models"><li data-task="Segmentation" data-text="facebook/sam3 segmentation sam3/detect-objects.py detect objects in images using meta&#x27;s sam3 (segment anything model 3). sam3/segment-objects.py segment objects in images using meta&#x27;s sam3 (segment anything model 3)."><details><summary><span class="name">facebook/sam3</span><span class="state muted">example</span></summary><div class="recipe"><p><a href="https://huggingface.co/datasets/uv-scripts/sam3/raw/main/detect-objects.py"><code>detect-objects.py</code></a> <span class="muted small">example from the script</span></p><p class="muted">Detect objects in images using Meta&#x27;s SAM3 (Segment Anything Model 3).</p><div class="cmd"><pre>hf jobs uv run --flavor a100-large \
+    -s HF_TOKEN \
+    https://huggingface.co/datasets/uv-scripts/sam3/raw/main/detect-objects.py \
+    input-dataset output-dataset \
+    --class-name photograph \
+    --confidence-threshold 0.5</pre><button class="copy">Copy</button></div></div><details class="more"><summary>1 more recipe</summary><div class="recipe"><p><a href="https://huggingface.co/datasets/uv-scripts/sam3/raw/main/segment-objects.py"><code>segment-objects.py</code></a> <span class="muted small">example from the script</span></p><p class="muted">Segment objects in images using Meta&#x27;s SAM3 (Segment Anything Model 3).</p><div class="cmd"><pre>hf jobs uv run --flavor a100-large \
+    -s HF_TOKEN \
+    https://huggingface.co/datasets/uv-scripts/sam3/raw/main/segment-objects.py \
+    input-dataset output-dataset \
+    --class-name photograph</pre><button class="copy">Copy</button></div></div></details></details></li></ul></section><section data-group><h2>Object detection</h2><ul class="models"><li data-task="Object detection" data-text="qwen/qwen3.6-35b-a3b object detection vlm-object-detection/qwen3vl-detect.py instruction-oriented object detection with qwen3-vl via vllm. vlm-object-detection/qwen3vl-detect-fewshot.py [few-shot variant] instruction-oriented object detection with qwen3-vl via vllm."><details><summary><span class="name">Qwen/Qwen3.6-35B-A3B</span><span class="state muted">ready · a100-large</span></summary><div class="recipe"><p><a href="https://huggingface.co/datasets/uv-scripts/vlm-object-detection/raw/main/qwen3vl-detect.py"><code>qwen3vl-detect.py</code></a> <span class="muted small">ready to run · a100-large</span></p><p class="muted">Instruction-oriented object detection with Qwen3-VL via vLLM.</p><div class="cmd"><pre>hf jobs uv run \
+    https://huggingface.co/datasets/uv-scripts/vlm-object-detection/raw/main/qwen3vl-detect.py \
+    INPUT_DATASET OUTPUT_DATASET</pre><button class="copy">Copy</button></div></div><details class="more"><summary>1 more recipe</summary><div class="recipe"><p><a href="https://huggingface.co/datasets/uv-scripts/vlm-object-detection/raw/main/qwen3vl-detect-fewshot.py"><code>qwen3vl-detect-fewshot.py</code></a> <span class="muted small">ready to run · a100-large</span></p><p class="muted">[FEW-SHOT VARIANT] Instruction-oriented object detection with Qwen3-VL via vLLM.</p><div class="cmd"><pre>hf jobs uv run \
+    https://huggingface.co/datasets/uv-scripts/vlm-object-detection/raw/main/qwen3vl-detect-fewshot.py \
+    INPUT_DATASET OUTPUT_DATASET</pre><button class="copy">Copy</button></div></div></details></details></li></ul></section><section data-group><h2>Video</h2><ul class="models"><li data-task="Video" data-text="nemostation/marlin-2b video video/marlin-caption.py caption videos with timestamped events using marlin-2b, writing a resumable dataset."><details><summary><span class="name">NemoStation/Marlin-2B</span><span class="state muted">ready · a10g-small</span></summary><div class="recipe"><p><a href="https://huggingface.co/datasets/uv-scripts/video/raw/main/marlin-caption.py"><code>marlin-caption.py</code></a> <span class="muted small">ready to run · a10g-small</span></p><p class="muted">Caption videos with timestamped events using Marlin-2B, writing a resumable dataset.</p><div class="cmd"><pre>hf jobs uv run \
+    https://huggingface.co/datasets/uv-scripts/video/raw/main/marlin-caption.py \
+    INPUT_DIR OUTPUT</pre><button class="copy">Copy</button></div></div></details></li><li data-task="Video" data-text="qwen/qwen3.8-27b video video/qwen38-caption.py caption whole videos — no chunking — with qwen3.8-27b, writing a resumable dataset."><details><summary><span class="name">Qwen/Qwen3.8-27B</span><span class="state muted">ready · a100-large</span></summary><div class="recipe"><p><a href="https://huggingface.co/datasets/uv-scripts/video/raw/main/qwen38-caption.py"><code>qwen38-caption.py</code></a> <span class="muted small">ready to run · a100-large</span></p><p class="muted">Caption whole videos — no chunking — with Qwen3.8-27B, writing a resumable dataset.</p><div class="cmd"><pre>hf jobs uv run \
+    https://huggingface.co/datasets/uv-scripts/video/raw/main/qwen38-caption.py \
+    INPUT_DIR OUTPUT</pre><button class="copy">Copy</button></div></div></details></li></ul></section><section data-group><h2>Classification</h2><ul class="models"><li data-task="Classification" data-text="fastino/gliner2.5-multi-v1 classification classification/classify-gliner2.py classify a text column of a hub dataset with gliner2 — zero-shot, or with your fine-tuned model."><details><summary><span class="name">fastino/gliner2.5-multi-v1</span><span class="state muted">ready · t4-small</span></summary><div class="recipe"><p><a href="https://huggingface.co/datasets/uv-scripts/classification/raw/main/classify-gliner2.py"><code>classify-gliner2.py</code></a> <span class="muted small">ready to run · t4-small</span></p><p class="muted">Classify a text column of a Hub dataset with GLiNER2 — zero-shot, or with your fine-tuned model.</p><div class="cmd"><pre>hf jobs uv run \
+    https://huggingface.co/datasets/uv-scripts/classification/raw/main/classify-gliner2.py \
+    INPUT_DATASET OUTPUT_DATASET</pre><button class="copy">Copy</button></div></div></details></li><li data-task="Classification" data-text="huggingfacetb/smollm3-3b classification classification/classify-dataset-sglang.py classify text columns in hugging face datasets using sglang with reasoning-aware models. classification/classify-dataset.py classify text columns in hugging face datasets using vllm with structured outputs."><details><summary><span class="name">HuggingFaceTB/SmolLM3-3B</span><span class="state muted">ready · l4x1</span></summary><div class="recipe"><p><a href="https://huggingface.co/datasets/uv-scripts/classification/raw/main/classify-dataset-sglang.py"><code>classify-dataset-sglang.py</code></a> <span class="muted small">ready to run · l4x1</span></p><p class="muted">Classify text columns in Hugging Face datasets using SGLang with reasoning-aware models.</p><div class="cmd"><pre>hf jobs uv run \
+    https://huggingface.co/datasets/uv-scripts/classification/raw/main/classify-dataset-sglang.py \
+    --input-dataset INPUT_DATASET --column COLUMN --labels LABELS --output-dataset OUTPUT_DATASET</pre><button class="copy">Copy</button></div></div><details class="more"><summary>1 more recipe</summary><div class="recipe"><p><a href="https://huggingface.co/datasets/uv-scripts/classification/raw/main/classify-dataset.py"><code>classify-dataset.py</code></a> <span class="muted small">ready to run · l4x1</span></p><p class="muted">Classify text columns in Hugging Face datasets using vLLM with structured outputs.</p><div class="cmd"><pre>hf jobs uv run \
+    https://huggingface.co/datasets/uv-scripts/classification/raw/main/classify-dataset.py \
+    --input-dataset INPUT_DATASET --column COLUMN --labels LABELS --output-dataset OUTPUT_DATASET</pre><button class="copy">Copy</button></div></div></details></details></li></ul></section><section data-group><h2>Embeddings</h2><ul class="models"><li data-task="Embeddings" data-text="baai/bge-base-en-v1.5 embeddings embeddings/embed-to-lance.py embed a hugging face dataset and push it back as a lance vector index — a hub dataset that is a searchable vector database."><details><summary><span class="name">BAAI/bge-base-en-v1.5</span><span class="state muted">example</span></summary><div class="recipe"><p><a href="https://huggingface.co/datasets/uv-scripts/embeddings/raw/main/embed-to-lance.py"><code>embed-to-lance.py</code></a> <span class="muted small">example from the script</span></p><p class="muted">Embed a Hugging Face dataset and push it back as a Lance vector index — a Hub dataset that IS a searchable vector database.</p><div class="cmd"><pre>hf jobs uv run --flavor l4x1 -s HF_TOKEN https://huggingface.co/datasets/uv-scripts/embeddings/raw/main/embed-to-lance.py \
+    stanfordnlp/imdb your-name/imdb-vecdb --column text --model BAAI/bge-base-en-v1.5 --private</pre><button class="copy">Copy</button></div></div></details></li><li data-task="Embeddings" data-text="qwen/qwen3-embedding-0.6b embeddings embeddings/generate-embeddings-vllm.py high-throughput embedding generation with vllm pooling mode — the &quot;scale&quot; variant of generate-embeddings.py, for large *decoder* embedding models (e.g"><details><summary><span class="name">Qwen/Qwen3-Embedding-0.6B</span><span class="state muted">example</span></summary><div class="recipe"><p><a href="https://huggingface.co/datasets/uv-scripts/embeddings/raw/main/generate-embeddings-vllm.py"><code>generate-embeddings-vllm.py</code></a> <span class="muted small">example from the script</span></p><p class="muted">High-throughput embedding generation with vLLM pooling mode — the &quot;scale&quot; variant of generate-embeddings.py, for large *decoder* embedding models (e.g</p><div class="cmd"><pre>hf jobs uv run --flavor l4x1 -s HF_TOKEN https://huggingface.co/datasets/uv-scripts/embeddings/raw/main/generate-embeddings-vllm.py \
+    stanfordnlp/imdb your-name/imdb-embeddings --column text --model Qwen/Qwen3-Embedding-0.6B --private</pre><button class="copy">Copy</button></div></div></details></li><li data-task="Embeddings" data-text="sentence-transformers/all-minilm-l6-v2 embeddings embeddings/generate-embeddings.py generate embeddings for a hugging face dataset (text or images) with sentence-transformers, and push the result back to the hub as a new dataset with  embeddings/launch-embedding-fleet.py fan one embedding run out across n hugging face jobs, then consolidate."><details><summary><span class="name">sentence-transformers/all-MiniLM-L6-v2</span><span class="state muted">example</span></summary><div class="recipe"><p><a href="https://huggingface.co/datasets/uv-scripts/embeddings/raw/main/generate-embeddings.py"><code>generate-embeddings.py</code></a> <span class="muted small">example from the script</span></p><p class="muted">Generate embeddings for a Hugging Face dataset (text OR images) with sentence-transformers, and push the result back to the Hub as a new dataset with </p><div class="cmd"><pre>hf jobs uv run --flavor l4x1 -s HF_TOKEN https://huggingface.co/datasets/uv-scripts/embeddings/raw/main/generate-embeddings.py \
+    stanfordnlp/imdb  your-name/imdb-embeddings \
+    --column text --model sentence-transformers/all-MiniLM-L6-v2</pre><button class="copy">Copy</button></div></div><details class="more"><summary>1 more recipe</summary><div class="recipe"><p><a href="https://huggingface.co/datasets/uv-scripts/embeddings/raw/main/launch-embedding-fleet.py"><code>launch-embedding-fleet.py</code></a> <span class="warn small">set options first</span></p><p class="muted">Fan one embedding run out across N Hugging Face Jobs, then consolidate.</p><p class="small"><a href="https://huggingface.co/datasets/uv-scripts/embeddings/raw/main/launch-embedding-fleet.py">Read the script</a> for its options. It has no launch settings yet.</p></div></details></details></li></ul></section><section data-group><h2>Text generation</h2><ul class="models"><li data-task="Text generation" data-text="qwen/qwen2-vl-7b-instruct text generation vllm/vlm-classify.py classify images using vision language models with vllm."><details><summary><span class="name">Qwen/Qwen2-VL-7B-Instruct</span><span class="state muted">ready · l40sx1</span></summary><div class="recipe"><p><a href="https://huggingface.co/datasets/uv-scripts/vllm/raw/main/vlm-classify.py"><code>vlm-classify.py</code></a> <span class="muted small">ready to run · l40sx1</span></p><p class="muted">Classify images using Vision Language Models with vLLM.</p><div class="cmd"><pre>hf jobs uv run \
+    https://huggingface.co/datasets/uv-scripts/vllm/raw/main/vlm-classify.py \
+    INPUT_DATASET OUTPUT_DATASET --classes CLASSES</pre><button class="copy">Copy</button></div></div></details></li><li data-task="Text generation" data-text="qwen/qwen3-30b-a3b-instruct-2507 text generation vllm/generate-responses.py generate responses for prompts in a dataset using vllm for efficient gpu inference."><details><summary><span class="name">Qwen/Qwen3-30B-A3B-Instruct-2507</span><span class="state muted">ready · a100-large</span></summary><div class="recipe"><p><a href="https://huggingface.co/datasets/uv-scripts/vllm/raw/main/generate-responses.py"><code>generate-responses.py</code></a> <span class="muted small">ready to run · a100-large</span></p><p class="muted">Generate responses for prompts in a dataset using vLLM for efficient GPU inference.</p><div class="cmd"><pre>hf jobs uv run \
+    https://huggingface.co/datasets/uv-scripts/vllm/raw/main/generate-responses.py \
+    SRC_DATASET_HUB_ID OUTPUT_DATASET_HUB_ID</pre><button class="copy">Copy</button></div></div></details></li></ul></section><section data-group><h2>Fine-tuning</h2><ul class="models"><li data-task="Fine-tuning" data-text="fastino/gliner2.5-multi-v1 fine-tuning classification/train-gliner2.py fine-tune gliner2 into a text classifier — a small model (74m to 287m parameters, depending on the base checkpoint) that already works zero-shot."><details><summary><span class="name">fastino/gliner2.5-multi-v1</span><span class="state muted">ready · t4-small</span></summary><div class="recipe"><p><a href="https://huggingface.co/datasets/uv-scripts/classification/raw/main/train-gliner2.py"><code>train-gliner2.py</code></a> <span class="muted small">ready to run · t4-small</span></p><p class="muted">Fine-tune GLiNER2 into a text classifier — a small model (74M to 287M parameters, depending on the base checkpoint) that already works zero-shot.</p><div class="cmd"><pre>hf jobs uv run \
+    https://huggingface.co/datasets/uv-scripts/classification/raw/main/train-gliner2.py \
+    INPUT_DATASET OUTPUT_REPO</pre><button class="copy">Copy</button></div></div></details></li><li data-task="Fine-tuning" data-text="liquidai/lfm2.5-encoder-350m fine-tuning classification/train-classifier.py fine-tune a text-classification encoder on a hub dataset and push the trained model to the hub."><details><summary><span class="name">LiquidAI/LFM2.5-Encoder-350M</span><span class="state muted">ready · l4x1</span></summary><div class="recipe"><p><a href="https://huggingface.co/datasets/uv-scripts/classification/raw/main/train-classifier.py"><code>train-classifier.py</code></a> <span class="muted small">ready to run · l4x1</span></p><p class="muted">Fine-tune a text-classification encoder on a Hub dataset and push the trained model to the Hub.</p><div class="cmd"><pre>hf jobs uv run \
+    https://huggingface.co/datasets/uv-scripts/classification/raw/main/train-classifier.py \
+    INPUT_DATASET OUTPUT_REPO</pre><button class="copy">Copy</button></div></div></details></li><li data-task="Fine-tuning" data-text="sentence-transformers/all-minilm-l6-v2 fine-tuning classification/train-setfit.py few-shot text classification with setfit — train on 8-64 labelled examples per class, on cpu or gpu."><details><summary><span class="name">sentence-transformers/all-MiniLM-L6-v2</span><span class="state muted">example</span></summary><div class="recipe"><p><a href="https://huggingface.co/datasets/uv-scripts/classification/raw/main/train-setfit.py"><code>train-setfit.py</code></a> <span class="muted small">example from the script</span></p><p class="muted">Few-shot text classification with SetFit — train on 8-64 labelled examples per class, on CPU or GPU.</p><div class="cmd"><pre>hf jobs uv run --flavor cpu-basic --secrets HF_TOKEN \
+    https://huggingface.co/datasets/uv-scripts/classification/raw/main/train-setfit.py \
+    fancyzhx/ag_news username/ag-news-setfit \
+    --num-samples 8</pre><button class="copy">Copy</button></div></div></details></li></ul></section>
+<div class="foot">
+<div id="tools"><h2>Data tools with no model</h2><ul class="plain"><li><a href="https://huggingface.co/datasets/uv-scripts/object-detection">Check and convert detection datasets</a></li><li><a href="https://huggingface.co/datasets/uv-scripts/deduplication">Remove near-duplicate text</a></li><li><a href="https://huggingface.co/datasets/uv-scripts/build-atlas">Build an embedding atlas</a></li><li><a href="https://huggingface.co/datasets/uv-scripts/iiif-tiles">Make IIIF deep-zoom tiles</a></li><li><a href="https://huggingface.co/datasets/uv-scripts/data-processing">Convert uploads to optimized Parquet</a></li></ul></div>
+<h2>For agents</h2>
+<p class="small muted">Read <a href="AGENTS.md">AGENTS.md</a> and <a href="recipes.json">recipes.json</a>.</p>
+</div>
+</main>
+<script>
+const input = document.getElementById('q');
+const filters = [...document.querySelectorAll('nav button')];
+const items = [...document.querySelectorAll('ul.models>li')];
+let task = 'All';
+function apply() {
+  const q = input.value.trim().toLowerCase();
+  let visible = 0;
+  for (const item of items) {
+    const show = (task === 'All' || item.dataset.task === task) && item.dataset.text.includes(q);
+    item.hidden = !show;
+    if (show) visible++;
+  }
+  for (const section of document.querySelectorAll('section[data-group]')) {
+    section.hidden = !section.querySelector('ul.models>li:not([hidden])');
+  }
+  document.getElementById('none').hidden = visible > 0;
+  document.getElementById('tools').hidden = q !== '' || task !== 'All';
+}
+input.addEventListener('input', apply);
+document.getElementById('clear').addEventListener('click', () => { input.value = ''; filters[0].click(); });
+for (const button of filters) {
+  button.addEventListener('click', () => {
+    task = button.dataset.task;
+    for (const other of filters) other.setAttribute('aria-pressed', other === button);
+    apply();
+  });
+}
+const stepButtons = [...document.querySelectorAll('.switch button')];
+const steps = [...document.querySelectorAll('[data-step]')];
+function showStep(name) {
+  for (const button of stepButtons) button.setAttribute('aria-pressed', button.dataset.show === name);
+  for (const step of steps) step.hidden = step.dataset.step !== name;
+}
+for (const button of stepButtons) button.addEventListener('click', () => showStep(button.dataset.show));
+showStep(stepButtons[0].dataset.show);
+document.addEventListener('click', event => {
+  if (!event.target.matches('.copy') || event.target.id === 'clear') return;
+  const button = event.target;
+  const pre = button.previousElementSibling;
+  const done = () => { button.textContent = 'Copied'; setTimeout(() => { button.textContent = 'Copy'; }, 1400); };
+  navigator.clipboard.writeText(pre.textContent).then(done).catch(() => {
+    const range = document.createRange();
+    range.selectNodeContents(pre);
+    getSelection().removeAllRanges();
+    getSelection().addRange(range);
+    button.textContent = 'Selected';
+  });
+});
+</script>
+</body>
+</html>

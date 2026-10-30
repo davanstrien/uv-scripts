@@ -1,0 +1,15 @@
+name: Sync run-on-jobs → HF
+on:
+  push:
+    branches: [main]
+    paths: ['run-on-jobs/**', '.github/workflows/sync-run-on-jobs.yml']
+
+jobs:
+  sync:
+    uses: ./.github/workflows/_sync-folder.yml
+    with:
+      folder: run-on-jobs
+      repo_id: uv-scripts/run-on-jobs
+      repo_type: space
+    secrets:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
