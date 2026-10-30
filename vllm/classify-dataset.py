@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10"
 # dependencies = [
-#     "datasets",
+#     "datasets>=4.0.0",
 #     "httpx",
 #     "huggingface-hub",
 #     "setuptools",
@@ -10,6 +10,14 @@
 #     "transformers",
 #     "vllm>=0.11.0",
 # ]
+#
+# [tool.hf-jobs]
+# image = "vllm/vllm-openai:v0.32.0"
+# python = "/usr/bin/python3"
+# env = { PYTHONPATH = "/usr/local/lib/python3.12/dist-packages" }
+# flavor = "l4x1"
+# secrets = ["HF_TOKEN"]
+# timeout = "1h"
 # ///
 """
 Batch text classification using vLLM for efficient GPU inference.
