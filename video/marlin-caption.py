@@ -39,7 +39,7 @@ Input:                            Output (one parquet dataset):
 Examples:
 
   # Caption a bucket of videos on HF Jobs (a10g-small handles ~24 concurrent 60s clips)
-  hf jobs uv run --image vllm/vllm-openai:latest --flavor a10g-small \\
+  hf jobs uv run --image vllm/vllm-openai:v0.32.0 --flavor a10g-small \\
       -s HF_TOKEN \\
       -v hf://buckets/user/my-videos:/input:ro \\
       marlin-caption.py /input hf://buckets/user/my-videos/captions
