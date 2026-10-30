@@ -36,13 +36,14 @@ Smoke test first with --max-samples 3. For speed at the same cost per page, add
 
 Output: the output repo holds `data/part-*.parquet` with rows
 `{id, markdown, raw, finish_reason, model, prompt_tokens, completion_tokens, error}`
-keyed by the input row id (`--id-column`, or `<config>:<split>:<000000000>` by
+keyed by the input row id (`--id-column`, or `<repo>:<config>:<split>:<000000000>` by
 default). Read it with `saturate.read_output`, which keeps one row per id (a success over
 an earlier error). `datasets.load_dataset(<output>, data_dir="data")` returns every
 record, so after a --retry-errors run it also holds the old error rows: drop rows with an
-`error` before you join back to the input on id. Re-running the same command skips finished rows;
---retry-errors re-admits failed ones. A corrupt or unreadable image becomes an error row. `finish_reason` = "length" marks a page that
-hit --max-tokens. Empty `markdown` with no `error` means the model returned no text,
+`error` before you join back to the input on id. Re-running the same command skips
+finished rows; --retry-errors re-admits failed ones. A corrupt image stops the run when
+it is read (images are decoded as the dataset streams); remove that row and run again.
+`finish_reason` = "length" marks a page that hit --max-tokens. Empty `markdown` with no `error` means the model returned no text,
 which is the correct result for a blank page; greedy decoding would repeat it on retry.
 
 Model: xiaomi-research/Xiaomi-OCR-0 (0.8B, Apache-2.0)
@@ -535,7 +536,6 @@ def main():
         ap.error(f"--max-tokens above {SERVING['max_tokens']} can overflow the {SERVING['context']} context")
 
     import pyarrow as pa
-    from datasets import Image, load_dataset
     from saturate import Engine, dataset_rows, pump
 
     if args.id_column is None:
@@ -547,13 +547,8 @@ def main():
     else:
         ids = args.id_column
 
-    # The image column is loaded undecoded and decoded in to_request, so a corrupt image
-    # becomes an error row for that page instead of stopping the run.
-    dataset = load_dataset(args.input_dataset, args.config, split=args.split, streaming=True)
-    if dataset.features is not None and isinstance(dataset.features.get(args.image_column), Image):
-        dataset = dataset.cast_column(args.image_column, Image(decode=False))
     rows = dataset_rows(
-        dataset, config=args.config or "default", split=args.split,
+        args.input_dataset, config=args.config, split=args.split,
         columns=[args.image_column], ids=ids, limit=args.limit,
     )
 
