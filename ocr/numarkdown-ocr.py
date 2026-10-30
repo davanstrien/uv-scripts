@@ -603,7 +603,7 @@ if __name__ == "__main__":
             "   uv run numarkdown-ocr.py large-docs processed-docs --tensor-parallel-size 2"
         )
         print("\n7. Running on HF Jobs:")
-        print("   hf jobs uv run --flavor a100x2 \\")
+        print("   hf jobs uv run --flavor a100x4 \\")
         print(
             '     -e HF_TOKEN=$(python3 -c "from huggingface_hub import get_token; print(get_token())") \\'
         )
