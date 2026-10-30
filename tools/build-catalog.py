@@ -51,14 +51,13 @@ DATA_TOOLS = {
 # Only these and header recipes are declared on model pages.
 SMOKE_TESTED_EXAMPLES = {
     "embeddings/generate-embeddings.py",
+    "gliner/extract-entities.py",
     "sam3/detect-objects.py",
     "sam3/segment-objects.py",
 }
 
 # Left out of the Space until they run again.
-BROKEN = {
-    "gliner/extract-entities.py",  # the default model's tokenizer needs tiktoken, which the script doesn't declare
-}
+BROKEN = set()
 
 # Listed on the page, but not declared on model pages until the plain command works for the model.
 NOT_DECLARED = {
