@@ -84,11 +84,12 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 # The model card's launch settings. The image is the SGLang release whose pins
-# match Baidu's wheel (torch 2.13.0, transformers 5.12.1); move both together.
+# match Baidu's wheel (torch 2.13.0, transformers 5.12.1); move both together. The wheel URL
+# names a model-repo commit: Baidu replaces the wheel on main (dev10 was removed 2026-10-29).
 SERVING = {
     "model": "baidu/Unlimited-OCR-2",
     "served_name": "Unlimited-OCR-2",
-    "wheel": "https://huggingface.co/baidu/Unlimited-OCR-2/resolve/main/wheel/"
+    "wheel": "https://huggingface.co/baidu/Unlimited-OCR-2/resolve/91da6546d8ed91e02525f59c012a1d243266d7dd/wheel/"
              "sglang-0.5.20.dev10%2Bg8d62f5fb9c-py3-none-any.whl",
     "extra_pip": ["fastokens==0.3.2"],
     "env": {
