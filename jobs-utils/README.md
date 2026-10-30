@@ -63,18 +63,18 @@ uv run https://huggingface.co/datasets/uv-scripts/jobs-utils/raw/main/network-sp
 **Run on HF Jobs:**
 ```bash
 # Test network speed on L4 GPU
-hfjobs run --flavor l4x1 \
+hf jobs uv run --flavor l4x1 \
     -s HF_TOKEN \
-    uv run https://huggingface.co/datasets/uv-scripts/jobs-utils/raw/main/network-speed-test.py --large
+    https://huggingface.co/datasets/uv-scripts/jobs-utils/raw/main/network-speed-test.py --large
 
 # Compare across different flavors
-hfjobs run --flavor a10 \
+hf jobs uv run --flavor a10g-small \
     -s HF_TOKEN \
-    uv run https://huggingface.co/datasets/uv-scripts/jobs-utils/raw/main/network-speed-test.py --large
+    https://huggingface.co/datasets/uv-scripts/jobs-utils/raw/main/network-speed-test.py --large
 
-hfjobs run --flavor h100 \
+hf jobs uv run --flavor h200 \
     -s HF_TOKEN \
-    uv run https://huggingface.co/datasets/uv-scripts/jobs-utils/raw/main/network-speed-test.py --large
+    https://huggingface.co/datasets/uv-scripts/jobs-utils/raw/main/network-speed-test.py --large
 ```
 
 #### Example Output
