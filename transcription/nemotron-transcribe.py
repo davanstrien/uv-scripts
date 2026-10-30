@@ -10,6 +10,7 @@
 # [tool.hf-jobs]
 # image = "cr.hf.co/davanstrien/nemotron-transcribe:v0.32.0-nemo-7b05f096d54d"
 # flavor = "rtx-pro-6000"
+# timeout = "4h"
 # secrets = ["HF_TOKEN"]
 # ///
 
