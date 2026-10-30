@@ -1,7 +1,7 @@
 {
   "_meta": {
     "description": "Machine-readable catalog of the OCR recipes in this directory: script -> model, params, backend, support level, the tested Jobs launch config (the script's [tool.hf-jobs] header), and what the model's own card claims about language coverage. Human-readable language notes: LANGUAGES.md. Language evidence levels, strongest first: per-language-benchmark | count-claim | named-list | multilingual-unspecified | english-only | not-stated | not-applicable. Claims come from model cards (compiled 2026-07-15) - treat as claims, not guarantees.",
-    "updated": "2026-10-27",
+    "updated": "2026-10-30",
     "run_pattern": "hf jobs uv run https://huggingface.co/datasets/uv-scripts/ocr/raw/main/<script> <input-dataset> <output-dataset>  (hf CLI >= 1.32 reads image/flavor/secrets from the script's [tool.hf-jobs] header; add --timeout for long runs. Scripts without a `jobs` entry need --flavor/-s HF_TOKEN (and any --image in their docstring).)",
     "support_levels": {
       "core": "Maintained. Smoke-tested flagless on HF Jobs on 2026-09-23/24 with the pinned launch config in `jobs`.",
@@ -247,6 +247,29 @@
     "jobs": {
       "image": "vllm/vllm-openai:v0.22.1",
       "flavor": "a10g-small",
+      "secrets": [
+        "HF_TOKEN"
+      ]
+    }
+  },
+  "xiaomi-ocr-0-saturate.py": {
+    "model_id": "xiaomi-research/Xiaomi-OCR-0",
+    "params": "0.8B",
+    "backend": "saturate (in-job vllm serve or SGLang + saturate pump)",
+    "image": "vllm/vllm-openai:v0.29.0",
+    "task": "ocr",
+    "output": "markdown + LaTeX + HTML tables",
+    "license": "apache-2.0",
+    "notes": "Single-stage whole-page mode. Card scores (96.83 OmniDocBench v1.6, 95.24 Real5, 87.94 Wild) come from Xiaomi's two-stage pipeline, which this recipe does not run. --engine sglang needs --image lmsysorg/sglang:v0.5.20-cu130. Measured on UFO scans: a10g-small 3.4 pages/s, rtx-pro-6000 9.7 pages/s, both about $0.08 per 1,000 pages excluding boot.",
+    "languages": {
+      "evidence": "not-stated"
+    },
+    "support": "experimental",
+    "support_note": "New on 2026-10-30; tested on one English scan collection only.",
+    "jobs": {
+      "image": "vllm/vllm-openai:v0.29.0",
+      "flavor": "a10g-small",
+      "timeout": "4h",
       "secrets": [
         "HF_TOKEN"
       ]
