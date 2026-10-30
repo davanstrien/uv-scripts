@@ -14,6 +14,7 @@
 # python = "/usr/bin/python3"
 # env = { PYTHONPATH = "/usr/local/lib/python3.12/dist-packages" }
 # flavor = "a10g-small"
+# timeout = "2h"
 # secrets = ["HF_TOKEN"]
 # ///
 

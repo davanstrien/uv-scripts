@@ -7,6 +7,7 @@
 # [tool.hf-jobs]
 # image = "vllm/vllm-openai:v0.32.0"
 # flavor = "a100-large"
+# timeout = "2h"
 # secrets = ["HF_TOKEN"]
 # ///
 
