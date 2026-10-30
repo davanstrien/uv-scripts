@@ -85,7 +85,7 @@ body .more{margin-left:16px}
 <h1>Use Hub models on your own data</h1>
 <p>Run a model over your whole dataset, or fine-tune it on your own examples. Each command starts a job on Hugging Face Jobs and saves the results to the Hub. There is nothing to clone.</p>
 <section class="steps">
-<div class="switch"><button data-show="OCR">OCR</button><button data-show="Transcription">Transcription</button><button data-show="Embeddings">Embeddings</button></div>
+<div class="switch"><button data-show="OCR">OCR</button><button data-show="Transcription">Transcription</button><button data-show="Embeddings">Embeddings</button><button data-show="Fine-tuning">Fine-tuning</button></div>
 <div data-step="OCR"><p>Read seven scanned NASA pages with GLM-OCR and save the text to a new public dataset on your account. Add <code>--private</code> to keep it private.</p><div class="cmd"><pre>hf jobs uv run \
     https://huggingface.co/datasets/uv-scripts/ocr/raw/main/glm-ocr.py \
     uv-scripts/ocr-demo your-username/ocr-demo-results</pre><button class="copy">Copy</button></div><div class="proof"><figure><figcaption>The scan</figcaption><img alt="Scanned page listing Space Shuttle foods" src="assets/nasa-food-list.jpg"></figure><figure><figcaption>What the Job wrote</figcaption><pre>Space Shuttle Food and Beverage List
@@ -223,6 +223,11 @@ hf jobs uv run --timeout 45m \
     https://huggingface.co/datasets/uv-scripts/embeddings/raw/main/generate-embeddings.py \
     stanfordnlp/imdb your-username/imdb-embeddings \
     --column text --max-samples 100 --private</pre><button class="copy">Copy</button></div><p class="small muted">One L4 GPU embeds about 900 rows per second with <code>all-MiniLM-L6-v2</code>.</p></div>
+<div data-step="Fine-tuning"><p>Train a news topic classifier from 16 examples, with no GPU, and save the model to your account.</p><div class="cmd"><pre>hf jobs uv run --flavor cpu-basic --secrets HF_TOKEN \
+    https://huggingface.co/datasets/uv-scripts/classification/raw/main/train-setfit.py \
+    fancyzhx/ag_news your-username/ag-news-setfit \
+    --num-samples 4 --max-train-pool 2000 --max-eval-samples 100 \
+    --max-seq-length 128 --sampling-strategy undersampling --max-minutes 5</pre><button class="copy">Copy</button></div><p class="small muted">Our run: 0.77 accuracy on 100 test articles, against 0.32 for always guessing the most common topic. Training took 20 seconds on <code>cpu-basic</code>.</p></div>
 </section>
 <p class="small muted needs">You need the <a href="https://huggingface.co/docs/hub/jobs-quickstart">hf CLI</a> (1.32 or newer), a login and pay-as-you-go credit. Add <code>--dry-run</code> to see the GPU and settings without starting a job.</p>
 <h2>Find your model</h2>

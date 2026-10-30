@@ -15,6 +15,7 @@ Each recipe is one script, run from its URL with `hf jobs uv run`. There is noth
 - `source`: `header` carries its launch settings; `documented` is an example from the script's docs; `flags-needed` has no command, so read the script first.
 - Read a script's docstring and options: `curl -s <url> | head -100`. Running it locally may fail on GPU-only dependencies.
 - Each task's README explains its recipes, for example https://huggingface.co/datasets/uv-scripts/ocr. OCR also has `models.json`, with language coverage and support levels.
+- Fuller guides: [uv-recipes](https://github.com/davanstrien/uv-scripts/tree/main/skills/uv-recipes) and, for few-shot fine-tuning, [setfit-on-jobs](https://github.com/davanstrien/uv-scripts/tree/main/skills/setfit-on-jobs).
 
 ## Run it
 
