@@ -212,22 +212,22 @@ The Space Shuttle menu currently features more than 70 food items and 20 beverag
 
 Food System Constraints
 
-The primary objective in designing a food system for the Space Shuttle is to provide food that is safe and nutritious, light in weight and compact, and is packaged in a convenient form that allows easy manipulation in the weightless environment of an orbiting spacecraft. To achieve this objective requires a careful consideration of three important factors: biological, operational, and engineering. Under each factor are many constraints that affect the final choice of food and how it is</pre></figure></div><p class="small muted">Our run: <a href="https://huggingface.co/datasets/davanstrien/ocr-demo-results">davanstrien/ocr-demo-results</a>. 7 pages, 2.4 minutes of processing on <code>a10g-small</code>, after a few minutes of setup.</p></div>
+The primary objective in designing a food system for the Space Shuttle is to provide food that is safe and nutritious, light in weight and compact, and is packaged in a convenient form that allows easy manipulation in the weightless environment of an orbiting spacecraft. To achieve this objective requires a careful consideration of three important factors: biological, operational, and engineering. Under each factor are many constraints that affect the final choice of food and how it is</pre></figure></div><p class="small muted">Our run: <a href="https://huggingface.co/datasets/davanstrien/ocr-demo-results">davanstrien/ocr-demo-results</a>. 7 pages, 2.4 minutes of processing on <code>a10g-small</code>, after a few minutes of setup.</p><p class="small muted">More recipes and options in <a href="https://huggingface.co/datasets/uv-scripts/ocr">uv-scripts/ocr</a>.</p></div>
 <div data-step="Transcription"><p>Transcribe four minutes of a NASA podcast, with speaker tags and word timestamps, into your own Bucket.</p><div class="cmd"><pre>hf buckets create your-username/transcripts --private
 hf jobs uv run --timeout 45m \
     -v hf://buckets/uv-scripts/transcription-demo/podcast:/input:ro \
     -v hf://buckets/your-username/transcripts/podcast:/output \
     https://huggingface.co/datasets/uv-scripts/transcription/raw/main/nemotron-transcribe.py \
-    /input /output --timestamps</pre><button class="copy">Copy</button></div><div class="cmd"><pre>&lt;spk:0&gt; Jim, thank you so much for coming on the podcast today. ... &lt;spk:3&gt; It is, uh, the mission control room, of course, is now open for business ...</pre></div><p class="small muted">Our run: about 7.5 minutes on <code>rtx-pro-6000</code>, about $0.34. Most of that was model setup.</p></div>
+    /input /output --timestamps</pre><button class="copy">Copy</button></div><div class="cmd"><pre>&lt;spk:0&gt; Jim, thank you so much for coming on the podcast today. ... &lt;spk:3&gt; It is, uh, the mission control room, of course, is now open for business ...</pre></div><p class="small muted">Our run: about 7.5 minutes on <code>rtx-pro-6000</code>, about $0.34. Most of that was model setup.</p><p class="small muted">More recipes and options in <a href="https://huggingface.co/datasets/uv-scripts/transcription">uv-scripts/transcription</a>.</p></div>
 <div data-step="Embeddings"><p>Embed the first 100 IMDb reviews and save them as a private dataset.</p><div class="cmd"><pre>hf jobs uv run --flavor l4x1 -s HF_TOKEN \
     https://huggingface.co/datasets/uv-scripts/embeddings/raw/main/generate-embeddings.py \
     stanfordnlp/imdb your-username/imdb-embeddings \
-    --column text --max-samples 100 --private</pre><button class="copy">Copy</button></div><p class="small muted">One L4 GPU embeds about 900 rows per second with <code>all-MiniLM-L6-v2</code>.</p></div>
+    --column text --max-samples 100 --private</pre><button class="copy">Copy</button></div><p class="small muted">One L4 GPU embeds about 900 rows per second with <code>all-MiniLM-L6-v2</code>.</p><p class="small muted">More recipes and options in <a href="https://huggingface.co/datasets/uv-scripts/embeddings">uv-scripts/embeddings</a>.</p></div>
 <div data-step="Fine-tuning"><p>Train a news topic classifier from 16 examples, with no GPU, and save the model to your account.</p><div class="cmd"><pre>hf jobs uv run --flavor cpu-basic --secrets HF_TOKEN \
     https://huggingface.co/datasets/uv-scripts/classification/raw/main/train-setfit.py \
     fancyzhx/ag_news your-username/ag-news-setfit \
     --num-samples 4 --max-train-pool 2000 --max-eval-samples 100 \
-    --max-seq-length 128 --sampling-strategy undersampling --max-minutes 5</pre><button class="copy">Copy</button></div><p class="small muted">Our run: 0.77 accuracy on 100 test articles, against 0.32 for always guessing the most common topic. Training took 20 seconds on <code>cpu-basic</code>.</p></div>
+    --max-seq-length 128 --sampling-strategy undersampling --max-minutes 5</pre><button class="copy">Copy</button></div><p class="small muted">Our run: 0.77 accuracy on 100 test articles, against 0.32 for always guessing the most common topic. Training took 20 seconds on <code>cpu-basic</code>.</p><p class="small muted">More recipes and options in <a href="https://huggingface.co/datasets/uv-scripts/classification">uv-scripts/classification</a>.</p></div>
 </section>
 <p class="small muted needs">You need the <a href="https://huggingface.co/docs/hub/jobs-quickstart">hf CLI</a> (1.32 or newer), a login and pay-as-you-go credit. Add <code>--dry-run</code> to see the GPU and settings without starting a job.</p>
 <h2>Find your model</h2>
@@ -238,6 +238,8 @@ hf jobs uv run --timeout 45m \
 {{GROUPS}}
 <div class="foot">
 <div id="tools"><h2>Data tools with no model</h2><ul class="plain">{{TOOLS}}</ul></div>
+<h2>All recipes</h2>
+<p class="small muted">Browse the <a href="https://huggingface.co/uv-scripts">uv-scripts</a> organisation. Like the repos you find useful.</p>
 <h2>For agents</h2>
 <p class="small muted">Read <a href="AGENTS.md">AGENTS.md</a> and <a href="recipes.json">recipes.json</a>.</p>
 </div>
