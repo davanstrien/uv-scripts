@@ -1,7 +1,6 @@
 name: Check run-on-jobs catalogue
-# Fails when a recipe changes without rebuilding the Space, or when a declared model leaves the Hub.
+# Fails when a declared model leaves the Hub. rebuild-run-on-jobs.yml keeps the Space files current.
 on:
-  pull_request:
   schedule:
     - cron: '0 7 * * 1'
   workflow_dispatch:
@@ -14,5 +13,5 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Space files match the recipes, and declared models exist
-        run: python3 tools/build-catalog.py --check --verify-models
+      - name: Declared models exist
+        run: python3 tools/build-catalog.py --verify-models

@@ -1,15 +1,49 @@
 name: Sync run-on-jobs → HF
+# Generates the Space from the recipes, so recipe PRs don't need to commit generated files.
 on:
   push:
     branches: [main]
-    paths: ['run-on-jobs/**', '.github/workflows/sync-run-on-jobs.yml']
+    paths:
+      - 'ocr/**'
+      - 'transcription/**'
+      - 'sam3/**'
+      - 'vlm-object-detection/**'
+      - 'video/**'
+      - 'classification/**'
+      - 'gliner/**'
+      - 'embeddings/**'
+      - 'vllm/**'
+      - 'tools/build-catalog.py'
+      - 'tools/run-on-jobs-template.html'
+      - 'tools/run-on-jobs-assets/**'
+      - '.github/workflows/sync-run-on-jobs.yml'
+  workflow_dispatch:
 
 jobs:
   sync:
-    uses: ./.github/workflows/_sync-folder.yml
-    with:
-      folder: run-on-jobs
-      repo_id: uv-scripts/run-on-jobs
-      repo_type: space
-    secrets:
-      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+    runs-on: ubuntu-latest
+    env:
+      REPO_ID: uv-scripts/run-on-jobs
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Generate the Space files
+        run: |
+          python3 tools/build-catalog.py --verify-models
+          git add -f run-on-jobs
+
+      - name: Gate — folder must be a superset of the Hub repo (guards --delete="*")
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: bash ./tools/verify-superset.sh run-on-jobs "$REPO_ID" space
+
+      - uses: huggingface/hub-sync@v0.2.0
+        with:
+          github_repo_id: ${{ github.repository }}
+          huggingface_repo_id: ${{ env.REPO_ID }}
+          repo_type: space
+          subdirectory: run-on-jobs
+          hf_token: ${{ secrets.HF_TOKEN }}
