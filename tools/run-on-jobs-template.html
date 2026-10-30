@@ -77,15 +77,16 @@ body .recipe{margin:2px 12px 14px 28px}
 body .more{margin-left:16px}
 
 
+@media (prefers-reduced-motion:reduce){summary::before{transition:none}}
 </style>
 </head>
 <body>
 <main>
 <h1>Use Hub models on your own data</h1>
-<p>Run a model over your whole dataset, or fine-tune it on your own examples. One command starts a GPU on Hugging Face Jobs and saves the results to the Hub. There is nothing to clone.</p>
+<p>Run a model over your whole dataset, or fine-tune it on your own examples. Each command starts a paid batch job on Hugging Face Jobs and saves the results to the Hub. There is nothing to clone.</p>
 <section class="steps">
 <div class="switch"><button data-show="OCR">OCR</button><button data-show="Transcription">Transcription</button><button data-show="Embeddings">Embeddings</button></div>
-<div data-step="OCR"><p>Read seven scanned NASA pages with GLM-OCR and save the text to a new dataset on your account.</p><div class="cmd"><pre>hf jobs uv run \
+<div data-step="OCR"><p>Read seven scanned NASA pages with GLM-OCR and save the text to a new public dataset on your account. Add <code>--private</code> to keep it private.</p><div class="cmd"><pre>hf jobs uv run \
     https://huggingface.co/datasets/uv-scripts/ocr/raw/main/glm-ocr.py \
     uv-scripts/ocr-demo your-username/ocr-demo-results</pre><button class="copy">Copy</button></div><div class="proof"><figure><figcaption>The scan</figcaption><img alt="Scanned page listing Space Shuttle foods" src="assets/nasa-food-list.jpg"></figure><figure><figcaption>What the Job wrote</figcaption><pre>Space Shuttle Food and Beverage List
 
@@ -225,7 +226,7 @@ hf jobs uv run --timeout 45m \
 </section>
 <p class="small muted needs">You need the <a href="https://huggingface.co/docs/hub/jobs-quickstart">hf CLI</a> (1.32 or newer), a login and pay-as-you-go credit. Add <code>--dry-run</code> to see the GPU and settings without starting a job.</p>
 <h2>Find your model</h2>
-<p class="small muted">In the commands, <code>INPUT</code> and <code>OUTPUT</code> are dataset IDs unless the recipe says otherwise.</p>
+<p class="small muted">Replace the capitalised placeholders and <code>your-username</code>. Check the script if you're unsure what a value should be.</p>
 <input id="q" type="search" aria-label="Search models, tasks and scripts" placeholder="Search a model, task or script" autocomplete="off">
 <nav aria-label="Filter by task">{{FILTERS}}</nav>
 <p id="none" class="muted small" hidden>No recipe matches that search. <button id="clear" class="copy">Show all models</button></p>
@@ -277,13 +278,15 @@ document.addEventListener('click', event => {
   const button = event.target;
   const pre = button.previousElementSibling;
   const done = () => { button.textContent = 'Copied'; setTimeout(() => { button.textContent = 'Copy'; }, 1400); };
-  navigator.clipboard.writeText(pre.textContent).then(done).catch(() => {
+  const selectText = () => {
     const range = document.createRange();
     range.selectNodeContents(pre);
     getSelection().removeAllRanges();
     getSelection().addRange(range);
     button.textContent = 'Selected';
-  });
+  };
+  if (!navigator.clipboard) { selectText(); return; }
+  navigator.clipboard.writeText(pre.textContent).then(done).catch(selectText);
 });
 </script>
 </body>

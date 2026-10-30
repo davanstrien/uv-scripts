@@ -12,7 +12,7 @@
    "source": "header",
    "flavor": "l4x1",
    "timeout": "1h",
-   "command": "hf jobs uv run \\\n    https://huggingface.co/datasets/uv-scripts/classification/raw/main/classify-dataset-sglang.py \\\n    --input-dataset INPUT_DATASET --column COLUMN --labels LABELS --output-dataset OUTPUT_DATASET",
+   "command": "hf jobs uv run \\\n    https://huggingface.co/datasets/uv-scripts/classification/raw/main/classify-dataset-sglang.py \\\n    --input-dataset your-username/emails \\\n    --column content \\\n    --labels \"spam,ham\" \\\n    --output-dataset your-username/emails-classified \\\n    --reasoning",
    "summary": "Classify text columns in Hugging Face datasets using SGLang with reasoning-aware models.",
    "declared": true
   },
@@ -28,7 +28,7 @@
    "source": "header",
    "flavor": "l4x1",
    "timeout": "1h",
-   "command": "hf jobs uv run \\\n    https://huggingface.co/datasets/uv-scripts/classification/raw/main/classify-dataset.py \\\n    --input-dataset INPUT_DATASET --column COLUMN --labels LABELS --output-dataset OUTPUT_DATASET",
+   "command": "hf jobs uv run \\\n    https://huggingface.co/datasets/uv-scripts/classification/raw/main/classify-dataset.py \\\n    --input-dataset your-username/emails \\\n    --column content \\\n    --labels \"spam,ham\" \\\n    --output-dataset your-username/emails-classified \\\n    --enable-reasoning",
    "summary": "Classify text columns in Hugging Face datasets using vLLM with structured outputs.",
    "declared": true
   },
@@ -44,7 +44,7 @@
    "source": "header",
    "flavor": "t4-small",
    "timeout": "1h",
-   "command": "hf jobs uv run \\\n    https://huggingface.co/datasets/uv-scripts/classification/raw/main/classify-gliner2.py \\\n    INPUT_DATASET OUTPUT_DATASET",
+   "command": "hf jobs uv run \\\n    https://huggingface.co/datasets/uv-scripts/classification/raw/main/classify-gliner2.py \\\n    fancyzhx/ag_news your-username/ag-news-gliner2 \\\n    --labels World Sports Business \"Science and technology\" --max-samples 1000",
    "summary": "Classify a text column of a Hub dataset with GLiNER2 — zero-shot, or with your fine-tuned model.",
    "declared": true
   },
@@ -60,7 +60,7 @@
    "source": "header",
    "flavor": "l4x1",
    "timeout": "1h",
-   "command": "hf jobs uv run \\\n    https://huggingface.co/datasets/uv-scripts/classification/raw/main/train-classifier.py \\\n    INPUT_DATASET OUTPUT_REPO",
+   "command": "hf jobs uv run \\\n    https://huggingface.co/datasets/uv-scripts/classification/raw/main/train-classifier.py \\\n    fancyzhx/ag_news your-username/my-news-classifier \\\n    --max-samples 2000 --epochs 1",
    "summary": "Fine-tune a text-classification encoder on a Hub dataset and push the trained model to the Hub.",
    "declared": false
   },
@@ -76,7 +76,7 @@
    "source": "header",
    "flavor": "t4-small",
    "timeout": "1h",
-   "command": "hf jobs uv run \\\n    https://huggingface.co/datasets/uv-scripts/classification/raw/main/train-gliner2.py \\\n    INPUT_DATASET OUTPUT_REPO",
+   "command": "hf jobs uv run \\\n    https://huggingface.co/datasets/uv-scripts/classification/raw/main/train-gliner2.py \\\n    biglam/blbooksgenre your-username/gliner2-blbooks-genre \\\n    --dataset-config title_genre_classifiction --text-column title",
    "summary": "Fine-tune GLiNER2 into a text classifier — a small model (74M to 287M parameters, depending on the base checkpoint) that already works zero-shot.",
    "declared": false
   },
@@ -92,7 +92,7 @@
    "source": "documented",
    "flavor": null,
    "timeout": null,
-   "command": "hf jobs uv run --flavor cpu-basic --secrets HF_TOKEN \\\n    https://huggingface.co/datasets/uv-scripts/classification/raw/main/train-setfit.py \\\n    fancyzhx/ag_news username/ag-news-setfit \\\n    --num-samples 8",
+   "command": "hf jobs uv run --flavor cpu-basic --secrets HF_TOKEN \\\n    https://huggingface.co/datasets/uv-scripts/classification/raw/main/train-setfit.py \\\n    fancyzhx/ag_news your-username/ag-news-setfit \\\n    --num-samples 8",
    "summary": "Few-shot text classification with SetFit — train on 8-64 labelled examples per class, on CPU or GPU.",
    "declared": false
   },
@@ -108,7 +108,7 @@
    "source": "documented",
    "flavor": null,
    "timeout": null,
-   "command": "hf jobs uv run --flavor l4x1 -s HF_TOKEN https://huggingface.co/datasets/uv-scripts/embeddings/raw/main/embed-to-lance.py \\\n    stanfordnlp/imdb your-name/imdb-vecdb --column text --model BAAI/bge-base-en-v1.5 --private",
+   "command": "hf jobs uv run --flavor l4x1 -s HF_TOKEN \\\n    https://huggingface.co/datasets/uv-scripts/embeddings/raw/main/embed-to-lance.py \\\n    stanfordnlp/imdb your-username/imdb-vecdb --column text --model BAAI/bge-base-en-v1.5 --private",
    "summary": "Embed a Hugging Face dataset and push it back as a Lance vector index — a Hub dataset that IS a searchable vector database.",
    "declared": false
   },
@@ -124,8 +124,8 @@
    "source": "documented",
    "flavor": null,
    "timeout": null,
-   "command": "hf jobs uv run --flavor l4x1 -s HF_TOKEN https://huggingface.co/datasets/uv-scripts/embeddings/raw/main/generate-embeddings-vllm.py \\\n    stanfordnlp/imdb your-name/imdb-embeddings --column text --model Qwen/Qwen3-Embedding-0.6B --private",
-   "summary": "High-throughput embedding generation with vLLM pooling mode — the \"scale\" variant of generate-embeddings.py, for large *decoder* embedding models (e.g",
+   "command": "hf jobs uv run --flavor l4x1 -s HF_TOKEN \\\n    https://huggingface.co/datasets/uv-scripts/embeddings/raw/main/generate-embeddings-vllm.py \\\n    stanfordnlp/imdb your-username/imdb-embeddings --column text --model Qwen/Qwen3-Embedding-0.6B --private",
+   "summary": "High-throughput embedding generation with vLLM pooling mode — the \"scale\" variant of generate-embeddings.py, for large decoder embedding models (e.g.",
    "declared": false
   },
   {
@@ -140,8 +140,8 @@
    "source": "documented",
    "flavor": null,
    "timeout": null,
-   "command": "hf jobs uv run --flavor l4x1 -s HF_TOKEN https://huggingface.co/datasets/uv-scripts/embeddings/raw/main/generate-embeddings.py \\\n    stanfordnlp/imdb  your-name/imdb-embeddings \\\n    --column text --model sentence-transformers/all-MiniLM-L6-v2",
-   "summary": "Generate embeddings for a Hugging Face dataset (text OR images) with sentence-transformers, and push the result back to the Hub as a new dataset with ",
+   "command": "hf jobs uv run --flavor l4x1 -s HF_TOKEN \\\n    https://huggingface.co/datasets/uv-scripts/embeddings/raw/main/generate-embeddings.py \\\n    stanfordnlp/imdb  your-username/imdb-embeddings \\\n    --column text --model sentence-transformers/all-MiniLM-L6-v2",
+   "summary": "Generate embeddings for a Hugging Face dataset (text OR images) with sentence-transformers, and push the result back to the Hub as a new dataset with…",
    "declared": true
   },
   {
@@ -172,7 +172,7 @@
    "source": "header",
    "flavor": "a10g-small",
    "timeout": null,
-   "command": "hf jobs uv run \\\n    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/deepseek-ocr-vllm.py \\\n    INPUT_DATASET OUTPUT_DATASET",
+   "command": "hf jobs uv run \\\n    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/deepseek-ocr-vllm.py \\\n    my-dataset my-output --max-samples 10",
    "summary": "Convert document images to markdown using DeepSeek-OCR with vLLM.",
    "declared": true
   },
@@ -188,7 +188,7 @@
    "source": "header",
    "flavor": "a10g-small",
    "timeout": null,
-   "command": "hf jobs uv run \\\n    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/deepseek-ocr2-vllm.py \\\n    INPUT_DATASET OUTPUT_DATASET",
+   "command": "hf jobs uv run \\\n    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/deepseek-ocr2-vllm.py \\\n    my-dataset my-output --max-samples 10",
    "summary": "Convert document images to markdown using DeepSeek-OCR-2 with vLLM.",
    "declared": true
   },
@@ -236,7 +236,7 @@
    "source": "header",
    "flavor": "a10g-small",
    "timeout": null,
-   "command": "hf jobs uv run \\\n    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/glm-ocr.py \\\n    INPUT_DATASET OUTPUT_DATASET",
+   "command": "hf jobs uv run \\\n    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/glm-ocr.py \\\n    {source_dataset} \\\n    <OUTPUT_DATASET> \\\n    --image-column {image_column} \\\n    --batch-size {batch_size} \\\n    --task {task}",
    "summary": "Convert document images to markdown using GLM-OCR with vLLM.",
    "declared": true
   },
@@ -268,7 +268,7 @@
    "source": "header",
    "flavor": "a100-large",
    "timeout": null,
-   "command": "hf jobs uv run \\\n    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/lift-extract.py \\\n    INPUT_DATASET OUTPUT_DATASET --schema SCHEMA",
+   "command": "hf jobs uv run \\\n    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/lift-extract.py \\\n    INPUT_DATASET OUTPUT_DATASET \\\n    --schema '{\"type\":\"object\",\"properties\":{\"title\":{\"type\":\"string\"}}}' \\\n    --max-samples 5 --shuffle --seed 42",
    "summary": "Extract structured JSON from document images OR multi-page PDFs using Datalab's lift model (datalab-to/lift, 9B, Qwen3.5-based).",
    "declared": true
   },
@@ -284,7 +284,7 @@
    "source": "header",
    "flavor": "a10g-small",
    "timeout": null,
-   "command": "hf jobs uv run \\\n    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/lighton-ocr2-saturate.py \\\n    INPUT_DATASET OUTPUT_DATASET",
+   "command": "hf jobs uv run \\\n    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/lighton-ocr2-saturate.py \\\n    <INPUT_DATASET> <OUTPUT_DATASET>",
    "summary": "Convert document images to markdown using LightOnOCR-2 via saturate.",
    "declared": true
   },
@@ -300,7 +300,7 @@
    "source": "header",
    "flavor": "a10g-small",
    "timeout": null,
-   "command": "hf jobs uv run \\\n    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/lighton-ocr2.py \\\n    INPUT_DATASET OUTPUT_DATASET",
+   "command": "hf jobs uv run \\\n    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/lighton-ocr2.py \\\n    <INPUT_DATASET> <OUTPUT_DATASET>",
    "summary": "Convert document images to markdown using LightOnOCR-2 with vLLM.",
    "declared": true
   },
@@ -316,7 +316,7 @@
    "source": "header",
    "flavor": "a10g-small",
    "timeout": null,
-   "command": "hf jobs uv run \\\n    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/lighton-ocr3-bucket.py \\\n    INPUT OUTPUT",
+   "command": "hf jobs uv run \\\n    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/lighton-ocr3-bucket.py \\\n    hf://buckets/biglam/britannica/source/pages/00070476bsb \\\n    hf://buckets/your-username/ocr-output/britannica --mode grounding --max-samples 20",
    "summary": "OCR images and PDFs from an HF Bucket (or a directory) using LightOnOCR-3, writing markdown files.",
    "declared": true
   },
@@ -332,7 +332,7 @@
    "source": "header",
    "flavor": "a10g-small",
    "timeout": null,
-   "command": "hf jobs uv run \\\n    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/lighton-ocr3.py \\\n    INPUT_DATASET OUTPUT_DATASET",
+   "command": "hf jobs uv run \\\n    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/lighton-ocr3.py \\\n    INPUT_DATASET OUTPUT_DATASET --max-samples 10",
    "summary": "Convert document images to markdown (or layout blocks) using LightOnOCR-3 with vLLM.",
    "declared": true
   },
@@ -348,7 +348,7 @@
    "source": "header",
    "flavor": "a10g-large",
    "timeout": "2h",
-   "command": "hf jobs uv run \\\n    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/minicpm-ocr.py \\\n    INPUT OUTPUT",
+   "command": "hf jobs uv run \\\n    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/minicpm-ocr.py \\\n    INPUT_DATASET OUTPUT_DATASET --max-samples 20",
    "summary": "Convert document images to markdown with OpenBMB's MiniCPM-OCR 1.0 pipeline.",
    "declared": false
   },
@@ -364,7 +364,7 @@
    "source": "header",
    "flavor": "a10g-small",
    "timeout": null,
-   "command": "hf jobs uv run \\\n    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/nuextract3.py \\\n    INPUT_DATASET OUTPUT_DATASET",
+   "command": "hf jobs uv run \\\n    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/nuextract3.py \\\n    INPUT_DATASET OUTPUT_DATASET --max-samples 5 --shuffle --seed 42",
    "summary": "Convert document images to markdown OR extract structured JSON using NuExtract3 with vLLM.",
    "declared": true
   },
@@ -396,7 +396,7 @@
    "source": "header",
    "flavor": "a10g-small",
    "timeout": null,
-   "command": "hf jobs uv run \\\n    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/ovis-ocr2-saturate.py \\\n    INPUT_DATASET OUTPUT_DATASET",
+   "command": "hf jobs uv run \\\n    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/ovis-ocr2-saturate.py \\\n    <INPUT_DATASET> <OUTPUT_DATASET>",
    "summary": "Convert document images to markdown using OvisOCR2 via saturate.",
    "declared": true
   },
@@ -412,7 +412,7 @@
    "source": "header",
    "flavor": "a10g-small",
    "timeout": null,
-   "command": "hf jobs uv run \\\n    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/ovis-ocr2.py \\\n    INPUT_DATASET OUTPUT_DATASET",
+   "command": "hf jobs uv run \\\n    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/ovis-ocr2.py \\\n    INPUT_DATASET OUTPUT_DATASET --batch-size 16",
    "summary": "Convert document images to markdown using OvisOCR2 with vLLM.",
    "declared": true
   },
@@ -444,7 +444,7 @@
    "source": "header",
    "flavor": "a10g-small",
    "timeout": null,
-   "command": "hf jobs uv run \\\n    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/qianfan-ocr.py \\\n    INPUT_DATASET OUTPUT_DATASET",
+   "command": "hf jobs uv run \\\n    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/qianfan-ocr.py \\\n    INPUT_DATASET OUTPUT_DATASET --max-samples 10",
    "summary": "Convert document images to markdown using Qianfan-OCR with vLLM.",
    "declared": true
   },
@@ -460,7 +460,7 @@
    "source": "header",
    "flavor": "a10g-small",
    "timeout": null,
-   "command": "hf jobs uv run \\\n    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/surya-ocr.py \\\n    INPUT_DATASET OUTPUT_DATASET",
+   "command": "hf jobs uv run \\\n    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/surya-ocr.py \\\n    INPUT_DATASET OUTPUT_DATASET \\\n    --max-samples 5 --shuffle --seed 42",
    "summary": "Document intelligence on images OR multi-page PDFs with Datalab's Surya OCR 2 (datalab-to/surya-ocr-2, 650M, Qwen3.5-style).",
    "declared": true
   },
@@ -476,7 +476,7 @@
    "source": "header",
    "flavor": "a10g-small",
    "timeout": null,
-   "command": "hf jobs uv run \\\n    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/unlimited-ocr-vllm.py \\\n    INPUT_DATASET OUTPUT_DATASET",
+   "command": "hf jobs uv run \\\n    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/unlimited-ocr-vllm.py \\\n    your-input-dataset your-output-dataset --max-samples 10",
    "summary": "Convert document images to markdown using Baidu Unlimited-OCR with vLLM.",
    "declared": true
   },
@@ -492,7 +492,7 @@
    "source": "header",
    "flavor": "rtx-pro-6000",
    "timeout": "4h",
-   "command": "hf jobs uv run \\\n    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/unlimited-ocr2-live.py \\\n    INPUT OUTPUT",
+   "command": "hf jobs uv run \\\n    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/unlimited-ocr2-live.py \\\n    \"hf://buckets/biglam/britannica/source/pages/1771EncyclopediaBritannicaNLS/*.jp2\" \\\n    <user>/britannica-1771 --live-port 7860",
    "summary": "unlimited-ocr2.py with a live view you can watch (and screen-record) while the Job runs.",
    "declared": false
   },
@@ -508,7 +508,7 @@
    "source": "header",
    "flavor": "rtx-pro-6000",
    "timeout": "4h",
-   "command": "hf jobs uv run \\\n    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/unlimited-ocr2-saturate.py \\\n    INPUT OUTPUT",
+   "command": "hf jobs uv run \\\n    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/unlimited-ocr2-saturate.py \\\n    \"hf://buckets/biglam/britannica/source/pages/1771EncyclopediaBritannicaNLS/*.jp2\" \\\n    <user>/britannica-1771-uocr2",
    "summary": "OCR whole documents (book volumes, PDFs) with Baidu Unlimited-OCR-2 via saturate.",
    "declared": false
   },
@@ -524,7 +524,7 @@
    "source": "header",
    "flavor": "rtx-pro-6000",
    "timeout": "4h",
-   "command": "hf jobs uv run \\\n    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/unlimited-ocr2.py \\\n    INPUT OUTPUT",
+   "command": "hf jobs uv run \\\n    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/unlimited-ocr2.py \\\n    \"hf://buckets/biglam/britannica/source/pages/1771EncyclopediaBritannicaNLS/*.jp2\" \\\n    <user>/britannica-1771",
    "summary": "OCR whole documents (book volumes, folders of scans) with Baidu Unlimited-OCR-2.",
    "declared": true
   },
@@ -540,7 +540,7 @@
    "source": "documented",
    "flavor": null,
    "timeout": null,
-   "command": "hf jobs uv run --flavor a100-large \\\n    -s HF_TOKEN \\\n    https://huggingface.co/datasets/uv-scripts/sam3/raw/main/detect-objects.py \\\n    input-dataset output-dataset \\\n    --class-name photograph \\\n    --confidence-threshold 0.5",
+   "command": "hf jobs uv run --flavor a100-large \\\n    -s HF_TOKEN \\\n    https://huggingface.co/datasets/uv-scripts/sam3/raw/main/detect-objects.py \\\n    INPUT_DATASET OUTPUT_DATASET \\\n    --class-name photograph \\\n    --confidence-threshold 0.5",
    "summary": "Detect objects in images using Meta's SAM3 (Segment Anything Model 3).",
    "declared": true
   },
@@ -556,7 +556,7 @@
    "source": "documented",
    "flavor": null,
    "timeout": null,
-   "command": "hf jobs uv run --flavor a100-large \\\n    -s HF_TOKEN \\\n    https://huggingface.co/datasets/uv-scripts/sam3/raw/main/segment-objects.py \\\n    input-dataset output-dataset \\\n    --class-name photograph",
+   "command": "hf jobs uv run --flavor a100-large \\\n    -s HF_TOKEN \\\n    https://huggingface.co/datasets/uv-scripts/sam3/raw/main/segment-objects.py \\\n    INPUT_DATASET OUTPUT_DATASET \\\n    --class-name photograph",
    "summary": "Segment objects in images using Meta's SAM3 (Segment Anything Model 3).",
    "declared": true
   },
@@ -585,10 +585,10 @@
     "CohereLabs/cohere-transcribe-03-2026"
    ],
    "support": null,
-   "source": "flags-needed",
+   "source": "documented",
    "flavor": null,
    "timeout": null,
-   "command": null,
+   "command": "hf jobs uv run --flavor l4x1 \\\n    -s HF_TOKEN \\\n    -v hf://buckets/your-username/audio-input:/input:ro \\\n    -v hf://buckets/your-username/transcripts:/output \\\n    https://huggingface.co/datasets/uv-scripts/transcription/raw/main/cohere-transcribe.py \\\n    /input /output --language en --compile",
    "summary": "Transcribe audio files from a directory using Cohere Transcribe via transformers.",
    "declared": false
   },
@@ -603,10 +603,10 @@
     "facebook/mms-1b-all"
    ],
    "support": null,
-   "source": "flags-needed",
+   "source": "documented",
    "flavor": null,
    "timeout": null,
-   "command": null,
+   "command": "hf jobs uv run --flavor l4x1 -s HF_TOKEN \\\n    -e UV_TORCH_BACKEND=cu128 \\\n    -v hf://buckets/your-username/audio-files:/input:ro \\\n    -v hf://buckets/your-username/transcripts-aligned:/output \\\n    https://huggingface.co/datasets/uv-scripts/transcription/raw/main/easytranscriber-transcribe.py \\\n    /input /output \\\n    --language en --emit-txt --emit-srt",
    "summary": "Transcribe audio with word-level timestamps using kb-labb/easytranscriber.",
    "declared": false
   },
@@ -619,10 +619,10 @@
     "ibm-granite/granite-speech-5.0-470m-turboctc"
    ],
    "support": null,
-   "source": "flags-needed",
+   "source": "documented",
    "flavor": null,
    "timeout": null,
-   "command": null,
+   "command": "hf jobs uv run --flavor l4x1 -s HF_TOKEN \\\n    -e UV_TORCH_BACKEND=cu128 \\\n    -v hf://buckets/your-username/audio-input:/input:ro \\\n    -v hf://buckets/your-username/transcripts:/output \\\n    https://huggingface.co/datasets/uv-scripts/transcription/raw/main/granite-turboctc-transcribe.py \\\n    /input /output",
    "summary": "Transcribe English audio files with IBM Granite Speech 5.0 TurboCTC (470M).",
    "declared": false
   },
@@ -651,10 +651,10 @@
     "OpenMOSS-Team/MOSS-Transcribe-Diarize"
    ],
    "support": null,
-   "source": "flags-needed",
+   "source": "documented",
    "flavor": null,
    "timeout": null,
-   "command": null,
+   "command": "hf jobs uv run --flavor l4x1 -s HF_TOKEN \\\n    -e UV_TORCH_BACKEND=cu128 \\\n    -v hf://buckets/your-username/audio-files:/input:ro \\\n    -v hf://buckets/your-username/transcripts:/output \\\n    https://huggingface.co/datasets/uv-scripts/transcription/raw/main/moss-transcribe-diarize.py \\\n    /input /output --emit-txt --emit-srt",
    "summary": "Transcribe + diarize audio files using MOSS-Transcribe-Diarize (0.9B).",
    "declared": false
   },
@@ -670,7 +670,7 @@
    "source": "header",
    "flavor": "rtx-pro-6000",
    "timeout": null,
-   "command": "hf jobs uv run \\\n    https://huggingface.co/datasets/uv-scripts/transcription/raw/main/nemotron-transcribe.py \\\n    INPUT_DIR OUTPUT_DIR",
+   "command": "hf jobs uv run \\\n    -v hf://buckets/your-username/audio-files:/input:ro \\\n    -v hf://buckets/your-username/transcripts:/output \\\n    https://huggingface.co/datasets/uv-scripts/transcription/raw/main/nemotron-transcribe.py \\\n    /input /output",
    "summary": "Transcribe audio with NVIDIA Nemotron 3.5 Transcribe via an in-job vLLM server.",
    "declared": true
   },
@@ -686,7 +686,7 @@
    "source": "header",
    "flavor": "a10g-small",
    "timeout": "2h",
-   "command": "hf jobs uv run \\\n    https://huggingface.co/datasets/uv-scripts/video/raw/main/marlin-caption.py \\\n    INPUT_DIR OUTPUT",
+   "command": "hf jobs uv run \\\n    -v hf://buckets/your-username/my-videos:/input:ro \\\n    https://huggingface.co/datasets/uv-scripts/video/raw/main/marlin-caption.py \\\n    /input hf://buckets/your-username/my-videos/captions",
    "summary": "Caption videos with timestamped events using Marlin-2B, writing a resumable dataset.",
    "declared": true
   },
@@ -702,7 +702,7 @@
    "source": "header",
    "flavor": "a100-large",
    "timeout": null,
-   "command": "hf jobs uv run \\\n    https://huggingface.co/datasets/uv-scripts/video/raw/main/qwen38-caption.py \\\n    INPUT_DIR OUTPUT",
+   "command": "hf jobs uv run \\\n    -v hf://buckets/your-username/my-videos:/input:ro \\\n    https://huggingface.co/datasets/uv-scripts/video/raw/main/qwen38-caption.py \\\n    /input hf://buckets/your-username/my-videos/captions",
    "summary": "Caption whole videos — no chunking — with Qwen3.8-27B, writing a resumable dataset.",
    "declared": true
   },
@@ -718,7 +718,7 @@
    "source": "header",
    "flavor": "a100-large",
    "timeout": "2h",
-   "command": "hf jobs uv run \\\n    https://huggingface.co/datasets/uv-scripts/vllm/raw/main/generate-responses.py \\\n    SRC_DATASET_HUB_ID OUTPUT_DATASET_HUB_ID",
+   "command": "hf jobs uv run \\\n    https://huggingface.co/datasets/uv-scripts/vllm/raw/main/generate-responses.py \\\n    input output --max-model-len 32768",
    "summary": "Generate responses for prompts in a dataset using vLLM for efficient GPU inference.",
    "declared": false
   },
@@ -734,7 +734,7 @@
    "source": "header",
    "flavor": "l40sx1",
    "timeout": "1h",
-   "command": "hf jobs uv run \\\n    https://huggingface.co/datasets/uv-scripts/vllm/raw/main/vlm-classify.py \\\n    INPUT_DATASET OUTPUT_DATASET --classes CLASSES",
+   "command": "hf jobs uv run \\\n    https://huggingface.co/datasets/uv-scripts/vllm/raw/main/vlm-classify.py \\\n    your-username/INPUT_DATASET \\\n    your-username/OUTPUT_DATASET \\\n    --classes \"title-page,content,index,other\"",
    "summary": "Classify images using Vision Language Models with vLLM.",
    "declared": true
   },
@@ -751,7 +751,7 @@
    "flavor": "a100-large",
    "timeout": "1h",
    "command": "hf jobs uv run \\\n    https://huggingface.co/datasets/uv-scripts/vlm-object-detection/raw/main/qwen3vl-detect-fewshot.py \\\n    INPUT_DATASET OUTPUT_DATASET",
-   "summary": "[FEW-SHOT VARIANT] Instruction-oriented object detection with Qwen3-VL via vLLM.",
+   "summary": "Instruction-oriented object detection with Qwen3-VL via vLLM.",
    "declared": true
   },
   {

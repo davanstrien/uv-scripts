@@ -6,7 +6,7 @@ Each recipe is one script, run from its URL with `hf jobs uv run`. There is noth
 
 - Check `hf version` (needs 1.32+). If it's missing: `curl -LsSf https://hf.co/cli/install.sh | bash`, then `hf auth login`.
 - Jobs need pay-as-you-go credit, and each job costs money. Confirm with the user before starting one.
-- The CLI is the current reference: `hf --help`, `hf jobs uv run --help`, `hf jobs hardware`. For a skill, use `hf skills add`.
+- The CLI is the current reference: `hf --help`, `hf jobs uv run --help`, `hf jobs hardware`. To install the Hugging Face CLI skill, run `hf skills add`.
 
 ## Find a recipe
 
@@ -18,7 +18,7 @@ Each recipe is one script, run from its URL with `hf jobs uv run`. There is noth
 
 ## Run it
 
-Most recipes go from dataset to dataset:
+Start from the recipe's `command` field. Most recipes go from dataset to dataset:
 
     hf jobs uv run <url> <input-dataset> <output-dataset> --max-samples 10
 

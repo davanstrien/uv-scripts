@@ -69,11 +69,12 @@ NOT_HUB_MODELS = {"PaddlePaddle/PP-OCRv6"}
 OCR_SUPPORT_LEVELS = {"core", "experimental"}
 SKIP_SCRIPT = re.compile(r"(^_|^test_|conftest|setup|benchmark|judge|compare)", re.IGNORECASE)
 ALTERNATIVE_SCRIPT = re.compile(r"saturate|live|server|fleet|fewshot", re.IGNORECASE)
+PATH_ARGUMENT = re.compile(r"^(input|output)$|_dir$|_path$|_folder$")
 MODEL_ID = re.compile(r"^[A-Za-z0-9][\w.-]*/[\w.+-]+$")
 PLACEHOLDER_OWNERS = {"org", "datasets", "models", "hf", "bucket", "buckets", "input", "output", "user", "your", "username", "path", "dir", "my-org", "uv-scripts"}
 
-STATUS = {"header": "ready to run", "documented": "example from the script", "flags-needed": "set options first"}
-ROW_STATUS = {"header": "ready", "documented": "example", "flags-needed": "options needed"}
+STATUS = {"header": "command ready", "documented": "example command", "flags-needed": "read the script first"}
+ROW_STATUS = {"header": "command ready", "documented": "example command", "flags-needed": "no command yet"}
 
 
 def read_header(text):
@@ -128,31 +129,66 @@ def find_models(constants, arguments):
 
 
 def first_documented_command(text, script_name, url):
-    match = re.search(r"hf jobs uv run(?:[^\n]*\\\n)*[^\n]*", text)
-    if not match or script_name not in match.group(0):
-        return None
-    lines = [re.sub(r"^\s*(#\s*)?", "", line).rstrip(" \\") for line in match.group(0).split("\n")]
-    command = " \\\n    ".join(line for line in lines if line)
-    if url not in command:
-        command = re.sub(r"(?<![\w/.-])" + re.escape(script_name), url, command)
-    return command.replace("-s HF_TOKEN=HF_TOKEN", "-s HF_TOKEN")
+    """Return the first documented example that launches this script, as (job_flags, script_arguments)."""
+    for match in re.finditer(r"hf jobs uv run(?:[^\n]*\\\n)*[^\n]*", text):
+        if script_name not in match.group(0):
+            continue
+        lines = [re.sub(r"^\s*(#\s*)?", "", line).rstrip(" \\") for line in match.group(0).split("\n")]
+        command = " \\\n    ".join(line for line in lines if line)
+        if url not in command:
+            command = re.sub(r"(?<![\w/.-])" + re.escape(script_name), url, command)
+        if url not in command:
+            continue
+        job_flags, script_arguments = command.split(url, 1)
+        return job_flags, script_arguments
+    return None
 
 
-def header_command(url, arguments):
-    parts = [argument["name"].replace("-", "_").upper() for argument in arguments if argument["positional"]]
+def format_command(job_flags, url, script_arguments):
+    command = job_flags.replace("-s HF_TOKEN=HF_TOKEN", "-s HF_TOKEN").rstrip(" \\\n") + f" \\\n    {url}"
+    script_arguments = script_arguments.strip(" \\\n")
+    if script_arguments:
+        command += f" \\\n    {script_arguments}"
+    return normalize_placeholders(command)
+
+
+def normalize_placeholders(command):
+    command = re.sub(r"\b(your-name|yourname|my-username|username|user)(?=/)", "your-username", command)
+    command = re.sub(r"(?<![-\w])input-dataset", "INPUT_DATASET", command)
+    return re.sub(r"(?<![-\w])output-dataset", "OUTPUT_DATASET", command)
+
+
+def header_command(url, arguments, documented):
+    """Header recipes need no hardware flags, so keep only mounts from the docs, and the script's own arguments."""
+    if documented:
+        job_flags, script_arguments = documented
+        mounts = re.findall(r"(?:-v|--volume)\s+\S+", job_flags)
+        return format_command(" \\\n    ".join(["hf jobs uv run", *mounts]), url, script_arguments)
+
+    mounts = []
+    parts = []
     for argument in arguments:
-        if argument["required"] and not argument["positional"]:
-            parts.append(f"{argument['name']} {argument['name'].lstrip('-').replace('-', '_').upper()}")
-    if not parts:
-        return f"hf jobs uv run {url}"
-    return f"hf jobs uv run \\\n    {url} \\\n    {' '.join(parts)}"
+        name = argument["name"].replace("-", "_")
+        if argument["positional"] and PATH_ARGUMENT.search(name):
+            mount_point = "/output" if "output" in name else "/input"
+            access = "" if "output" in name else ":ro"
+            mounts.append(f"-v hf://buckets/your-username/{mount_point[1:]}:{mount_point}{access}")
+            parts.append(mount_point)
+        elif argument["positional"]:
+            parts.append(name.upper())
+        elif argument["required"]:
+            parts.append(f"{argument['name']} {name.lstrip('_').upper()}")
+    return format_command(" \\\n    ".join(["hf jobs uv run", *mounts]), url, " ".join(parts))
 
 
 def summarize(tree):
     docstring = ast.get_docstring(tree) or ""
     paragraph = " ".join(docstring.strip().split("\n\n")[0].split())
-    sentence = re.split(r"(?<=[.!?])\s", paragraph)[0]
-    return re.sub(r"^EXPERIMENTAL:\s*", "", sentence).replace("**", "").replace("`", "")[:150]
+    sentence = re.split(r"(?<!e\.g)(?<!i\.e)(?<=[.!?])\s", paragraph)[0]
+    sentence = re.sub(r"^(EXPERIMENTAL:|\[[^\]]*\])\s*", "", sentence).replace("**", "").replace("`", "").replace("*", "")
+    if len(sentence) <= 150:
+        return sentence
+    return sentence[:150].rsplit(" ", 1)[0] + "…"
 
 
 def load_recipes():
@@ -181,12 +217,13 @@ def load_recipes():
 
             url = f"{HUB_BASE}/{folder}/raw/main/{path.name}"
             jobs_header = read_header(text)
+            documented = first_documented_command(text, path.name, url)
             if jobs_header:
-                command, source = header_command(url, arguments), "header"
+                command, source = header_command(url, arguments, documented), "header"
+            elif documented:
+                command, source = format_command(documented[0], url, documented[1]), "documented"
             else:
-                command, source = first_documented_command(text, path.name, url), "documented"
-                if command is None:
-                    source = "flags-needed"
+                command, source = None, "flags-needed"
 
             script = f"{folder}/{path.name}"
             is_training = path.name.startswith(("train-", "finetune"))
@@ -239,7 +276,7 @@ def recipe_html(recipe):
     flavor = f" · {html.escape(recipe['flavor'])}" if recipe["flavor"] else ""
     summary = f'<p class="muted">{html.escape(recipe["summary"])}</p>' if recipe["summary"] else ""
     if recipe["source"] == "flags-needed":
-        body = f'<p class="small"><a href="{html.escape(recipe["url"])}">Read the script</a> for its options. It has no launch settings yet.</p>'
+        body = f'<p class="small"><a href="{html.escape(recipe["url"])}">Read the script</a> for its options. There is no ready-made command yet.</p>'
     else:
         body = command_block(recipe["command"])
     name = recipe["script"].split("/")[-1]
@@ -302,7 +339,7 @@ colorFrom: blue
 colorTo: gray
 sdk: static
 pinned: false
-short_description: Run this model over your own data on HF Jobs
+short_description: Batch-run this model on your own data with HF Jobs
 models:
 {model_lines}
 ---
@@ -324,7 +361,7 @@ Each recipe is one script, run from its URL with `hf jobs uv run`. There is noth
 
 - Check `hf version` (needs 1.32+). If it's missing: `curl -LsSf https://hf.co/cli/install.sh | bash`, then `hf auth login`.
 - Jobs need pay-as-you-go credit, and each job costs money. Confirm with the user before starting one.
-- The CLI is the current reference: `hf --help`, `hf jobs uv run --help`, `hf jobs hardware`. For a skill, use `hf skills add`.
+- The CLI is the current reference: `hf --help`, `hf jobs uv run --help`, `hf jobs hardware`. To install the Hugging Face CLI skill, run `hf skills add`.
 
 ## Find a recipe
 
@@ -336,7 +373,7 @@ Each recipe is one script, run from its URL with `hf jobs uv run`. There is noth
 
 ## Run it
 
-Most recipes go from dataset to dataset:
+Start from the recipe's `command` field. Most recipes go from dataset to dataset:
 
     hf jobs uv run <url> <input-dataset> <output-dataset> --max-samples 10
 

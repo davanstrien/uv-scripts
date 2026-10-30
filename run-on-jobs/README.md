@@ -5,7 +5,7 @@ colorFrom: blue
 colorTo: gray
 sdk: static
 pinned: false
-short_description: Run this model over your own data on HF Jobs
+short_description: Batch-run this model on your own data with HF Jobs
 models:
   - allenai/olmOCR-2-7B-1025-FP8
   - ATH-MaaS/OvisOCR2
