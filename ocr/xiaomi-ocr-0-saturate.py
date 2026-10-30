@@ -36,10 +36,12 @@ Smoke test first with --max-samples 3. For speed at the same cost per page, add
 
 Output: the output repo holds `data/part-*.parquet` with rows
 `{id, markdown, raw, finish_reason, model, prompt_tokens, completion_tokens, error}`
-keyed by the input row id (`--id-column`, or `<repo>:<config>:<split>:<000000000>` by
-default). Read it with `datasets.load_dataset(<output>, data_dir="data")` or `saturate.read_output`;
-join back to the input on id. Re-running the same command skips finished rows;
---retry-errors re-admits failed ones. `finish_reason` = "length" marks a page that
+keyed by the input row id (`--id-column`, or `<config>:<split>:<000000000>` by
+default). Read it with `saturate.read_output`, which keeps one row per id (a success over
+an earlier error). `datasets.load_dataset(<output>, data_dir="data")` returns every
+record, so after a --retry-errors run it also holds the old error rows: drop rows with an
+`error` before you join back to the input on id. Re-running the same command skips finished rows;
+--retry-errors re-admits failed ones. A corrupt or unreadable image becomes an error row. `finish_reason` = "length" marks a page that
 hit --max-tokens. Empty `markdown` with no `error` means the model returned no text,
 which is the correct result for a blank page; greedy decoding would repeat it on retry.
 
@@ -53,8 +55,16 @@ Model: xiaomi-research/Xiaomi-OCR-0 (0.8B, Apache-2.0)
 - Post-processing as upstream's `finalize_document`: repeated-tail cleanup, math
   delimiters to `$`/`$$`, OTSL tables to HTML. The model's text is kept in `raw`.
 - Deliberate deviation: the card and MCP server use max_tokens 4096, which truncates
-  dense pages. The default here is 12000, the most the upstream 16384 context leaves
+  dense pages. Upstream's whole-page evaluation (evaluation_pipeline/e2e_img2md.py) uses
+  16384 on the model's full context. This recipe serves the 16384 context from the repo
+  README, to keep KV memory small, so the default is 12000: the most that context leaves
   after a worst-case 2048x2048 page (about 4200 image tokens). Lower it with --max-tokens.
+- Deliberate deviation: upstream's evaluation re-requests pages that its repetition
+  guard flags (--retry-repetitive, presence penalty 1.5). This recipe does not. It only
+  trims a repeated tail, so a page where the model loops keeps the looped text.
+- Upstream behaviour kept: a paragraph (text between blank lines) that holds an OTSL
+  table tag is replaced by the converted table, so text in the same paragraph is lost.
+  `raw` keeps the model's full output.
 
 The SERVING dict below is the per-model tuning prior. Agents can `ast.literal_eval`
 it without running the script; the script itself consumes it.
@@ -74,7 +84,8 @@ from dataclasses import dataclass
 # - context 16384: the repo README's `vllm serve --max-model-len` and SGLang
 #   `--context-length` value, verbatim.
 # - vllm_args cache/mm flags: house OCR defaults (see SERVING.md).
-# - max_tokens 12000: house choice, see the docstring. Upstream sends 4096 (card, MCP).
+# - max_tokens 12000: house choice, see the docstring. Upstream sends 4096 (card, MCP)
+#   and 16384 in its whole-page evaluation, on the full model context.
 # - temperature, top_p, presence_penalty, repetition_penalty: mcp_ocr_server.py `_chat`.
 # - max_edge 2048: evaluation_pipeline/cropping.py MAX_IMAGE_EDGE.
 # - window: saturate's default Auto(). Receipts below; a fixed cap only slowed large GPUs.
@@ -524,13 +535,25 @@ def main():
         ap.error(f"--max-tokens above {SERVING['max_tokens']} can overflow the {SERVING['context']} context")
 
     import pyarrow as pa
+    from datasets import Image, load_dataset
     from saturate import Engine, dataset_rows, pump
 
-    # A callable, because saturate reads the plain strings "index" and "content" as id
-    # strategies, so a column with one of those names would not be used otherwise.
-    ids = (lambda example: str(example[args.id_column])) if args.id_column else "index"
+    if args.id_column is None:
+        ids = "index"
+    elif args.id_column in ("index", "content"):
+        # saturate reads these two names as id strategies, so a column with one of them
+        # needs a callable. It returns the raw value, so saturate still refuses a null id.
+        ids = lambda example: example[args.id_column]
+    else:
+        ids = args.id_column
+
+    # The image column is loaded undecoded and decoded in to_request, so a corrupt image
+    # becomes an error row for that page instead of stopping the run.
+    dataset = load_dataset(args.input_dataset, args.config, split=args.split, streaming=True)
+    if dataset.features is not None and isinstance(dataset.features.get(args.image_column), Image):
+        dataset = dataset.cast_column(args.image_column, Image(decode=False))
     rows = dataset_rows(
-        args.input_dataset, config=args.config, split=args.split,
+        dataset, config=args.config or "default", split=args.split,
         columns=[args.image_column], ids=ids, limit=args.limit,
     )
 
@@ -580,7 +603,7 @@ def main():
     output = f"hf://datasets/{args.output_dataset}/data"
     with engine as endpoint:
         stats = pump(rows, to_request, parse, endpoint, output,
-                     prepare_workers=int(float(os.environ.get("CPU_CORES", "4"))),
+                     prepare_workers=int(float(os.environ.get("CPU_CORES") or "4")),
                      retry_errors=args.retry_errors, schema=schema)
 
     print(f"https://huggingface.co/datasets/{args.output_dataset} "
