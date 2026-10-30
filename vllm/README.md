@@ -53,7 +53,7 @@ uv run vlm-classify.py \
 
 ```bash
 hf jobs uv run \
-    --flavor a10g \
+    --flavor l40sx1 \
     --image vllm/vllm-openai \
     -s HF_TOKEN \
     https://huggingface.co/datasets/uv-scripts/vllm/raw/main/vlm-classify.py \

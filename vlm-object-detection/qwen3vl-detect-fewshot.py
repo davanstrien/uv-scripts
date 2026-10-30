@@ -10,6 +10,14 @@
 #     "transformers",
 #     "vllm>=0.15.1",
 # ]
+#
+# [tool.hf-jobs]
+# image = "vllm/vllm-openai:v0.32.0"
+# python = "/usr/bin/python3"
+# env = { PYTHONPATH = "/usr/local/lib/python3.12/dist-packages" }
+# flavor = "a100-large"
+# secrets = ["HF_TOKEN"]
+# timeout = "1h"
 # ///
 
 """
@@ -215,7 +223,7 @@ def main(
 ) -> None:
     if not torch.cuda.is_available():
         logger.error("CUDA is not available. This script requires a GPU.")
-        logger.error("For cloud execution: hf jobs uv run --flavor l4x1 ...")
+        logger.error("For cloud execution: hf jobs uv run --flavor a100-large ...")
         sys.exit(1)
     logger.info("CUDA OK — GPU: %s", torch.cuda.get_device_name(0))
 

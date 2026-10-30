@@ -5,6 +5,14 @@
 #     "vllm",
 #     "qwen-vl-utils",
 # ]
+#
+# [tool.hf-jobs]
+# image = "vllm/vllm-openai:v0.32.0"
+# python = "/usr/bin/python3"
+# env = { PYTHONPATH = "/usr/local/lib/python3.12/dist-packages" }
+# flavor = "a10g-small"
+# secrets = ["HF_TOKEN"]
+# timeout = "2h"
 # ///
 
 """

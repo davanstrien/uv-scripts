@@ -10,6 +10,13 @@
 #     "vllm>=0.11.0",
 # ]
 #
+# [tool.hf-jobs]
+# image = "vllm/vllm-openai:v0.32.0"
+# python = "/usr/bin/python3"
+# env = { PYTHONPATH = "/usr/local/lib/python3.12/dist-packages" }
+# flavor = "a100-large"
+# secrets = ["HF_TOKEN"]
+# timeout = "2h"
 # ///
 """
 Generate responses for prompts in a dataset using vLLM for efficient GPU inference.
@@ -35,7 +42,8 @@ Example usage:
         --max-tokens 2048
 
     # HF Jobs execution (see script output for full command)
-    hf jobs uv run --flavor a100x4 ...
+    # The header sets a100-large. The default model needs --max-model-len there.
+    hf jobs uv run generate-responses.py input output --max-model-len 32768
 """
 
 import argparse
@@ -573,12 +581,13 @@ This script requires arguments. For usage information:
 Example HF Jobs command with multi-GPU:
     # If you're logged in with huggingface-cli, token will be auto-detected
     hf jobs uv run \\
-        --flavor l4x4 \\
+        --flavor a100-large \\
         https://huggingface.co/datasets/uv-scripts/vllm/raw/main/generate-responses.py \\
         username/input-dataset \\
         username/output-dataset \\
         --messages-column messages \\
         --model-id Qwen/Qwen3-30B-A3B-Instruct-2507 \\
+        --max-model-len 32768 \\
         --temperature 0.7 \\
         --max-tokens 16384
         """)

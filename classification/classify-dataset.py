@@ -8,6 +8,14 @@
 #     "datasets",
 #     "huggingface-hub[hf_transfer]",
 # ]
+#
+# [tool.hf-jobs]
+# image = "vllm/vllm-openai:v0.32.0"
+# python = "/usr/bin/python3"
+# env = { PYTHONPATH = "/usr/local/lib/python3.12/dist-packages" }
+# flavor = "l4x1"
+# secrets = ["HF_TOKEN"]
+# timeout = "1h"
 # ///
 
 """
@@ -24,7 +32,7 @@ Example:
         --output-dataset user/imdb-classified
 
 HF Jobs example:
-    hfjobs run --flavor a10 uv run classify-dataset.py \\
+    hf jobs uv run --flavor a10g-small classify-dataset.py \\
         --input-dataset user/emails \\
         --column content \\
         --labels "spam,ham" \\

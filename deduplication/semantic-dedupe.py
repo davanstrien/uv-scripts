@@ -26,7 +26,7 @@ Example usage:
         --threshold 0.85 --max-samples 1000
 
     # Using HF Jobs (CPU is sufficient)
-    hf jobs uv run --flavor cpu-4x-xlarge \\
+    hf jobs uv run --flavor cpu-xl \\
         -e HF_TOKEN=$(python3 -c "from huggingface_hub import get_token; print(get_token())") \\
         https://huggingface.co/datasets/uv-scripts/deduplication/raw/main/semantic-dedupe.py \\
         username/dataset text username/dataset-deduped
