@@ -862,6 +862,8 @@ if __name__ == "__main__":
     parser.add_argument("--private", action="store_true", help="Make output model repo private")
     parser.add_argument("--hf-token", help="HF token (or set HF_TOKEN)")
     args = parser.parse_args()
+    if not 0 <= args.warmup_ratio < 1:
+        parser.error("--warmup-ratio must be in [0, 1)")
 
     main(
         input_dataset=args.input_dataset,
