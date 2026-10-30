@@ -88,6 +88,7 @@ Legend: ✅ production-ready · ⚠️ works only with a required pinned image �
 | `dots-ocr-1.5.py` | ✅ | vLLM 0.17.1 | l4x1 | see gotcha (`content_format`, mirror, bbox space) |
 | `glm-ocr.py` | ✅ | vLLM (nightly) | l4x1 | `VLLM_USE_DEEP_GEMM=0`; no pyarrow cap |
 | `ovis-ocr2.py` | ✅ | vLLM (stable ≥0.22.1) | l4x1 / a10g-small | `gdn_prefill_backend="triton"` (card); card-exact prompt via `enable_thinking=False` template + `llm.generate`; `<img>` region tags filtered by default (`--keep-image-tags`) |
+| `xiaomi-ocr-0-saturate.py` | 🧪 | vLLM or SGLang + saturate | a10g-small / rtx-pro-6000 | single-stage only; OTSL→HTML + math delimiters vendored from upstream; `max_tokens` 12000 to fit the 16384 context; default `Auto()` window |
 | `glm-ocr-v2.py` | 🧪 | vLLM (nightly) | l4x1 | CommitScheduler incremental — on hold (see Deferred) |
 | `nanonets-ocr.py` | ✅ | vLLM | a10g-small | `--max-model-len` 32768 (`--max-tokens` 15000) |
 | `nanonets-ocr2.py` | ⚠️+image | vLLM `:v0.10.2` | a10g-small | Qwen2.5-VL ≥0.11 regression → pure `!` |
@@ -342,6 +343,11 @@ ARM wheels) — if a nightly-recipe install fails on resolution, wait and retry 
 ---
 
 ## Change log
+
+- **2026-10-30** — added `xiaomi-ocr-0-saturate.py` for `xiaomi-research/Xiaomi-OCR-0` (0.8B, Qwen3.5 arch), on
+  saturate `==0.3.0`. Do not set `max_limit` by copying older saturate recipes: on `rtx-pro-6000`, `Auto(max_limit=48)`
+  gave 4.7 pages/s and the default `Auto()` with `prepare_workers` gave 9.7 (1,200 pages, 95% GPU, 0 failures).
+  On `a10g-small`: 2.9 vs 3.4 pages/s. Output cost is about $0.08 per 1,000 pages on both, excluding boot.
 
 - **2026-10-27** — added `minicpm-ocr.py` (experimental) for `openbmb/MiniCPM-OCR-1.0`: OpenBMB's SDK
   pipeline on a public custom image `cr.hf.co/davanstrien/minicpm-ocr` (first recipe on the HF container
