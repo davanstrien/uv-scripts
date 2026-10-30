@@ -9,10 +9,12 @@
 #     "datasets",
 #     "huggingface-hub[hf_transfer]",
 # ]
-# 
-# [[tool.uv.index]]
-# name = "flashinfer"
-# url = "https://flashinfer.ai/whl/cu121/torch2.4/"
+#
+# [tool.hf-jobs]
+# image = "lmsysorg/sglang:v0.5.20-cu130"
+# flavor = "l4x1"
+# secrets = ["HF_TOKEN"]
+# timeout = "1h"
 # ///
 
 """
@@ -271,14 +273,14 @@ def classify_batch_with_sglang(
             original_idx = valid_indices[idx]
             
             # The output text should be just the label due to EBNF constraint
-            classification = output.text.strip().strip('"')  # Remove quotes if present
+            classification = output["text"].strip().strip('"')  # Remove quotes if present
             
             # Extract reasoning if present and requested
             reasoning = None
             if args.reasoning and args.save_reasoning:
                 # Get the full output including reasoning
                 # Note: We need to check if SGLang provides access to full output with reasoning
-                reasoning = parse_reasoning_output(output.text, classification)
+                reasoning = parse_reasoning_output(output["text"], classification)
             
             results[original_idx] = {
                 "label": classification,
