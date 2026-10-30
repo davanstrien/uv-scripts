@@ -36,11 +36,12 @@ Smoke test first with --max-samples 3. For speed at the same cost per page, add
 
 Output: the output repo holds `data/part-*.parquet` with rows
 `{id, markdown, raw, finish_reason, model, prompt_tokens, completion_tokens, error}`
-keyed by the input row id (`--id-column`, or `<split>-<index>` by default). Read it
-with `datasets.load_dataset(<output>, data_dir="data")` or `saturate.read_output`;
+keyed by the input row id (`--id-column`, or `<repo>:<config>:<split>:<000000000>` by
+default). Read it with `datasets.load_dataset(<output>, data_dir="data")` or `saturate.read_output`;
 join back to the input on id. Re-running the same command skips finished rows;
 --retry-errors re-admits failed ones. `finish_reason` = "length" marks a page that
-hit --max-tokens.
+hit --max-tokens. Empty `markdown` with no `error` means the model returned no text,
+which is the correct result for a blank page; greedy decoding would repeat it on retry.
 
 Model: xiaomi-research/Xiaomi-OCR-0 (0.8B, Apache-2.0)
 - Card scores (OmniDocBench v1.6 96.83, Real5 95.24, Wild 87.94) come from Xiaomi's
@@ -517,15 +518,20 @@ def main():
                     help="Re-admit rows whose only record is an error row")
     args = ap.parse_args()
 
+    if args.max_tokens < 1:
+        ap.error("--max-tokens must be at least 1")
     if args.max_tokens > SERVING["max_tokens"]:
         ap.error(f"--max-tokens above {SERVING['max_tokens']} can overflow the {SERVING['context']} context")
 
     import pyarrow as pa
     from saturate import Engine, dataset_rows, pump
 
+    # A callable, because saturate reads the plain strings "index" and "content" as id
+    # strategies, so a column with one of those names would not be used otherwise.
+    ids = (lambda example: str(example[args.id_column])) if args.id_column else "index"
     rows = dataset_rows(
         args.input_dataset, config=args.config, split=args.split,
-        columns=[args.image_column], ids=args.id_column or "index", limit=args.limit,
+        columns=[args.image_column], ids=ids, limit=args.limit,
     )
 
     def to_request(row):
