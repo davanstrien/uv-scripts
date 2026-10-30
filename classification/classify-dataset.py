@@ -2,12 +2,20 @@
 # /// script
 # requires-python = ">=3.10"
 # dependencies = [
-#     "vllm>=0.6.6",
+#     "vllm>=0.12.0",  # StructuredOutputsParams API (guided_decoding removed in 0.12.0)
 #     "transformers>=4.53.0",
 #     "torch",
 #     "datasets",
 #     "huggingface-hub[hf_transfer]",
 # ]
+#
+# [tool.hf-jobs]
+# image = "vllm/vllm-openai:v0.32.0"
+# python = "/usr/bin/python3"
+# env = { PYTHONPATH = "/usr/local/lib/python3.12/dist-packages" }
+# flavor = "l4x1"
+# secrets = ["HF_TOKEN"]
+# timeout = "1h"
 # ///
 
 """
@@ -24,12 +32,12 @@ Example:
         --output-dataset user/imdb-classified
 
 HF Jobs example:
-    hfjobs run --flavor a10 uv run classify-dataset.py \\
+    hf jobs uv run classify-dataset.py \\
         --input-dataset user/emails \\
         --column content \\
         --labels "spam,ham" \\
         --output-dataset user/emails-classified \\
-        --prompt-style reasoning
+        --enable-reasoning
 """
 
 import argparse
@@ -43,7 +51,7 @@ from datasets import load_dataset
 from huggingface_hub import HfApi, get_token
 from transformers import AutoTokenizer
 from vllm import LLM, SamplingParams
-from vllm.sampling_params import GuidedDecodingParams
+from vllm.sampling_params import StructuredOutputsParams
 
 # Default model - SmolLM3 for good balance of speed and quality
 DEFAULT_MODEL = "HuggingFaceTB/SmolLM3-3B"
@@ -448,7 +456,7 @@ def main():
             trust_remote_code=True,
             dtype="auto",
             gpu_memory_utilization=0.95,
-            guided_decoding_backend=args.guided_backend,
+            structured_outputs_config={"backend": args.guided_backend},
         )
     except Exception as e:
         logger.error(f"Failed to initialize vLLM: {e}")
@@ -464,9 +472,9 @@ def main():
         logger.info("Using reasoning mode - model will generate thinking traces with JSON output")
     else:
         # Structured output mode: guided decoding
-        guided_params = GuidedDecodingParams(choice=labels)
+        structured = StructuredOutputsParams(choice=labels)
         sampling_params = SamplingParams(
-            guided_decoding=guided_params,
+            structured_outputs=structured,
             temperature=args.temperature,
             max_tokens=args.max_tokens,
         )
@@ -617,7 +625,7 @@ if __name__ == "__main__":
         print("\n# HF Jobs example:")
         print("hf jobs uv run \\")
         print("  --flavor l4x1 \\")
-        print("  --image vllm/vllm-openai:latest \\")
+        print("  --image vllm/vllm-openai:v0.32.0 \\")
         print("  classify-dataset.py \\")
         print("  --input-dataset stanfordnlp/imdb \\")
         print("  --column text \\")
