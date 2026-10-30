@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Generate the Run on Jobs Space from the recipes in this repo.
 
-    python3 tools/build-catalog.py           # write run-on-jobs/
-    python3 tools/build-catalog.py --check   # fail if run-on-jobs/ is stale
+    python3 tools/build-catalog.py                   # write run-on-jobs/
     python3 tools/build-catalog.py --verify-models   # also check each declared model on the Hub
+
+The sync workflow runs this on merge, so run-on-jobs/ is not committed.
 
 Scripts are only parsed, never imported or run. Standard library only.
 """
@@ -13,6 +14,7 @@ import ast
 import html
 import json
 import re
+import shutil
 import sys
 import tomllib
 import urllib.error
@@ -423,19 +425,14 @@ def verify_models(recipes):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--check", action="store_true", help="Fail if run-on-jobs/ does not match the recipes")
     parser.add_argument("--verify-models", action="store_true", help="Check that declared models exist on the Hub")
     args = parser.parse_args()
 
-    files = generate()
-    if args.check:
-        stale = [name for name, content in files.items() if not (OUTPUT_DIR / name).exists() or (OUTPUT_DIR / name).read_text() != content]
-        if stale:
-            print(f"Stale: {', '.join(stale)}. Run python3 tools/build-catalog.py and commit the result.")
-            return 1
-    else:
-        for name, content in files.items():
-            (OUTPUT_DIR / name).write_text(content)
+    if OUTPUT_DIR.exists():
+        shutil.rmtree(OUTPUT_DIR)
+    shutil.copytree(ROOT / "tools" / "run-on-jobs-assets", OUTPUT_DIR / "assets")
+    for name, content in generate().items():
+        (OUTPUT_DIR / name).write_text(content)
 
     recipes = load_recipes()
     print(f"{len(recipes)} recipes, {len(declared_models(recipes))} declared models")
