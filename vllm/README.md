@@ -53,8 +53,8 @@ uv run vlm-classify.py \
 
 ```bash
 hf jobs uv run \
-    --flavor a10g \
-    --image vllm/vllm-openai \
+    --flavor l40sx1 \
+    --image vllm/vllm-openai:v0.32.0 \
     -s HF_TOKEN \
     https://huggingface.co/datasets/uv-scripts/vllm/raw/main/vlm-classify.py \
     username/input-dataset \
@@ -102,7 +102,7 @@ uv run classify-dataset.py \
 ```bash
 hf jobs uv run \
     --flavor l4x1 \
-    --image vllm/vllm-openai \
+    --image vllm/vllm-openai:v0.32.0 \
     https://huggingface.co/datasets/uv-scripts/vllm/resolve/main/classify-dataset.py \
     davanstrien/ModernBERT-base-is-new-arxiv-dataset \
     username/input-dataset \
@@ -160,7 +160,7 @@ uv run generate-responses.py \
 ```bash
 hf jobs uv run \
     --flavor l4x4 \
-    --image vllm/vllm-openai \
+    --image vllm/vllm-openai:v0.32.0 \
     -e UV_PRERELEASE=if-necessary \
     -s HF_TOKEN \
     https://huggingface.co/datasets/uv-scripts/vllm/raw/main/generate-responses.py \
