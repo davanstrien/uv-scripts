@@ -10,6 +10,14 @@
 #     "transformers",
 #     "vllm>=0.11.0",  # StructuredOutputsParams API (guided_decoding removed in 0.12.0)
 # ]
+#
+# [tool.hf-jobs]
+# image = "vllm/vllm-openai:v0.32.0"
+# python = "/usr/bin/python3"
+# env = { PYTHONPATH = "/usr/local/lib/python3.12/dist-packages" }
+# flavor = "l40sx1"
+# secrets = ["HF_TOKEN"]
+# timeout = "1h"
 # ///
 
 """
@@ -139,7 +147,7 @@ def main(
     if not torch.cuda.is_available():
         logger.error("CUDA is not available. This script requires a GPU.")
         logger.error("If running locally, ensure you have a CUDA-capable GPU.")
-        logger.error("For cloud execution, use: hf jobs uv run --flavor a10g ...")
+        logger.error("For cloud execution, use: hf jobs uv run --flavor l40sx1 ...")
         sys.exit(1)
 
     # Parse classes
@@ -310,7 +318,7 @@ Examples:
     
     # HF Jobs execution
     hf jobs uv run \\
-        --flavor a10g \\
+        --flavor l40sx1 \\
         https://huggingface.co/datasets/uv-scripts/vllm/raw/main/vlm-classify.py \\
         username/input-dataset \\
         username/output-dataset \\
@@ -408,7 +416,7 @@ Examples:
         print("=" * 60)
         print("""
 hf jobs uv run \\
-    --flavor a10g \\
+    --flavor l40sx1 \\
     -e HF_TOKEN=$(python3 -c "from huggingface_hub import get_token; print(get_token())") \\
     https://huggingface.co/datasets/uv-scripts/vllm/raw/main/vlm-classify.py \\
     davanstrien/sloane-index-cards \\
