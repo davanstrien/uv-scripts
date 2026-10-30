@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.11"
 # dependencies = [
-#     "saturate[hf]==0.2.0",
+#     "saturate[hf]==0.3.0",
 #     "pillow>=10",
 # ]
 #
@@ -691,7 +691,6 @@ def main():
     args = ap.parse_args()
 
     import fsspec
-    import saturate.transport
     from saturate import Auto, Engine, pump
 
     rows = list(list_windows(args.input, args.pages_per_request, args.max_pages))
@@ -736,9 +735,8 @@ def main():
     is_repo_id = re.fullmatch(r"[\w-][\w.-]*/[\w.-]*[\w-]", args.output) and not os.path.exists(args.output)
     output = f"hf://datasets/{args.output}/data" if is_repo_id else args.output
 
-    # One request is minutes of decoding. saturate 0.2.0 caps a request's retries at
-    # 300 s in total, which a retried 16-page request never fits in; match the read timeout.
-    saturate.transport.RETRY_BUDGET_S = 3600.0
+    # One request is minutes of decoding: read_timeout=3600 below, and a row's retries get
+    # 2 x read_timeout in total (saturate's default retry budget).
     if live is not None:
         live.phase("Installing Baidu's SGLang build")
     cmd = start_server_cmd()

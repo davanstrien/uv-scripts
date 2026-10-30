@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.11"
 # dependencies = [
-#     "saturate[hf]",
+#     "saturate[hf]==0.3.0",
 #     "vllm",
 #     "qwen-vl-utils",
 # ]
