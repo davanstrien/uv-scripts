@@ -3,6 +3,9 @@
 # requires-python = ">=3.10"
 # dependencies = [
 #     "gliner>=0.2.16",
+#     "transformers<5",  # the default model's tokenizer misloads on transformers 5
+#     "sentencepiece",
+#     "protobuf",
 #     "datasets>=3.0",
 #     "huggingface-hub",
 #     "tqdm",
