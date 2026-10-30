@@ -236,6 +236,8 @@ def load_recipes():
                 "kind": "train" if is_training else "run",
                 "task": TRAINING_TASK if is_training else task,
                 "script": script,
+                "repo": f"uv-scripts/{folder}",
+                "page": f"{HUB_BASE}/{folder}/blob/main/{path.name}",
                 "url": url,
                 "models": models,
                 "support": support,
@@ -276,13 +278,14 @@ def recipe_html(recipe):
     flavor = f" · {html.escape(recipe['flavor'])}" if recipe["flavor"] else ""
     summary = f'<p class="muted">{html.escape(recipe["summary"])}</p>' if recipe["summary"] else ""
     if recipe["source"] == "flags-needed":
-        body = f'<p class="small"><a href="{html.escape(recipe["url"])}">Read the script</a> for its options. There is no ready-made command yet.</p>'
+        body = f'<p class="small"><a href="{html.escape(recipe["page"])}">Read the script</a> for its options. There is no ready-made command yet.</p>'
     else:
         body = command_block(recipe["command"])
     name = recipe["script"].split("/")[-1]
     return (
-        f'<div class="recipe"><p><a href="{html.escape(recipe["url"])}"><code>{html.escape(name)}</code></a> '
-        f'<span class="{status_class} small">{status}{flavor}</span></p>{summary}{body}</div>'
+        f'<div class="recipe"><p><a href="{html.escape(recipe["page"])}"><code>{html.escape(name)}</code></a> '
+        f'<span class="{status_class} small">{status}{flavor}</span></p>{summary}{body}'
+        f'<p class="small muted">From <a href="https://huggingface.co/datasets/{html.escape(recipe["repo"])}">{html.escape(recipe["repo"])}</a>, with more options and examples.</p></div>'
     )
 
 

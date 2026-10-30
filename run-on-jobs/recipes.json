@@ -4,6 +4,8 @@
    "kind": "run",
    "task": "Classification",
    "script": "classification/classify-dataset-sglang.py",
+   "repo": "uv-scripts/classification",
+   "page": "https://huggingface.co/datasets/uv-scripts/classification/blob/main/classify-dataset-sglang.py",
    "url": "https://huggingface.co/datasets/uv-scripts/classification/raw/main/classify-dataset-sglang.py",
    "models": [
     "HuggingFaceTB/SmolLM3-3B"
@@ -20,6 +22,8 @@
    "kind": "run",
    "task": "Classification",
    "script": "classification/classify-dataset.py",
+   "repo": "uv-scripts/classification",
+   "page": "https://huggingface.co/datasets/uv-scripts/classification/blob/main/classify-dataset.py",
    "url": "https://huggingface.co/datasets/uv-scripts/classification/raw/main/classify-dataset.py",
    "models": [
     "HuggingFaceTB/SmolLM3-3B"
@@ -36,6 +40,8 @@
    "kind": "run",
    "task": "Classification",
    "script": "classification/classify-gliner2.py",
+   "repo": "uv-scripts/classification",
+   "page": "https://huggingface.co/datasets/uv-scripts/classification/blob/main/classify-gliner2.py",
    "url": "https://huggingface.co/datasets/uv-scripts/classification/raw/main/classify-gliner2.py",
    "models": [
     "fastino/gliner2.5-multi-v1"
@@ -52,6 +58,8 @@
    "kind": "train",
    "task": "Fine-tuning",
    "script": "classification/train-classifier.py",
+   "repo": "uv-scripts/classification",
+   "page": "https://huggingface.co/datasets/uv-scripts/classification/blob/main/train-classifier.py",
    "url": "https://huggingface.co/datasets/uv-scripts/classification/raw/main/train-classifier.py",
    "models": [
     "LiquidAI/LFM2.5-Encoder-350M"
@@ -68,6 +76,8 @@
    "kind": "train",
    "task": "Fine-tuning",
    "script": "classification/train-gliner2.py",
+   "repo": "uv-scripts/classification",
+   "page": "https://huggingface.co/datasets/uv-scripts/classification/blob/main/train-gliner2.py",
    "url": "https://huggingface.co/datasets/uv-scripts/classification/raw/main/train-gliner2.py",
    "models": [
     "fastino/gliner2.5-multi-v1"
@@ -84,6 +94,8 @@
    "kind": "train",
    "task": "Fine-tuning",
    "script": "classification/train-setfit.py",
+   "repo": "uv-scripts/classification",
+   "page": "https://huggingface.co/datasets/uv-scripts/classification/blob/main/train-setfit.py",
    "url": "https://huggingface.co/datasets/uv-scripts/classification/raw/main/train-setfit.py",
    "models": [
     "sentence-transformers/all-MiniLM-L6-v2"
@@ -100,6 +112,8 @@
    "kind": "run",
    "task": "Embeddings",
    "script": "embeddings/embed-to-lance.py",
+   "repo": "uv-scripts/embeddings",
+   "page": "https://huggingface.co/datasets/uv-scripts/embeddings/blob/main/embed-to-lance.py",
    "url": "https://huggingface.co/datasets/uv-scripts/embeddings/raw/main/embed-to-lance.py",
    "models": [
     "BAAI/bge-base-en-v1.5"
@@ -116,6 +130,8 @@
    "kind": "run",
    "task": "Embeddings",
    "script": "embeddings/generate-embeddings-vllm.py",
+   "repo": "uv-scripts/embeddings",
+   "page": "https://huggingface.co/datasets/uv-scripts/embeddings/blob/main/generate-embeddings-vllm.py",
    "url": "https://huggingface.co/datasets/uv-scripts/embeddings/raw/main/generate-embeddings-vllm.py",
    "models": [
     "Qwen/Qwen3-Embedding-0.6B"
@@ -132,6 +148,8 @@
    "kind": "run",
    "task": "Embeddings",
    "script": "embeddings/generate-embeddings.py",
+   "repo": "uv-scripts/embeddings",
+   "page": "https://huggingface.co/datasets/uv-scripts/embeddings/blob/main/generate-embeddings.py",
    "url": "https://huggingface.co/datasets/uv-scripts/embeddings/raw/main/generate-embeddings.py",
    "models": [
     "sentence-transformers/all-MiniLM-L6-v2"
@@ -148,6 +166,8 @@
    "kind": "run",
    "task": "Embeddings",
    "script": "embeddings/launch-embedding-fleet.py",
+   "repo": "uv-scripts/embeddings",
+   "page": "https://huggingface.co/datasets/uv-scripts/embeddings/blob/main/launch-embedding-fleet.py",
    "url": "https://huggingface.co/datasets/uv-scripts/embeddings/raw/main/launch-embedding-fleet.py",
    "models": [
     "sentence-transformers/all-MiniLM-L6-v2"
@@ -164,6 +184,8 @@
    "kind": "run",
    "task": "OCR",
    "script": "ocr/deepseek-ocr-vllm.py",
+   "repo": "uv-scripts/ocr",
+   "page": "https://huggingface.co/datasets/uv-scripts/ocr/blob/main/deepseek-ocr-vllm.py",
    "url": "https://huggingface.co/datasets/uv-scripts/ocr/raw/main/deepseek-ocr-vllm.py",
    "models": [
     "deepseek-ai/DeepSeek-OCR"
@@ -180,6 +202,8 @@
    "kind": "run",
    "task": "OCR",
    "script": "ocr/deepseek-ocr2-vllm.py",
+   "repo": "uv-scripts/ocr",
+   "page": "https://huggingface.co/datasets/uv-scripts/ocr/blob/main/deepseek-ocr2-vllm.py",
    "url": "https://huggingface.co/datasets/uv-scripts/ocr/raw/main/deepseek-ocr2-vllm.py",
    "models": [
     "deepseek-ai/DeepSeek-OCR-2"
@@ -196,6 +220,8 @@
    "kind": "run",
    "task": "OCR",
    "script": "ocr/dots-mocr.py",
+   "repo": "uv-scripts/ocr",
+   "page": "https://huggingface.co/datasets/uv-scripts/ocr/blob/main/dots-mocr.py",
    "url": "https://huggingface.co/datasets/uv-scripts/ocr/raw/main/dots-mocr.py",
    "models": [
     "rednote-hilab/dots.mocr"
@@ -212,6 +238,8 @@
    "kind": "run",
    "task": "OCR",
    "script": "ocr/dots-ocr.py",
+   "repo": "uv-scripts/ocr",
+   "page": "https://huggingface.co/datasets/uv-scripts/ocr/blob/main/dots-ocr.py",
    "url": "https://huggingface.co/datasets/uv-scripts/ocr/raw/main/dots-ocr.py",
    "models": [
     "rednote-hilab/dots.ocr"
@@ -228,6 +256,8 @@
    "kind": "run",
    "task": "OCR",
    "script": "ocr/glm-ocr.py",
+   "repo": "uv-scripts/ocr",
+   "page": "https://huggingface.co/datasets/uv-scripts/ocr/blob/main/glm-ocr.py",
    "url": "https://huggingface.co/datasets/uv-scripts/ocr/raw/main/glm-ocr.py",
    "models": [
     "zai-org/GLM-OCR"
@@ -244,6 +274,8 @@
    "kind": "run",
    "task": "OCR",
    "script": "ocr/hunyuan-ocr-1.5.py",
+   "repo": "uv-scripts/ocr",
+   "page": "https://huggingface.co/datasets/uv-scripts/ocr/blob/main/hunyuan-ocr-1.5.py",
    "url": "https://huggingface.co/datasets/uv-scripts/ocr/raw/main/hunyuan-ocr-1.5.py",
    "models": [
     "tencent/HunyuanOCR"
@@ -260,6 +292,8 @@
    "kind": "run",
    "task": "OCR",
    "script": "ocr/lift-extract.py",
+   "repo": "uv-scripts/ocr",
+   "page": "https://huggingface.co/datasets/uv-scripts/ocr/blob/main/lift-extract.py",
    "url": "https://huggingface.co/datasets/uv-scripts/ocr/raw/main/lift-extract.py",
    "models": [
     "datalab-to/lift"
@@ -276,6 +310,8 @@
    "kind": "run",
    "task": "OCR",
    "script": "ocr/lighton-ocr2-saturate.py",
+   "repo": "uv-scripts/ocr",
+   "page": "https://huggingface.co/datasets/uv-scripts/ocr/blob/main/lighton-ocr2-saturate.py",
    "url": "https://huggingface.co/datasets/uv-scripts/ocr/raw/main/lighton-ocr2-saturate.py",
    "models": [
     "lightonai/LightOnOCR-2-1B"
@@ -283,7 +319,7 @@
    "support": "core",
    "source": "header",
    "flavor": "a10g-small",
-   "timeout": null,
+   "timeout": "4h",
    "command": "hf jobs uv run \\\n    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/lighton-ocr2-saturate.py \\\n    <INPUT_DATASET> <OUTPUT_DATASET>",
    "summary": "Convert document images to markdown using LightOnOCR-2 via saturate.",
    "declared": true
@@ -292,6 +328,8 @@
    "kind": "run",
    "task": "OCR",
    "script": "ocr/lighton-ocr2.py",
+   "repo": "uv-scripts/ocr",
+   "page": "https://huggingface.co/datasets/uv-scripts/ocr/blob/main/lighton-ocr2.py",
    "url": "https://huggingface.co/datasets/uv-scripts/ocr/raw/main/lighton-ocr2.py",
    "models": [
     "lightonai/LightOnOCR-2-1B"
@@ -299,7 +337,7 @@
    "support": "core",
    "source": "header",
    "flavor": "a10g-small",
-   "timeout": null,
+   "timeout": "1h",
    "command": "hf jobs uv run \\\n    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/lighton-ocr2.py \\\n    <INPUT_DATASET> <OUTPUT_DATASET>",
    "summary": "Convert document images to markdown using LightOnOCR-2 with vLLM.",
    "declared": true
@@ -308,6 +346,8 @@
    "kind": "run",
    "task": "OCR",
    "script": "ocr/lighton-ocr3-bucket.py",
+   "repo": "uv-scripts/ocr",
+   "page": "https://huggingface.co/datasets/uv-scripts/ocr/blob/main/lighton-ocr3-bucket.py",
    "url": "https://huggingface.co/datasets/uv-scripts/ocr/raw/main/lighton-ocr3-bucket.py",
    "models": [
     "lightonai/LightOnOCR-3-4B"
@@ -324,6 +364,8 @@
    "kind": "run",
    "task": "OCR",
    "script": "ocr/lighton-ocr3.py",
+   "repo": "uv-scripts/ocr",
+   "page": "https://huggingface.co/datasets/uv-scripts/ocr/blob/main/lighton-ocr3.py",
    "url": "https://huggingface.co/datasets/uv-scripts/ocr/raw/main/lighton-ocr3.py",
    "models": [
     "lightonai/LightOnOCR-3-4B"
@@ -340,6 +382,8 @@
    "kind": "run",
    "task": "OCR",
    "script": "ocr/minicpm-ocr.py",
+   "repo": "uv-scripts/ocr",
+   "page": "https://huggingface.co/datasets/uv-scripts/ocr/blob/main/minicpm-ocr.py",
    "url": "https://huggingface.co/datasets/uv-scripts/ocr/raw/main/minicpm-ocr.py",
    "models": [
     "openbmb/MiniCPM-OCR-1.0"
@@ -356,6 +400,8 @@
    "kind": "run",
    "task": "OCR",
    "script": "ocr/nuextract3.py",
+   "repo": "uv-scripts/ocr",
+   "page": "https://huggingface.co/datasets/uv-scripts/ocr/blob/main/nuextract3.py",
    "url": "https://huggingface.co/datasets/uv-scripts/ocr/raw/main/nuextract3.py",
    "models": [
     "numind/NuExtract3"
@@ -372,6 +418,8 @@
    "kind": "run",
    "task": "OCR",
    "script": "ocr/olmocr2-vllm.py",
+   "repo": "uv-scripts/ocr",
+   "page": "https://huggingface.co/datasets/uv-scripts/ocr/blob/main/olmocr2-vllm.py",
    "url": "https://huggingface.co/datasets/uv-scripts/ocr/raw/main/olmocr2-vllm.py",
    "models": [
     "allenai/olmOCR-2-7B-1025-FP8"
@@ -379,7 +427,7 @@
    "support": "core",
    "source": "header",
    "flavor": "a10g-small",
-   "timeout": null,
+   "timeout": "2h",
    "command": "hf jobs uv run \\\n    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/olmocr2-vllm.py \\\n    INPUT_DATASET OUTPUT_DATASET",
    "summary": "Convert document images to markdown using olmOCR-2 with vLLM.",
    "declared": true
@@ -388,6 +436,8 @@
    "kind": "run",
    "task": "OCR",
    "script": "ocr/ovis-ocr2-saturate.py",
+   "repo": "uv-scripts/ocr",
+   "page": "https://huggingface.co/datasets/uv-scripts/ocr/blob/main/ovis-ocr2-saturate.py",
    "url": "https://huggingface.co/datasets/uv-scripts/ocr/raw/main/ovis-ocr2-saturate.py",
    "models": [
     "ATH-MaaS/OvisOCR2"
@@ -395,7 +445,7 @@
    "support": "core",
    "source": "header",
    "flavor": "a10g-small",
-   "timeout": null,
+   "timeout": "4h",
    "command": "hf jobs uv run \\\n    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/ovis-ocr2-saturate.py \\\n    <INPUT_DATASET> <OUTPUT_DATASET>",
    "summary": "Convert document images to markdown using OvisOCR2 via saturate.",
    "declared": true
@@ -404,6 +454,8 @@
    "kind": "run",
    "task": "OCR",
    "script": "ocr/ovis-ocr2.py",
+   "repo": "uv-scripts/ocr",
+   "page": "https://huggingface.co/datasets/uv-scripts/ocr/blob/main/ovis-ocr2.py",
    "url": "https://huggingface.co/datasets/uv-scripts/ocr/raw/main/ovis-ocr2.py",
    "models": [
     "ATH-MaaS/OvisOCR2"
@@ -420,6 +472,8 @@
    "kind": "run",
    "task": "OCR",
    "script": "ocr/paddleocr-vl-1.6.py",
+   "repo": "uv-scripts/ocr",
+   "page": "https://huggingface.co/datasets/uv-scripts/ocr/blob/main/paddleocr-vl-1.6.py",
    "url": "https://huggingface.co/datasets/uv-scripts/ocr/raw/main/paddleocr-vl-1.6.py",
    "models": [
     "PaddlePaddle/PaddleOCR-VL-1.6"
@@ -436,6 +490,8 @@
    "kind": "run",
    "task": "OCR",
    "script": "ocr/qianfan-ocr.py",
+   "repo": "uv-scripts/ocr",
+   "page": "https://huggingface.co/datasets/uv-scripts/ocr/blob/main/qianfan-ocr.py",
    "url": "https://huggingface.co/datasets/uv-scripts/ocr/raw/main/qianfan-ocr.py",
    "models": [
     "baidu/Qianfan-OCR"
@@ -452,6 +508,8 @@
    "kind": "run",
    "task": "OCR",
    "script": "ocr/surya-ocr.py",
+   "repo": "uv-scripts/ocr",
+   "page": "https://huggingface.co/datasets/uv-scripts/ocr/blob/main/surya-ocr.py",
    "url": "https://huggingface.co/datasets/uv-scripts/ocr/raw/main/surya-ocr.py",
    "models": [
     "datalab-to/surya-ocr-2"
@@ -468,6 +526,8 @@
    "kind": "run",
    "task": "OCR",
    "script": "ocr/unlimited-ocr-vllm.py",
+   "repo": "uv-scripts/ocr",
+   "page": "https://huggingface.co/datasets/uv-scripts/ocr/blob/main/unlimited-ocr-vllm.py",
    "url": "https://huggingface.co/datasets/uv-scripts/ocr/raw/main/unlimited-ocr-vllm.py",
    "models": [
     "baidu/Unlimited-OCR"
@@ -484,6 +544,8 @@
    "kind": "run",
    "task": "OCR",
    "script": "ocr/unlimited-ocr2-live.py",
+   "repo": "uv-scripts/ocr",
+   "page": "https://huggingface.co/datasets/uv-scripts/ocr/blob/main/unlimited-ocr2-live.py",
    "url": "https://huggingface.co/datasets/uv-scripts/ocr/raw/main/unlimited-ocr2-live.py",
    "models": [
     "baidu/Unlimited-OCR-2"
@@ -500,6 +562,8 @@
    "kind": "run",
    "task": "OCR",
    "script": "ocr/unlimited-ocr2-saturate.py",
+   "repo": "uv-scripts/ocr",
+   "page": "https://huggingface.co/datasets/uv-scripts/ocr/blob/main/unlimited-ocr2-saturate.py",
    "url": "https://huggingface.co/datasets/uv-scripts/ocr/raw/main/unlimited-ocr2-saturate.py",
    "models": [
     "baidu/Unlimited-OCR-2"
@@ -516,6 +580,8 @@
    "kind": "run",
    "task": "OCR",
    "script": "ocr/unlimited-ocr2.py",
+   "repo": "uv-scripts/ocr",
+   "page": "https://huggingface.co/datasets/uv-scripts/ocr/blob/main/unlimited-ocr2.py",
    "url": "https://huggingface.co/datasets/uv-scripts/ocr/raw/main/unlimited-ocr2.py",
    "models": [
     "baidu/Unlimited-OCR-2"
@@ -532,6 +598,8 @@
    "kind": "run",
    "task": "Segmentation",
    "script": "sam3/detect-objects.py",
+   "repo": "uv-scripts/sam3",
+   "page": "https://huggingface.co/datasets/uv-scripts/sam3/blob/main/detect-objects.py",
    "url": "https://huggingface.co/datasets/uv-scripts/sam3/raw/main/detect-objects.py",
    "models": [
     "facebook/sam3"
@@ -548,6 +616,8 @@
    "kind": "run",
    "task": "Segmentation",
    "script": "sam3/segment-objects.py",
+   "repo": "uv-scripts/sam3",
+   "page": "https://huggingface.co/datasets/uv-scripts/sam3/blob/main/segment-objects.py",
    "url": "https://huggingface.co/datasets/uv-scripts/sam3/raw/main/segment-objects.py",
    "models": [
     "facebook/sam3"
@@ -564,6 +634,8 @@
    "kind": "run",
    "task": "Transcription",
    "script": "transcription/cohere-transcribe-vllm.py",
+   "repo": "uv-scripts/transcription",
+   "page": "https://huggingface.co/datasets/uv-scripts/transcription/blob/main/cohere-transcribe-vllm.py",
    "url": "https://huggingface.co/datasets/uv-scripts/transcription/raw/main/cohere-transcribe-vllm.py",
    "models": [
     "CohereLabs/cohere-transcribe-03-2026"
@@ -580,6 +652,8 @@
    "kind": "run",
    "task": "Transcription",
    "script": "transcription/cohere-transcribe.py",
+   "repo": "uv-scripts/transcription",
+   "page": "https://huggingface.co/datasets/uv-scripts/transcription/blob/main/cohere-transcribe.py",
    "url": "https://huggingface.co/datasets/uv-scripts/transcription/raw/main/cohere-transcribe.py",
    "models": [
     "CohereLabs/cohere-transcribe-03-2026"
@@ -596,6 +670,8 @@
    "kind": "run",
    "task": "Transcription",
    "script": "transcription/easytranscriber-transcribe.py",
+   "repo": "uv-scripts/transcription",
+   "page": "https://huggingface.co/datasets/uv-scripts/transcription/blob/main/easytranscriber-transcribe.py",
    "url": "https://huggingface.co/datasets/uv-scripts/transcription/raw/main/easytranscriber-transcribe.py",
    "models": [
     "CohereLabs/cohere-transcribe-03-2026",
@@ -614,6 +690,8 @@
    "kind": "run",
    "task": "Transcription",
    "script": "transcription/granite-turboctc-transcribe.py",
+   "repo": "uv-scripts/transcription",
+   "page": "https://huggingface.co/datasets/uv-scripts/transcription/blob/main/granite-turboctc-transcribe.py",
    "url": "https://huggingface.co/datasets/uv-scripts/transcription/raw/main/granite-turboctc-transcribe.py",
    "models": [
     "ibm-granite/granite-speech-5.0-470m-turboctc"
@@ -630,6 +708,8 @@
    "kind": "run",
    "task": "Transcription",
    "script": "transcription/moss-transcribe-diarize-server.py",
+   "repo": "uv-scripts/transcription",
+   "page": "https://huggingface.co/datasets/uv-scripts/transcription/blob/main/moss-transcribe-diarize-server.py",
    "url": "https://huggingface.co/datasets/uv-scripts/transcription/raw/main/moss-transcribe-diarize-server.py",
    "models": [
     "OpenMOSS-Team/MOSS-Transcribe-Diarize"
@@ -646,6 +726,8 @@
    "kind": "run",
    "task": "Transcription",
    "script": "transcription/moss-transcribe-diarize.py",
+   "repo": "uv-scripts/transcription",
+   "page": "https://huggingface.co/datasets/uv-scripts/transcription/blob/main/moss-transcribe-diarize.py",
    "url": "https://huggingface.co/datasets/uv-scripts/transcription/raw/main/moss-transcribe-diarize.py",
    "models": [
     "OpenMOSS-Team/MOSS-Transcribe-Diarize"
@@ -662,6 +744,8 @@
    "kind": "run",
    "task": "Transcription",
    "script": "transcription/nemotron-transcribe.py",
+   "repo": "uv-scripts/transcription",
+   "page": "https://huggingface.co/datasets/uv-scripts/transcription/blob/main/nemotron-transcribe.py",
    "url": "https://huggingface.co/datasets/uv-scripts/transcription/raw/main/nemotron-transcribe.py",
    "models": [
     "nvidia/NVIDIA-Nemotron-3.5-Transcribe-30B-A4B"
@@ -669,7 +753,7 @@
    "support": null,
    "source": "header",
    "flavor": "rtx-pro-6000",
-   "timeout": null,
+   "timeout": "4h",
    "command": "hf jobs uv run \\\n    -v hf://buckets/your-username/audio-files:/input:ro \\\n    -v hf://buckets/your-username/transcripts:/output \\\n    https://huggingface.co/datasets/uv-scripts/transcription/raw/main/nemotron-transcribe.py \\\n    /input /output",
    "summary": "Transcribe audio with NVIDIA Nemotron 3.5 Transcribe via an in-job vLLM server.",
    "declared": true
@@ -678,6 +762,8 @@
    "kind": "run",
    "task": "Video",
    "script": "video/marlin-caption.py",
+   "repo": "uv-scripts/video",
+   "page": "https://huggingface.co/datasets/uv-scripts/video/blob/main/marlin-caption.py",
    "url": "https://huggingface.co/datasets/uv-scripts/video/raw/main/marlin-caption.py",
    "models": [
     "NemoStation/Marlin-2B"
@@ -694,6 +780,8 @@
    "kind": "run",
    "task": "Video",
    "script": "video/qwen38-caption.py",
+   "repo": "uv-scripts/video",
+   "page": "https://huggingface.co/datasets/uv-scripts/video/blob/main/qwen38-caption.py",
    "url": "https://huggingface.co/datasets/uv-scripts/video/raw/main/qwen38-caption.py",
    "models": [
     "Qwen/Qwen3.8-27B"
@@ -701,7 +789,7 @@
    "support": null,
    "source": "header",
    "flavor": "a100-large",
-   "timeout": null,
+   "timeout": "2h",
    "command": "hf jobs uv run \\\n    -v hf://buckets/your-username/my-videos:/input:ro \\\n    https://huggingface.co/datasets/uv-scripts/video/raw/main/qwen38-caption.py \\\n    /input hf://buckets/your-username/my-videos/captions",
    "summary": "Caption whole videos — no chunking — with Qwen3.8-27B, writing a resumable dataset.",
    "declared": true
@@ -710,6 +798,8 @@
    "kind": "run",
    "task": "Text generation",
    "script": "vllm/generate-responses.py",
+   "repo": "uv-scripts/vllm",
+   "page": "https://huggingface.co/datasets/uv-scripts/vllm/blob/main/generate-responses.py",
    "url": "https://huggingface.co/datasets/uv-scripts/vllm/raw/main/generate-responses.py",
    "models": [
     "Qwen/Qwen3-30B-A3B-Instruct-2507"
@@ -726,6 +816,8 @@
    "kind": "run",
    "task": "Text generation",
    "script": "vllm/vlm-classify.py",
+   "repo": "uv-scripts/vllm",
+   "page": "https://huggingface.co/datasets/uv-scripts/vllm/blob/main/vlm-classify.py",
    "url": "https://huggingface.co/datasets/uv-scripts/vllm/raw/main/vlm-classify.py",
    "models": [
     "Qwen/Qwen2-VL-7B-Instruct"
@@ -742,6 +834,8 @@
    "kind": "run",
    "task": "Object detection",
    "script": "vlm-object-detection/qwen3vl-detect-fewshot.py",
+   "repo": "uv-scripts/vlm-object-detection",
+   "page": "https://huggingface.co/datasets/uv-scripts/vlm-object-detection/blob/main/qwen3vl-detect-fewshot.py",
    "url": "https://huggingface.co/datasets/uv-scripts/vlm-object-detection/raw/main/qwen3vl-detect-fewshot.py",
    "models": [
     "Qwen/Qwen3.6-35B-A3B"
@@ -758,6 +852,8 @@
    "kind": "run",
    "task": "Object detection",
    "script": "vlm-object-detection/qwen3vl-detect.py",
+   "repo": "uv-scripts/vlm-object-detection",
+   "page": "https://huggingface.co/datasets/uv-scripts/vlm-object-detection/blob/main/qwen3vl-detect.py",
    "url": "https://huggingface.co/datasets/uv-scripts/vlm-object-detection/raw/main/qwen3vl-detect.py",
    "models": [
     "Qwen/Qwen3.6-35B-A3B"
