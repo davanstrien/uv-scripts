@@ -78,12 +78,15 @@ body .more{margin-left:16px}
 
 
 @media (prefers-reduced-motion:reduce){summary::before{transition:none}}
+.entry{font-size:15px;margin-top:12px}
 </style>
 </head>
 <body>
 <main>
 <h1>Use Hub models on your own data</h1>
 <p>Run a model over your whole dataset, or fine-tune it on your own examples. Each command starts a job on Hugging Face Jobs and saves the results to the Hub. There is nothing to clone.</p>
+<p class="small muted">Each recipe is a <a href="https://docs.astral.sh/uv/guides/scripts/">uv script</a>: one Python file that lists its own dependencies, so it runs straight from its URL.</p>
+<p class="entry"><a href="#find">Find your model</a> · New to Jobs? Try an example below, or read the <a href="https://huggingface.co/docs/hub/jobs-quickstart">quickstart</a>.</p>
 <section class="steps">
 <div class="switch"><button data-show="OCR">OCR</button><button data-show="Transcription">Transcription</button><button data-show="Embeddings">Embeddings</button><button data-show="Fine-tuning">Fine-tuning</button></div>
 <div data-step="OCR"><p>Read seven scanned NASA pages with GLM-OCR and save the text to a new public dataset on your account. Add <code>--private</code> to keep it private.</p><div class="cmd"><pre>hf jobs uv run \
@@ -230,7 +233,7 @@ hf jobs uv run --timeout 45m \
     --max-seq-length 128 --sampling-strategy undersampling --max-minutes 5</pre><button class="copy">Copy</button></div><p class="small muted">Our run: 0.77 accuracy on 100 test articles, against 0.32 for always guessing the most common topic. Training took 20 seconds on <code>cpu-basic</code>.</p><p class="small muted">More recipes and options in <a href="https://huggingface.co/datasets/uv-scripts/classification">uv-scripts/classification</a>.</p></div>
 </section>
 <p class="small muted needs">You need the <a href="https://huggingface.co/docs/hub/jobs-quickstart">hf CLI</a> (1.32 or newer), a login and pay-as-you-go credit. Add <code>--dry-run</code> to see the GPU and settings without starting a job.</p>
-<h2>Find your model</h2>
+<h2 id="find">Find your model</h2>
 <p class="small muted">Replace the capitalised placeholders and <code>your-username</code>. Check the script if you're unsure what a value should be.</p>
 <input id="q" type="search" aria-label="Search models, tasks and scripts" placeholder="Search a model, task or script" autocomplete="off">
 <nav aria-label="Filter by task"><button data-task="All" aria-pressed="true">All</button><button data-task="OCR" aria-pressed="false">OCR</button><button data-task="Transcription" aria-pressed="false">Transcription</button><button data-task="Segmentation" aria-pressed="false">Segmentation</button><button data-task="Object detection" aria-pressed="false">Object detection</button><button data-task="Video" aria-pressed="false">Video</button><button data-task="Classification" aria-pressed="false">Classification</button><button data-task="Embeddings" aria-pressed="false">Embeddings</button><button data-task="Text generation" aria-pressed="false">Text generation</button><button data-task="Fine-tuning" aria-pressed="false">Fine-tuning</button></nav>
@@ -388,8 +391,10 @@ hf jobs uv run --timeout 45m \
     --num-samples 8</pre><button class="copy">Copy</button></div><p class="small muted">From <a href="https://huggingface.co/datasets/uv-scripts/classification">uv-scripts/classification</a>, with more options and examples.</p></div></details></li></ul></section>
 <div class="foot">
 <div id="tools"><h2>Data tools with no model</h2><ul class="plain"><li><a href="https://huggingface.co/datasets/uv-scripts/object-detection">Check and convert detection datasets</a></li><li><a href="https://huggingface.co/datasets/uv-scripts/deduplication">Remove near-duplicate text</a></li><li><a href="https://huggingface.co/datasets/uv-scripts/build-atlas">Build an embedding atlas</a></li><li><a href="https://huggingface.co/datasets/uv-scripts/iiif-tiles">Make IIIF deep-zoom tiles</a></li><li><a href="https://huggingface.co/datasets/uv-scripts/data-processing">Convert uploads to optimized Parquet</a></li></ul></div>
-<h2>All recipes</h2>
-<p class="small muted">Browse the <a href="https://huggingface.co/uv-scripts">uv-scripts</a> organisation. Like the repos you find useful.</p>
+<h2>Change a recipe</h2>
+<p class="small muted">Download a script, edit it and run your copy: <code>hf jobs uv run ./my-script.py</code>. Flags before the script, such as <code>--flavor</code>, change the hardware.</p>
+<h2>Learn more</h2>
+<ul class="plain"><li><a href="https://huggingface.co/uv-scripts">Follow uv-scripts</a> to see new recipes</li><li><a href="https://huggingface.co/docs/hub/jobs">Jobs documentation</a> for hardware, pricing and scheduling</li></ul>
 <h2>For agents</h2>
 <p class="small muted">Read <a href="AGENTS.md">AGENTS.md</a> and <a href="recipes.json">recipes.json</a>.</p>
 </div>
