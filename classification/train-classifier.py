@@ -10,6 +10,11 @@
 #     "numpy",
 #     "huggingface-hub",
 # ]
+#
+# [tool.hf-jobs]
+# flavor = "l4x1"
+# secrets = ["HF_TOKEN"]
+# timeout = "1h"
 # ///
 """
 Fine-tune a text-classification encoder on a Hub dataset and push the trained model to the Hub.
@@ -727,7 +732,7 @@ def main(
         per_device_train_batch_size=batch_size,
         per_device_eval_batch_size=batch_size * 2,
         gradient_accumulation_steps=grad_accum,
-        warmup_ratio=warmup_ratio,
+        warmup_steps=warmup_ratio,  # a float in [0, 1) is a ratio of total steps
         weight_decay=0.01,
         bf16=bf16,
         eval_strategy="epoch",
@@ -857,6 +862,8 @@ if __name__ == "__main__":
     parser.add_argument("--private", action="store_true", help="Make output model repo private")
     parser.add_argument("--hf-token", help="HF token (or set HF_TOKEN)")
     args = parser.parse_args()
+    if not 0 <= args.warmup_ratio < 1:
+        parser.error("--warmup-ratio must be in [0, 1)")
 
     main(
         input_dataset=args.input_dataset,
