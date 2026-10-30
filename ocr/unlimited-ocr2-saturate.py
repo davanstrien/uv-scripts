@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.11"
 # dependencies = [
-#     "saturate[hf] @ https://github.com/davanstrien/saturate/archive/824bab89a19de816d7cc992a5903f5c4bb0bcf16.zip",
+#     "saturate[hf]==0.3.0",
 #     "pillow>=10",
 #     "pymupdf>=1.24",
 # ]
