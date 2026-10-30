@@ -10,6 +10,14 @@
 #     "transformers",
 #     "vllm>=0.15.1",
 # ]
+#
+# [tool.hf-jobs]
+# image = "vllm/vllm-openai:v0.32.0"
+# python = "/usr/bin/python3"
+# env = { PYTHONPATH = "/usr/local/lib/python3.12/dist-packages" }
+# flavor = "a100-large"
+# secrets = ["HF_TOKEN"]
+# timeout = "1h"
 # ///
 
 """
@@ -215,7 +223,7 @@ def main(
 ) -> None:
     if not torch.cuda.is_available():
         logger.error("CUDA is not available. This script requires a GPU.")
-        logger.error("For cloud execution: hf jobs uv run --flavor l4x1 ...")
+        logger.error("For cloud execution: hf jobs uv run --flavor a100-large ...")
         sys.exit(1)
     logger.info("CUDA OK — GPU: %s", torch.cuda.get_device_name(0))
 
@@ -460,7 +468,7 @@ Examples:
       --max-samples 20
 
   # HF Jobs (recommended config)
-  hf jobs uv run --image vllm/vllm-openai:latest --flavor a100-large \\
+  hf jobs uv run --image vllm/vllm-openai:v0.32.0 --flavor a100-large \\
       --python /usr/bin/python3 \\
       -e PYTHONPATH=/usr/local/lib/python3.12/dist-packages \\
       -s HF_TOKEN \\
@@ -470,7 +478,7 @@ Examples:
 
 Notes:
   Default --model is Qwen/Qwen3.6-35B-A3B (needs A100/80GB via
-  vllm/vllm-openai:latest image). For smaller GPUs use Qwen/Qwen3.5-9B
+  vllm/vllm-openai:v0.32.0 image). For smaller GPUs use Qwen/Qwen3.5-9B
   and lower --max-model-len / --max-image-tokens.
         """,
     )
@@ -606,7 +614,7 @@ if __name__ == "__main__":
         print(
             """
 hf jobs uv run \\
-    --image vllm/vllm-openai:latest \\
+    --image vllm/vllm-openai:v0.32.0 \\
     --flavor a100-large \\
     --python /usr/bin/python3 \\
     -e PYTHONPATH=/usr/local/lib/python3.12/dist-packages \\
