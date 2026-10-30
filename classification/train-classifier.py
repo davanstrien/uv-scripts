@@ -10,6 +10,11 @@
 #     "numpy",
 #     "huggingface-hub",
 # ]
+#
+# [tool.hf-jobs]
+# flavor = "l4x1"
+# secrets = ["HF_TOKEN"]
+# timeout = "1h"
 # ///
 """
 Fine-tune a text-classification encoder on a Hub dataset and push the trained model to the Hub.
