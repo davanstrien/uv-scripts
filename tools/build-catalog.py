@@ -91,9 +91,9 @@ def read_arguments(tree):
     """Return module string constants and the add_argument calls, using only the syntax tree."""
     constants = {}
     for node in tree.body:
-        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
-            if isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
-                constants[node.targets[0].id] = node.value.value
+        is_single_assign = isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name)
+        if is_single_assign and isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
+            constants[node.targets[0].id] = node.value.value
 
     arguments = []
     for node in ast.walk(tree):
