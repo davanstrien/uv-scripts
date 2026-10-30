@@ -303,6 +303,7 @@ def model_row_html(task, model, recipes):
     return (
         f'<li data-task="{html.escape(task)}" data-text="{html.escape(search_text)}"><details>'
         f'<summary><span class="name">{html.escape(model)}</span><span class="state {row_class}">{html.escape(row_status)}</span></summary>'
+        + f'<p class="model-link small muted"><a href="https://huggingface.co/{html.escape(model)}">Open the model page</a></p>'
         + recipe_html(best) + more + "</details></li>"
     )
 

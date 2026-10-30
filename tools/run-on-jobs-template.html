@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<base target="_blank">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Run on Jobs</title>
 <meta name="description" content="Run Hugging Face models over your own data on HF Jobs, with one command.">
@@ -79,14 +80,15 @@ body .more{margin-left:16px}
 
 @media (prefers-reduced-motion:reduce){summary::before{transition:none}}
 .entry{font-size:15px;margin-top:12px}
+.model-link{margin:2px 12px 8px 28px}
 </style>
 </head>
 <body>
 <main>
 <h1>Use Hub models on your own data</h1>
 <p>Run a model over your whole dataset, or fine-tune it on your own examples. Each command starts a job on Hugging Face Jobs and saves the results to the Hub. There is nothing to clone.</p>
-<p class="small muted">Each recipe is a <a href="https://docs.astral.sh/uv/guides/scripts/">uv script</a>: one Python file that lists its own dependencies, so it runs straight from its URL.</p>
-<p class="entry"><a href="#find">Find your model</a> · New to Jobs? Try an example below, or read the <a href="https://huggingface.co/docs/hub/jobs-quickstart">quickstart</a>.</p>
+<p class="small muted">Each recipe is a <a href="https://huggingface.co/docs/hub/jobs-configuration#uv-jobs">uv script</a>: one Python file that lists its own dependencies, so it runs straight from its URL.</p>
+<p class="entry"><a href="#find" target="_self">Find your model</a> · New to Jobs? Try an example below, or read the <a href="https://huggingface.co/docs/hub/jobs-quickstart">quickstart</a> · <a href="https://huggingface.co/uv-scripts">Follow uv-scripts</a> for new recipes</p>
 <section class="steps">
 <div class="switch"><button data-show="OCR">OCR</button><button data-show="Transcription">Transcription</button><button data-show="Embeddings">Embeddings</button><button data-show="Fine-tuning">Fine-tuning</button></div>
 <div data-step="OCR"><p>Read seven scanned NASA pages with GLM-OCR and save the text to a new public dataset on your account. Add <code>--private</code> to keep it private.</p><div class="cmd"><pre>hf jobs uv run \
@@ -232,7 +234,7 @@ hf jobs uv run --timeout 45m \
     --num-samples 4 --max-train-pool 2000 --max-eval-samples 100 \
     --max-seq-length 128 --sampling-strategy undersampling --max-minutes 5</pre><button class="copy">Copy</button></div><p class="small muted">Our run: 0.77 accuracy on 100 test articles, against 0.32 for always guessing the most common topic. Training took 20 seconds on <code>cpu-basic</code>.</p><p class="small muted">More recipes and options in <a href="https://huggingface.co/datasets/uv-scripts/classification">uv-scripts/classification</a>.</p></div>
 </section>
-<p class="small muted needs">You need the <a href="https://huggingface.co/docs/hub/jobs-quickstart">hf CLI</a> (1.32 or newer), a login and pay-as-you-go credit. Add <code>--dry-run</code> to see the GPU and settings without starting a job.</p>
+<p class="small muted needs">You need the <a href="https://huggingface.co/docs/hub/jobs-quickstart">hf CLI</a> (1.32 or newer), a login and pay-as-you-go credit. Add <code>--dry-run</code> to see the GPU and settings without starting a job, and run <code>hf jobs uv run --help</code> for all options.</p>
 <h2 id="find">Find your model</h2>
 <p class="small muted">Replace the capitalised placeholders and <code>your-username</code>. Check the script if you're unsure what a value should be.</p>
 <input id="q" type="search" aria-label="Search models, tasks and scripts" placeholder="Search a model, task or script" autocomplete="off">
