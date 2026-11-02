@@ -127,7 +127,7 @@
     },
     "support": "core",
     "jobs": {
-      "image": "vllm/vllm-openai:v0.29.0",
+      "image": "vllm/vllm-openai:v0.30.0",
       "python": "/usr/bin/python3",
       "env": {
         "PYTHONPATH": "/usr/local/lib/python3.12/dist-packages"
@@ -567,7 +567,7 @@
     },
     "support": "core",
     "jobs": {
-      "image": "vllm/vllm-openai:v0.29.0",
+      "image": "vllm/vllm-openai:v0.30.0",
       "python": "/usr/bin/python3",
       "env": {
         "PYTHONPATH": "/usr/local/lib/python3.12/dist-packages"

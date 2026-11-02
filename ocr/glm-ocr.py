@@ -1,14 +1,14 @@
 # /// script
 # requires-python = ">=3.11"
 # dependencies = [
-#     "datasets>=3.1.0",
+#     "datasets>=4.0.0",
 #     "huggingface-hub",
 #     "pillow",
 #     "toolz",
 # ]
 #
 # [tool.hf-jobs]
-# image = "vllm/vllm-openai:v0.29.0"
+# image = "vllm/vllm-openai:v0.30.0"
 # python = "/usr/bin/python3"
 # env = { PYTHONPATH = "/usr/local/lib/python3.12/dist-packages" }
 # flavor = "a10g-small"
@@ -22,10 +22,10 @@ GLM-OCR is a compact 0.9B parameter OCR model achieving 94.62% on OmniDocBench V
 Uses CogViT visual encoder with GLM-0.5B language decoder and Multi-Token Prediction
 (MTP) loss for fast, accurate document parsing.
 
-NOTE: On Jobs, vLLM, torch and transformers come from the vllm/vllm-openai:v0.29.0
+NOTE: On Jobs, vLLM, torch and transformers come from the vllm/vllm-openai:v0.30.0
 image pinned in the [tool.hf-jobs] header (`hf` CLI 1.32+). GLM-OCR needs vLLM
 >=0.16.0 (PR #33005) and transformers>=5.1.0; the image has both. To run on your
-own GPU: `uv run --with vllm==0.29.0 glm-ocr.py ...`.
+own GPU: `uv run --with vllm==0.30.0 glm-ocr.py ...`.
 
 Features:
 - 0.9B parameters (ultra-compact)
@@ -37,7 +37,7 @@ Features:
 - MIT licensed
 
 Model: zai-org/GLM-OCR
-vLLM: vllm/vllm-openai:v0.29.0 image (see the header)
+vLLM: vllm/vllm-openai:v0.30.0 image (see the header)
 Performance: 94.62% on OmniDocBench V1.5
 """
 
@@ -587,20 +587,20 @@ if __name__ == "__main__":
         print("  table    - Table extraction")
         print("\nExamples:")
         print("\n1. Basic OCR:")
-        print("   uv run --with vllm==0.29.0 glm-ocr.py input-dataset output-dataset")
+        print("   uv run --with vllm==0.30.0 glm-ocr.py input-dataset output-dataset")
         print("\n2. Formula recognition:")
-        print("   uv run --with vllm==0.29.0 glm-ocr.py docs results --task formula")
+        print("   uv run --with vllm==0.30.0 glm-ocr.py docs results --task formula")
         print("\n3. Table extraction:")
-        print("   uv run --with vllm==0.29.0 glm-ocr.py docs results --task table")
+        print("   uv run --with vllm==0.30.0 glm-ocr.py docs results --task table")
         print("\n4. Test with small sample:")
-        print("   uv run --with vllm==0.29.0 glm-ocr.py large-dataset test --max-samples 10 --shuffle")
+        print("   uv run --with vllm==0.30.0 glm-ocr.py large-dataset test --max-samples 10 --shuffle")
         print("\n5. Running on HF Jobs (hardware and HF_TOKEN come from the")
         print("   script's [tool.hf-jobs] header; --flavor/--timeout override it):")
         print(
             "   hf jobs uv run https://huggingface.co/datasets/uv-scripts/ocr/raw/main/glm-ocr.py \\"
         )
         print("       input-dataset output-dataset --batch-size 16")
-        print("\nFor full help: uv run --with vllm==0.29.0 glm-ocr.py --help")
+        print("\nFor full help: uv run --with vllm==0.30.0 glm-ocr.py --help")
         sys.exit(0)
 
     parser = argparse.ArgumentParser(
@@ -613,9 +613,9 @@ Task modes:
   table    Table extraction
 
 Examples:
-  uv run --with vllm==0.29.0 glm-ocr.py my-docs analyzed-docs
-  uv run --with vllm==0.29.0 glm-ocr.py docs results --task formula
-  uv run --with vllm==0.29.0 glm-ocr.py large-dataset test --max-samples 50 --shuffle
+  uv run --with vllm==0.30.0 glm-ocr.py my-docs analyzed-docs
+  uv run --with vllm==0.30.0 glm-ocr.py docs results --task formula
+  uv run --with vllm==0.30.0 glm-ocr.py large-dataset test --max-samples 50 --shuffle
         """,
     )
 
