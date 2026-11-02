@@ -264,8 +264,8 @@
     "languages": {
       "evidence": "not-stated"
     },
-    "support": "experimental",
-    "support_note": "New on 2026-10-30; tested on one English scan collection only.",
+    "support": "core",
+    "support_note": "Works well on clean print. On small-print historical newspapers it can loop or insert Chinese characters, with finish_reason still stop; check tables for lost items and separators.",
     "jobs": {
       "image": "vllm/vllm-openai:v0.29.0",
       "flavor": "a10g-small",

@@ -66,6 +66,9 @@ Model: xiaomi-research/Xiaomi-OCR-0 (0.8B, Apache-2.0)
 - Upstream behaviour kept: a paragraph (text between blank lines) that holds an OTSL
   table tag is replaced by the converted table, so text in the same paragraph is lost.
   `raw` keeps the model's full output.
+- Limits seen in testing: on small-print historical newspapers the model can loop or
+  insert Chinese characters, and `finish_reason` stays "stop". Tables can lose an item
+  or the separators between items in a cell. Check a sample of your own pages.
 
 The SERVING dict below is the per-model tuning prior. Agents can `ast.literal_eval`
 it without running the script; the script itself consumes it.
