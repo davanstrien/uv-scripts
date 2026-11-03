@@ -45,3 +45,15 @@ Long files are generation-bound (the whole diarized transcript is decoded in one
 | A100 | 174.5 h (103 tapes) | 3.8 h | 47.4x realtime aggregate | $9.46 | 45k speaker segments, 97% coverage |
 
 Result published as [`davanstrien/apollo-11-diarized`](https://huggingface.co/datasets/davanstrien/apollo-11-diarized) with a searchable demo at [`davanstrien/apollo-11-search`](https://huggingface.co/spaces/davanstrien/apollo-11-search).
+
+**`nemotron-transcribe.py`** by `--precision` (Nixon White House tapes from the [Internet Archive](https://archive.org/details/rmn_e005a), public domain: 6 tapes, 11.3 h, cut into 17 parts of up to 55 min and re-encoded to 16 kHz mono FLAC; `rtx-pro-6000`, prebuilt image, vLLM 0.32.0, MTP8, all 17 files in flight):
+
+| Precision | Transcription | RTFx | Whole job | Cost | Parts at max_tokens |
+|-----------|---------------|------|-----------|------|---------------------|
+| BF16 | 5.0 min | 135x | 11.2 min | $0.52 | 0 (1 on an earlier mp3 run) |
+| FP8 | 3.0 min | 222x | 7.4 min | $0.34 | 2 |
+| NVFP4 | 2.1 min / 2.9 min (two runs) | 322x / 237x | 6.6 / 7.3 min | $0.30 / $0.34 | 0 / 1 |
+
+"Transcription" starts once the server is up; "whole job" includes the checkpoint download (17–30 s) and engine load and warmup (4–5.5 min). A part that loops until `max_tokens` finishes last and sets the batch time: in the slower NVFP4 run one part took 171 s, the others 122 s or less. The cards report error rates about 1.0% (FP8) and 3.6% (NVFP4) higher than BF16, in relative terms. With no ground truth here, word agreement with the BF16 run (difflib ratio, mean over files) was 0.80 for FP8 and 0.82–0.83 for NVFP4, and 0.80 for a second BF16 run on the mp3 input, so on this noisy 1971 audio the quantized checkpoints differ from BF16 about as much as two BF16 runs differ from each other.
+
+Did not work on 2026-11-03: vLLM 0.33.0 (the NeMo Speech plugin fails at startup: `_parse_chat_message_content_parts` is missing); FP8 on `l40sx1` (FlashInfer's JIT build of a Mamba kernel fails at the first request). For comparison, `nemotron-transcribe-saturate.py` (SGLang-Omni main, BF16) took 7.0 min (97x) on the same FLAC files, and its FP8 checkpoint does not load.

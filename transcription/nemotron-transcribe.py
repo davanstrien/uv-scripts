@@ -106,6 +106,36 @@ logger = logging.getLogger(__name__)
 
 MODEL = "nvidia/NVIDIA-Nemotron-3.5-Transcribe-30B-A4B"
 
+# Checkpoints and their single-GPU serving settings, from each model card.
+# The server always uses MODEL as its served name, so a client (including
+# --server against a --serve job) needs no precision setting.
+PRECISIONS = {
+    "bf16": {
+        "repo": MODEL,
+        "gpu_memory_utilization": "0.94",
+        "max_num_seqs": "192",
+        "limit_mm": '{"audio":{"count":6,"length":120000000}}',
+        "kv_cache_dtype": None,
+    },
+    # Card: about 1.0% higher error rate than BF16, in relative terms.
+    "fp8": {
+        "repo": MODEL + "-FP8",
+        "gpu_memory_utilization": "0.85",
+        "max_num_seqs": "64",
+        "limit_mm": '{"audio":{"count":1,"length":57600000}}',
+        "kv_cache_dtype": "auto",
+    },
+    # Card: about 3.6% higher error rate than BF16, in relative terms.
+    # Blackwell GPUs only (on Jobs: rtx-pro-6000).
+    "nvfp4": {
+        "repo": MODEL + "-NVFP4",
+        "gpu_memory_utilization": "0.85",
+        "max_num_seqs": "64",
+        "limit_mm": '{"audio":{"count":1,"length":57600000}}',
+        "kv_cache_dtype": "fp8",
+    },
+}
+
 # Where the prebuilt image (nemotron-transcribe-image.sh) installs the serving
 # stack and its warm kernel caches.
 PREBUILT_WORKDIR = Path("/opt/nemotron-transcribe")
@@ -292,7 +322,9 @@ def server_is_up(server: str) -> bool:
         return False
 
 
-def launch_local_server(server: str, workdir: Path, nemo_ref: str) -> subprocess.Popen:
+def launch_local_server(
+    server: str, workdir: Path, nemo_ref: str, precision: str
+) -> subprocess.Popen:
     """Install the stack if needed, download the checkpoint and start vllm serve."""
     from urllib.parse import urlparse
 
@@ -317,21 +349,37 @@ def launch_local_server(server: str, workdir: Path, nemo_ref: str) -> subprocess
     if shutil.which("nvidia-smi") is None:
         logger.error("No GPU found: run on a GPU flavor (see the header)")
         sys.exit(1)
+    if precision == "nvfp4" and not gpu_is_blackwell():
+        logger.error("--precision nvfp4 needs a Blackwell GPU (rtx-pro-6000 on Jobs)")
+        sys.exit(1)
     workdir.mkdir(parents=True, exist_ok=True)
     venv = install_serving_stack(workdir, nemo_ref)
-    logger.info(f"Downloading {MODEL}...")
-    model_dir = Path(snapshot_download(MODEL, local_dir=workdir / "model"))
-    return start_server(venv, model_dir, port)
+    repo = PRECISIONS[precision]["repo"]
+    local_dir = workdir / ("model" if precision == "bf16" else f"model-{precision}")
+    logger.info(f"Downloading {repo}...")
+    model_dir = Path(snapshot_download(repo, local_dir=local_dir))
+    return start_server(venv, model_dir, port, precision)
 
 
-def serve(server: str, workdir: Path, nemo_ref: str):
+def gpu_is_blackwell() -> bool:
+    out = subprocess.run(
+        ["nvidia-smi", "--query-gpu=compute_cap", "--format=csv,noheader"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    caps = [line.strip() for line in out.stdout.splitlines() if line.strip()]
+    return bool(caps) and all(float(cap) >= 10 for cap in caps)
+
+
+def serve(server: str, workdir: Path, nemo_ref: str, precision: str):
     """Start the server and keep it up until the job is cancelled or times out."""
     from urllib.parse import urlparse
 
     if server_is_up(server):
         logger.error(f"A server already answers at {server}")
         sys.exit(1)
-    process = launch_local_server(server, workdir, nemo_ref)
+    process = launch_local_server(server, workdir, nemo_ref, precision)
     try:
         wait_for_server(server, process)
         port = urlparse(server).port
@@ -414,8 +462,11 @@ def install_serving_stack(workdir: Path, nemo_ref: str) -> Path:
     return venv
 
 
-def start_server(venv: Path, model_dir: Path, port: int) -> subprocess.Popen:
+def start_server(
+    venv: Path, model_dir: Path, port: int, precision: str
+) -> subprocess.Popen:
     """Start `vllm serve` with the model card's single-GPU flags."""
+    profile = PRECISIONS[precision]
     env = {
         **os.environ,
         "VLLM_PLUGINS": "nemo_speechlm",
@@ -425,25 +476,32 @@ def start_server(venv: Path, model_dir: Path, port: int) -> subprocess.Popen:
         # Word timestamps require the V1 model runner.
         "VLLM_USE_V2_MODEL_RUNNER": "0",
     }
+    if precision != "bf16":
+        # The quantized cards keep vLLM's CUTLASS FP8 kernels on RTX PRO 6000.
+        env["VLLM_DISABLED_KERNELS"] = "FlashInferFP8ScaledMMLinearKernel"
+        # FlashInfer compiles the quantized kernels on first use with nvcc.
+        env["PATH"] = "/usr/local/cuda/bin:" + env.get("PATH", "")
     cmd = [
         str(venv / "bin" / "vllm"), "serve", str(model_dir),
         "--served-model-name", MODEL,
         "--port", str(port),
         "--trust-remote-code", "--dtype", "bfloat16",
-        "--gpu-memory-utilization", "0.94",
+        "--gpu-memory-utilization", profile["gpu_memory_utilization"],
         "--max-model-len", "65536",
         "--max-num-batched-tokens", "4096",
-        "--max-num-seqs", "192",
+        "--max-num-seqs", profile["max_num_seqs"],
         "--enable-chunked-prefill", "--no-enable-prefix-caching",
         "--use-replayssm", "--mamba-backend", "flashinfer", "--mamba-cache-mode", "none",
         "--mm-processor-cache-gb", "0", "--no-async-scheduling",
-        "--limit-mm-per-prompt", '{"audio":{"count":6,"length":120000000}}',
+        "--limit-mm-per-prompt", profile["limit_mm"],
         "--speculative-config", '{"method":"mtp","num_speculative_tokens":8}',
         "--reasoning-parser", "nemotron_v3",
         "--trust-request-mm-kwargs",
         "--middleware",
         "nemo.collections.speechlm2.vllm.salm.ctc_serving.ctc_timestamp_middleware",
     ]  # fmt: skip
+    if profile["kv_cache_dtype"]:
+        cmd += ["--kv-cache-dtype", profile["kv_cache_dtype"]]
     logger.info("Starting vllm serve...")
     # Own process group, so stop_server also reaches vLLM's engine workers.
     return subprocess.Popen(cmd, env=env, start_new_session=True)
@@ -601,6 +659,15 @@ def main():
         "--expose 8000); no input/output directories",
     )
     parser.add_argument(
+        "--precision",
+        choices=sorted(PRECISIONS),
+        default="bf16",
+        help="Checkpoint to serve: bf16 (reference), fp8 (about 2x faster on "
+        "rtx-pro-6000) or nvfp4 (about 3x faster; Blackwell only). The card "
+        "reports error rates about 1.0%% (fp8) and 3.6%% (nvfp4) higher, "
+        "in relative terms. Ignored with --server.",
+    )
+    parser.add_argument(
         "--nemo-ref",
         default=DEFAULT_NEMO_REF,
         help="NeMo Speech branch, tag or commit to install when the image has "
@@ -663,7 +730,7 @@ def main():
     if args.serve:
         if args.input_dir or args.output_dir:
             parser.error("--serve takes no input_dir or output_dir")
-        serve(args.server, Path(args.workdir), args.nemo_ref)
+        serve(args.server, Path(args.workdir), args.nemo_ref, args.precision)
         return
     if args.input_dir is None or args.output_dir is None:
         parser.error("input_dir and output_dir are required (unless --serve)")
@@ -715,7 +782,7 @@ def main():
         logger.info(f"Using the running server at {args.server}")
     else:
         server_process = launch_local_server(
-            args.server, Path(args.workdir), args.nemo_ref
+            args.server, Path(args.workdir), args.nemo_ref, args.precision
         )
 
     # Results are appended as files finish, so a crash keeps what completed
