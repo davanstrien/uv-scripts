@@ -24,7 +24,7 @@ hf jobs uv run https://huggingface.co/datasets/uv-scripts/ocr/raw/main/glm-ocr.p
 
 The Job adds a `markdown` column to all seven rows and saves them in `your-username/ocr-demo-results`. Dependency installation and model loading can take a few minutes before OCR starts. The [dataset card](https://huggingface.co/datasets/uv-scripts/ocr-demo) gives the source and licence.
 
-> **Note:** the command needs no flags because the script's [`[tool.hf-jobs]` header](https://huggingface.co/docs/hub/jobs-configuration#define-the-launch-config-in-the-script) sets the GPU, the Docker image and the `HF_TOKEN` secret. The `hf` CLI reads the header from version 1.32. `hf jobs uv run --dry-run <script>` shows the resolved settings. Flags override the header, for example `--timeout 1h` for a larger dataset or `--flavor` for other hardware. **Older CLIs ignore the header without a warning**, and the Job then fails on a CPU without your token. Check with `hf version` and upgrade. If you cannot upgrade, copy the header values from the top of the script (or from `jobs` in [`models.json`](models.json)) as flags. For `glm-ocr.py` that is `--flavor a10g-small --secrets HF_TOKEN --image vllm/vllm-openai:v0.29.0 --python /usr/bin/python3 -e PYTHONPATH=/usr/local/lib/python3.12/dist-packages`.
+> **Note:** the command needs no flags because the script's [`[tool.hf-jobs]` header](https://huggingface.co/docs/hub/jobs-configuration#define-the-launch-config-in-the-script) sets the GPU, the Docker image and the `HF_TOKEN` secret. The `hf` CLI reads the header from version 1.32. `hf jobs uv run --dry-run <script>` shows the resolved settings. Flags override the header, for example `--timeout 1h` for a larger dataset or `--flavor` for other hardware. **Older CLIs ignore the header without a warning**, and the Job then fails on a CPU without your token. Check with `hf version` and upgrade. If you cannot upgrade, copy the header values from the top of the script (or from `jobs` in [`models.json`](models.json)) as flags. For `glm-ocr.py` that is `--flavor a10g-small --secrets HF_TOKEN --image vllm/vllm-openai:v0.30.0 --python /usr/bin/python3 -e PYTHONPATH=/usr/local/lib/python3.12/dist-packages`.
 
 ### Try the same pages as a PDF
 
@@ -259,7 +259,7 @@ job = run_uv_job(
     "https://huggingface.co/datasets/uv-scripts/ocr/raw/main/glm-ocr.py",
     script_args=["input-dataset", "output-dataset", "--max-samples", "10"],
     flavor="a10g-small",
-    image="vllm/vllm-openai:v0.29.0",
+    image="vllm/vllm-openai:v0.30.0",
     python="/usr/bin/python3",
     env={"PYTHONPATH": "/usr/local/lib/python3.12/dist-packages"},
     secrets={"HF_TOKEN": get_token()},
@@ -280,7 +280,7 @@ nvrtc: error: failed to open libnvrtc-builtins.so...
 The Job ran on the default image, which has no CUDA toolkit. This happens with an older CLI, with a legacy recipe, or when you override `--image`. Run it on the `vllm/vllm-openai` image:
 
 ```bash
---image vllm/vllm-openai:v0.29.0 --python /usr/bin/python3 -e PYTHONPATH=/usr/local/lib/python3.12/dist-packages
+--image vllm/vllm-openai:v0.30.0 --python /usr/bin/python3 -e PYTHONPATH=/usr/local/lib/python3.12/dist-packages
 ```
 
 Use the tag from the script's header. The Surya recipes use `/usr/local/bin/python3` and `site-packages` instead; copy their header exactly. `unlimited-ocr-vllm.py` needs Baidu's `vllm/vllm-openai:unlimited-ocr` image (`:unlimited-ocr-cu129` on H100 or H200).
