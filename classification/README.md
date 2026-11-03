@@ -1,6 +1,6 @@
 ---
 viewer: false
-tags: [uv-script, classification, fine-tuning, few-shot, zero-shot, decision-model, setfit, gliner2, vllm, structured-outputs, hf-jobs]
+tags: [uv-script, classification, fine-tuning, few-shot, zero-shot, decision-model, setfit, gliner2, kev, vllm, structured-outputs, hf-jobs]
 ---
 
 # Classification Scripts
@@ -34,6 +34,7 @@ You need the `hf` CLI, signed in, and Jobs credit: see the [Jobs quickstart](htt
 | [`train-gliner2.py`](#zero-shot-first-then-fine-tune-gliner2) | **Fine-tune** [GLiNER2](https://huggingface.co/fastino), a small model (74M–287M) that already classifies zero-shot, and report the zero-shot score next to the fine-tuned one |
 | [`train-setfit.py`](#few-shot-with-setfit-train-setfitpy) | **Few-shot** train a classifier from 8-64 labels per class with [SetFit](https://huggingface.co/docs/setfit) — runs on CPU or GPU |
 | [`train-classifier.py`](#fine-tune-a-classifier-train-classifierpy) | **Fine-tune** an encoder into a classifier (default: [LFM2.5-Encoder-350M](https://huggingface.co/LiquidAI/LFM2.5-Encoder-350M)) and push it to the Hub |
+| [`train-kev.py`](#fine-tune-a-kev-decision-model-train-kevpy) | **Fine-tune** the open [Kev-4B](https://huggingface.co/jaredpalmer/kev-4b) decision model on your own questions, with Kev's own training code |
 | [`classify-dataset.py`](#zero-shot-classification-classify-datasetpy) | **Zero-shot** classify a dataset with an instruction LLM (SmolLM3 + vLLM, structured outputs) |
 | [`classify-dataset-sglang.py`](#zero-shot-classification-classify-datasetpy) | Zero-shot variant on SGLang (reasoning-aware `<think>` models) |
 
@@ -248,6 +249,91 @@ metadata on datasets that lack it.
 produces a plain, vLLM-servable model — pair it with
 [`uv-scripts/vllm`](https://huggingface.co/datasets/uv-scripts/vllm)'s
 `classify-dataset.py` for large-scale batch inference with the model you just trained.
+
+## Fine-tune a Kev decision model (`train-kev.py`)
+
+[Kev](https://github.com/jaredpalmer/kev) is an open decision model by Jared Palmer: a Qwen3.5
+backbone with a LoRA and a decision head. It reads a text and returns a probability for each option
+of a fixed-choice question. This script fine-tunes the released
+[Kev-4B](https://huggingface.co/jaredpalmer/kev-4b) on your own labelled questions.
+
+The script is a thin launcher. It pins one Kev commit and the Kev-4B v1.0 weights, installs Kev,
+and runs Kev's own `kev.train`, `kev.benchmark` and `kev.calibrate`. All training and evaluation
+code is Kev's. Kev's own fine-tuning docs use Modal; use this script when your data and credit
+are already on the Hub.
+
+```bash
+hf jobs uv run -v hf://buckets/<you>/kev-data:/mnt/kev \
+  https://huggingface.co/datasets/uv-scripts/classification/raw/main/train-kev.py \
+  /mnt/kev/newsgroups /mnt/kev/runs/newsgroups-v1
+```
+
+The flavor (`a100-large`), the timeout (1 h) and the `HF_TOKEN` secret come from the script header.
+The input folder needs `train.jsonl` and `development.jsonl`. Each line is one record in Kev's
+format; a record can carry more than one question:
+
+```json
+{"state": "<the text>",
+ "questions": {"newsgroup": {"type": "choice",
+                             "instructions": "Which newsgroup was this post published in?",
+                             "criteria": {"alt.atheism": null, "comp.graphics": null},
+                             "label": "comp.graphics"}}}
+```
+
+The output folder gets `checkpoint/`, `finetuned-development/` and `baseline-development/` (Kev
+benchmark reports for the fine-tuned and the released model), `finetuned-development/calibration.json`
+and a `run.json` summary.
+
+### Measured
+
+| Task | Train / test records | Flavor | Time | Cost | Released Kev-4B | Fine-tuned |
+|---|---|---|---|---|---|---|
+| [`SetFit/20_newsgroups`](https://huggingface.co/datasets/SetFit/20_newsgroups) (20 classes) | 1,000 / 426 | `a100-large` | 31 min | about $1.29 | 62.4% | 72.3% |
+
+One seed, 2026-10-30. The paired difference is +9.9 points (95% CI +6.1 to +13.6).
+
+The fine-tuned model is overconfident: mean confidence 0.82 against accuracy 0.72 (ECE 0.100).
+`kev.calibrate` on the same development records: one temperature, fitted out-of-fold, brings ECE
+to 0.028 and mean confidence to 0.73, with accuracy unchanged (ECE change -0.072, 95% CI -0.092 to
+-0.023).
+
+### Good to know
+
+- **Calibration is a report.** The fine-tuned checkpoint runs at temperature 1.0. `calibration.json`
+  shows what one temperature fitted on your development records would do, in-sample and out-of-fold.
+  Nothing in the checkpoint changes. If you use the probabilities, divide the logits by `workload_temperature` from that
+  file (1.52 on 20 Newsgroups); the `workload_oof` arm shows what that does on records it was not fitted on.
+- **Long records are dropped.** Kev skips records over its token limit and lists them in
+  `rejected.json`. On 20 Newsgroups this dropped 154 of 1,000 training and 74 of 500 test posts.
+- **Everything is pinned:** the Kev commit, the Kev-4B weights (by commit, because a tag can move)
+  and the Qwen3.5 base revision. If the `kev-1.0` tag moves, the script stops with a message.
+- **Smoke test first:** `--max-steps 5` runs the whole path in a few minutes.
+- **No 20 Newsgroups checkpoint is published.** `SetFit/20_newsgroups` declares no licence.
+
+<details><summary>Turn a labelled dataset into Kev records (the 20 Newsgroups example)</summary>
+
+```python
+import json
+from pathlib import Path
+
+from datasets import load_dataset
+
+data = load_dataset("SetFit/20_newsgroups")
+labels = sorted(set(data["train"]["label_text"]))
+out = Path("newsgroups")
+out.mkdir(exist_ok=True)
+for split, count, name in [("train", 1000, "train.jsonl"), ("test", 500, "development.jsonl")]:
+    rows = data[split].filter(lambda row: len(row["text"].strip()) >= 50).shuffle(seed=42).select(range(count))
+    with (out / name).open("w") as f:
+        for row in rows:
+            question = {"type": "choice", "instructions": "Which newsgroup was this post published in?",
+                        "criteria": {label: None for label in labels}, "label": row["label_text"]}
+            f.write(json.dumps({"state": row["text"].strip()[:2000], "questions": {"newsgroup": question}}) + "\n")
+```
+
+Then copy the folder to your bucket: `hf buckets sync ./newsgroups hf://buckets/<you>/kev-data/newsgroups`.
+
+</details>
 
 ## Zero-shot classification (`classify-dataset.py`)
 
