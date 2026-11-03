@@ -287,8 +287,9 @@ hf jobs uv run --flavor a100-large --timeout 1h --secrets HF_TOKEN \
 The script checks every record and the output folder before it installs anything. The output
 folder must be new or empty. It gets `checkpoint/`, `finetuned-development/` and
 `baseline-development/` (Kev benchmark reports for the fine-tuned and the released model),
-`finetuned-development/calibration.json` and a `run.json` summary. Each result is copied to the
-bucket as soon as it is written.
+`finetuned-development/calibration.json` (when `kev.calibrate` succeeds) and a `run.json` summary.
+Each result is copied to the bucket as soon as it is written. On Jobs, the script refuses an output
+folder that is not on a mounted bucket.
 
 ### Measured
 
@@ -304,19 +305,21 @@ The fine-tuned checkpoint runs at temperature 1.0. `calibration.json` reports wh
 fitted on your development records would do; nothing in the checkpoint changes. On 20 Newsgroups,
 the out-of-fold fit (`workload_oof`) brings ECE to 0.028 and mean confidence to 0.73, with accuracy
 unchanged (ECE change -0.072, 95% CI -0.092 to -0.023). To use the fitted value
-(`workload_temperature`, 1.52 here), set `KEV_TEMPERATURE=1.52` when you load the checkpoint with Kev.
+(`workload_temperature`, 1.52 here), set `KEV_TEMPERATURE=1.52` when you serve or benchmark the
+checkpoint with Kev's commands, or pass `LoadOptions(temperature=1.52)` when you load it in Python.
 
 ### Good to know
 
-- **Long records are dropped.** Kev's training context is 384 state tokens. `kev.train` drops longer
-  records and prints how many; `kev.benchmark` drops them too and lists them in `rejected.json`. On
+- **Long records are dropped.** `kev.train`'s default context is 384 state tokens (Kev's `--max_state`
+  raises it; this script does not expose it). `kev.train` drops longer records and prints how many; `kev.benchmark` drops them too and lists them in `rejected.json`. On
   20 Newsgroups, after cutting posts at 2,000 characters, this dropped 154 of 1,000 training and 74 of
   500 test posts.
 - **Raise `--timeout` before you add data or epochs.** Training time grows with records × epochs.
   If the Job hits the timeout, the results already copied stay in the bucket.
 - **Everything is pinned:** the Kev commit, the Kev-4B weights (by commit, because a tag can move)
   and the Qwen3.5 base revision. If the `kev-1.0` tag moves, the script stops with a message.
-- **No extra kernels.** Kev's Modal images also install `flash-linear-attention` and `causal-conv1d`.
+- **No extra kernels.** Kev's Modal images add `flash-linear-attention` (and, in `modal_app.py`,
+  `causal-conv1d`).
   In our `a100-large` runs they gave no speed-up, so this script leaves them out.
 - **Smoke test first:** `--max-steps 5` runs the whole path in about 6 minutes.
 - **No 20 Newsgroups checkpoint is published.** `SetFit/20_newsgroups` declares no licence.

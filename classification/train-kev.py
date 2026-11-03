@@ -47,11 +47,13 @@ from pathlib import Path
 KEV_REPO = "https://github.com/jaredpalmer/kev"
 KEV_TAG = "kev-1.0"
 KEV_COMMIT = "6b719c3c3f367295f6ef336f4f751cf5ff970abc"  # the kev-1.0 tag on 2026-11-03
-# jaredpalmer/kev-4b at tag v1.0 (2026-11-03). Pinned by commit, because a tag can move.
+# jaredpalmer/kev-4b: the commit `@v1.0` resolved to on 2026-10-30 and 2026-11-03 (same weights as
+# the v1.0 tag). Pinned by commit, because a tag can move.
 INIT_MODEL = "jaredpalmer/kev-4b@6cfce5c2fa4b4bd64026336ab649c5ca78857d52"
 BASE_MODEL = "Qwen/Qwen3.5-4B-Base"
 BASE_REVISION = "1001bb4d826a52d1f399e183466143f4da7b741b"  # main on 2026-11-03 (last change 2026-04-23)
 QUESTION_TYPES = ("noul", "choice", "score")
+MAX_OPTIONS = 255  # kev/api.py
 WORK_DIR = Path("/tmp/kev")
 SCRATCH = Path("/tmp/out")
 
@@ -73,8 +75,32 @@ def check_gpu():
     print(listing.stdout.strip(), flush=True)
 
 
+def question_problem(question):
+    """Why a labelled question is not in Kev's format, or None. Rules from kev/api.py and Kev's README:
+    noul labels are true/false; choice criteria is an object of options and the label is one of them;
+    score criteria is a list of levels and the label is a level's position from 0."""
+    if not isinstance(question, dict) or question.get("type") not in QUESTION_TYPES:
+        return f"needs a type: one of {', '.join(QUESTION_TYPES)}"
+    if "label" not in question:
+        return "needs a label"
+    kind, label, criteria = question["type"], question["label"], question.get("criteria")
+    if kind == "noul" and not isinstance(label, bool):
+        return "is a noul question, so its label must be true or false"
+    if kind == "choice":
+        if not isinstance(criteria, dict) or not 1 <= len(criteria) <= MAX_OPTIONS:
+            return f"is a choice question, so its criteria must be an object with 1 to {MAX_OPTIONS} options"
+        if label not in criteria:
+            return f"has label {label!r}, which is not one of its criteria"
+    if kind == "score":
+        if not isinstance(criteria, list) or not 1 <= len(criteria) <= MAX_OPTIONS:
+            return f"is a score question, so its criteria must be a list of 1 to {MAX_OPTIONS} levels"
+        if isinstance(label, bool) or not isinstance(label, int) or not 0 <= label < len(criteria):
+            return f"is a score question, so its label must be a level position from 0 to {len(criteria) - 1}"
+    return None
+
+
 def check_records(path):
-    """Fail before any GPU time is spent if a record is not in Kev's format."""
+    """Fail before any GPU time is spent if a record is not in Kev's labelled format."""
     if not path.is_file():
         sys.exit(f"{path} not found. The input folder needs train.jsonl and development.jsonl.")
     count = 0
@@ -87,17 +113,15 @@ def check_records(path):
                 record = json.loads(line)
             except json.JSONDecodeError as error:
                 sys.exit(f"{where}: not valid JSON ({error}).")
-            if not isinstance(record, dict) or not isinstance(record.get("state"), str):
-                sys.exit(f'{where}: a record needs a "state" string.')
+            if not isinstance(record, dict) or record.get("state") is None:
+                sys.exit(f'{where}: a record needs a "state" (text, or any JSON object or list).')
             questions = record.get("questions")
             if not isinstance(questions, dict) or not questions:
                 sys.exit(f'{where}: a record needs a non-empty "questions" object.')
             for name, question in questions.items():
-                kind = question.get("type") if isinstance(question, dict) else None
-                if kind not in QUESTION_TYPES:
-                    sys.exit(f'{where}: question "{name}" needs a type: one of {", ".join(QUESTION_TYPES)}.')
-                if kind == "choice" and "label" in question and question["label"] not in question.get("criteria", {}):
-                    sys.exit(f'{where}: question "{name}" has label {question["label"]!r}, which is not one of its criteria.')
+                problem = question_problem(question)
+                if problem:
+                    sys.exit(f'{where}: question "{name}" {problem}.')
             count += 1
     if count == 0:
         sys.exit(f"{path} has no records.")
@@ -105,10 +129,25 @@ def check_records(path):
     return count
 
 
+def mount_of(path, mounts_file=Path("/proc/self/mounts")):
+    """(mount point, filesystem type, device) of the mount that holds `path`."""
+    best = ("", "", "")
+    for line in mounts_file.read_text().splitlines():
+        device, mount_point, fstype = line.split()[:3]
+        holds_path = path == Path(mount_point) or Path(mount_point) in path.parents
+        if holds_path and len(mount_point) > len(best[0]):
+            best = (mount_point, fstype, device)
+    return best
+
+
 def prepare_output(output_dir):
     """Fail before any GPU time is spent if the results would be lost or mixed with an old run."""
-    if os.environ.get("JOB_ID") and output_dir.is_relative_to("/tmp"):
-        sys.exit(f"{output_dir} is on the Job's temporary disk. Mount a bucket (-v hf://buckets/<you>/<bucket>:/mnt/kev) and write there.")
+    if os.environ.get("JOB_ID"):
+        # on Jobs, only a mounted bucket outlives the container (it shows as device "hf-mount")
+        mount_point, fstype, device = mount_of(output_dir)
+        if device != "hf-mount":
+            sys.exit(f"{output_dir} is not on a mounted bucket (it is on {mount_point}, {fstype or 'unknown'}). "
+                     "Mount one with -v hf://buckets/<you>/<bucket>:/mnt/kev and write under /mnt/kev.")
     if output_dir.exists() and any(output_dir.iterdir()):
         sys.exit(f"{output_dir} is not empty. Use a new folder for each run.")
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -162,10 +201,10 @@ def calibrate():
     here is reported and the run goes on: the checkpoint and benchmarks are already saved."""
     try:
         run(["uv", "run", "python", "-m", "kev.calibrate", "--rows", str(SCRATCH / "finetuned-development" / "rows.json")])
-    except subprocess.CalledProcessError:
-        print("kev.calibrate failed; see the message above. The other results are saved.", flush=True)
+        report = json.loads((SCRATCH / "finetuned-development" / "calibration.json").read_text())
+    except (subprocess.CalledProcessError, OSError, json.JSONDecodeError) as error:
+        print(f"kev.calibrate failed ({error}); see the messages above. The other results are saved.", flush=True)
         return None
-    report = json.loads((SCRATCH / "finetuned-development" / "calibration.json").read_text())
     return report.get("workload_temperature")
 
 
@@ -203,7 +242,10 @@ def main():
     save("baseline-development", args.output_dir)
     temperature = calibrate()
     if temperature is not None:
-        save("finetuned-development", args.output_dir)  # adds calibration.json
+        # copy only the new file: the saved reports stay as they are
+        calibration = SCRATCH / "finetuned-development" / "calibration.json"
+        subprocess.run(["cp", str(calibration), str(args.output_dir / "finetuned-development")], check=True)
+        print(f"saved {args.output_dir / 'finetuned-development' / 'calibration.json'}", flush=True)
 
     summary = {
         "status": "completed",
