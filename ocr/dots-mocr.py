@@ -9,6 +9,8 @@
 # ]
 #
 # [tool.hf-jobs]
+# # >=v0.30.0: ships huggingface_hub>=1.31, which datasets>=5.1 imports (httpx). On v0.29.0,
+# # PYTHONPATH puts the image's older hub first and `import datasets` crashes.
 # image = "vllm/vllm-openai:v0.30.0"
 # python = "/usr/bin/python3"
 # env = { PYTHONPATH = "/usr/local/lib/python3.12/dist-packages" }
