@@ -10,33 +10,35 @@
 """
 Fine-tune a Kev decision model on your own labelled questions, on one HF Jobs GPU.
 
-Kev (https://github.com/jaredpalmer/kev) answers fixed-choice questions about a text with a
-calibrated probability per option. This script is a thin launcher around Kev's own commands. It
-pins one Kev commit and one set of released weights, installs Kev, and then runs:
+Kev (https://github.com/jaredpalmer/kev) answers yes/no, multiple-choice and rating questions
+about a text, with a probability for each answer. This script is a thin launcher around Kev's
+own commands. It pins one Kev commit and one set of released weights, installs Kev, and then runs:
 
-1. `kev.train`: a LoRA + head delta from the released Kev-4B, on your training records.
+1. `kev.train`: a LoRA + pointer-head delta from the released Kev-4B, on your training records.
 2. `kev.benchmark`: the fine-tuned model and the released model, on your development records.
 3. `kev.calibrate`: a calibration report for the fine-tuned model (report only, nothing changes).
 
-All training and evaluation code is Kev's. Kev's own docs use Modal; this script is for people
-whose data and credit are already on the Hub.
+All training and evaluation code is Kev's. Kev's own recipes run on Modal (the `kev-finetune`
+skill) or on a GPU you have; this script is for people whose data and credit are on the Hub.
 
 Input: a folder with `train.jsonl` and `development.jsonl` in Kev's record format (see the README).
-Output: the checkpoint, both benchmark reports, the calibration report and `run.json`.
+Output: an empty or new folder on a mounted bucket. Each result is copied there as soon as it is
+written: the checkpoint, both benchmark reports, the calibration report and `run.json`.
 
 Example, with input and output in a bucket:
 
-    hf jobs uv run -v hf://buckets/<you>/kev-data:/mnt/kev \\
+    hf jobs uv run --flavor a100-large --timeout 1h --secrets HF_TOKEN \\
+        -v hf://buckets/<you>/kev-data:/mnt/kev \\
         https://huggingface.co/datasets/uv-scripts/classification/raw/main/train-kev.py \\
         /mnt/kev/newsgroups /mnt/kev/runs/newsgroups-v1
 
-Tested on 2026-10-30 (a100-large, 31 min, about $1.29): 1,000 20 Newsgroups training posts and
-426 test posts. Accuracy 72.3% fine-tuned vs 62.4% for the released Kev-4B. One seed.
+Tested on 2026-10-30 (a100-large, 31 min, about $1.29): 20 Newsgroups, 846 training and 426 test
+posts after Kev's length limit. Accuracy 72.3% fine-tuned vs 62.4% for the released Kev-4B. One seed.
 """
 
 import argparse
 import json
-import shutil
+import os
 import subprocess
 import sys
 import time
@@ -49,7 +51,9 @@ KEV_COMMIT = "6b719c3c3f367295f6ef336f4f751cf5ff970abc"  # the kev-1.0 tag on 20
 INIT_MODEL = "jaredpalmer/kev-4b@6cfce5c2fa4b4bd64026336ab649c5ca78857d52"
 BASE_MODEL = "Qwen/Qwen3.5-4B-Base"
 BASE_REVISION = "1001bb4d826a52d1f399e183466143f4da7b741b"  # main on 2026-11-03 (last change 2026-04-23)
+QUESTION_TYPES = ("noul", "choice", "score")
 WORK_DIR = Path("/tmp/kev")
+SCRATCH = Path("/tmp/out")
 
 
 def run(command, cwd=WORK_DIR):
@@ -60,14 +64,55 @@ def run(command, cwd=WORK_DIR):
 
 
 def check_gpu():
-    if shutil.which("nvidia-smi") is None:
+    try:
+        listing = subprocess.run(["nvidia-smi", "-L"], capture_output=True, text=True)
+    except FileNotFoundError:
+        listing = None
+    if listing is None or listing.returncode != 0 or "GPU" not in listing.stdout:
         sys.exit("No GPU found. Run this on a GPU flavor, for example --flavor a100-large.")
+    print(listing.stdout.strip(), flush=True)
 
 
-def check_input(input_dir):
-    for name in ("train.jsonl", "development.jsonl"):
-        if not (input_dir / name).is_file():
-            sys.exit(f"{input_dir / name} not found. The input folder needs train.jsonl and development.jsonl.")
+def check_records(path):
+    """Fail before any GPU time is spent if a record is not in Kev's format."""
+    if not path.is_file():
+        sys.exit(f"{path} not found. The input folder needs train.jsonl and development.jsonl.")
+    count = 0
+    with path.open() as f:
+        for line_number, line in enumerate(f, start=1):
+            if not line.strip():
+                continue
+            where = f"{path.name} line {line_number}"
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError as error:
+                sys.exit(f"{where}: not valid JSON ({error}).")
+            if not isinstance(record, dict) or not isinstance(record.get("state"), str):
+                sys.exit(f'{where}: a record needs a "state" string.')
+            questions = record.get("questions")
+            if not isinstance(questions, dict) or not questions:
+                sys.exit(f'{where}: a record needs a non-empty "questions" object.')
+            for name, question in questions.items():
+                kind = question.get("type") if isinstance(question, dict) else None
+                if kind not in QUESTION_TYPES:
+                    sys.exit(f'{where}: question "{name}" needs a type: one of {", ".join(QUESTION_TYPES)}.')
+                if kind == "choice" and "label" in question and question["label"] not in question.get("criteria", {}):
+                    sys.exit(f'{where}: question "{name}" has label {question["label"]!r}, which is not one of its criteria.')
+            count += 1
+    if count == 0:
+        sys.exit(f"{path} has no records.")
+    print(f"{path.name}: {count} records", flush=True)
+    return count
+
+
+def prepare_output(output_dir):
+    """Fail before any GPU time is spent if the results would be lost or mixed with an old run."""
+    if os.environ.get("JOB_ID") and output_dir.is_relative_to("/tmp"):
+        sys.exit(f"{output_dir} is on the Job's temporary disk. Mount a bucket (-v hf://buckets/<you>/<bucket>:/mnt/kev) and write there.")
+    if output_dir.exists() and any(output_dir.iterdir()):
+        sys.exit(f"{output_dir} is not empty. Use a new folder for each run.")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    (output_dir / "run.json").write_text(json.dumps({"status": "started"}))  # also checks that the folder is writable
 
 
 def install_kev():
@@ -76,9 +121,21 @@ def install_kev():
     if head.stdout.strip() != KEV_COMMIT:
         sys.exit(f"{KEV_TAG} now points to {head.stdout.strip()}, not {KEV_COMMIT}. Check the Kev release notes.")
     run(["uv", "sync", "--no-dev", "-q"])
+    cuda = subprocess.run(["uv", "run", "python", "-c", "import torch; print(torch.cuda.is_available())"],
+                          cwd=WORK_DIR, capture_output=True, text=True)
+    if cuda.stdout.strip() != "True":
+        sys.exit(f"PyTorch in Kev's environment cannot use the GPU.\n{cuda.stderr[-2000:]}")
 
 
-def train(args, output):
+def save(name, output_dir):
+    """Copy one finished result to the output folder, so a later failure cannot lose it."""
+    destination = output_dir / name
+    destination.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["cp", "-r", f"{SCRATCH / name}/.", str(destination)], check=True)
+    print(f"saved {destination}", flush=True)
+
+
+def train(args):
     command = [
         "uv", "run", "python", "-m", "kev.train",
         "--data", str(args.input_dir / "train.jsonl"),
@@ -89,58 +146,73 @@ def train(args, output):
         "--lr", str(args.lr),
         "--batch", "1", "--accum", "8", "--dtype", "bf16", "--checkpointing", "1",
         "--device", "cuda",
-        "--out", str(output),
+        "--out", str(SCRATCH / "checkpoint"),
     ]
     if args.max_steps:
         command += ["--max_steps", str(args.max_steps)]
     run(command)
 
 
-def benchmark(model, data, output):
-    run(["uv", "run", "python", "-m", "kev.benchmark", "--run", str(model), "--data", str(data), "--out", str(output)])
+def benchmark(model, data, name):
+    run(["uv", "run", "python", "-m", "kev.benchmark", "--run", str(model), "--data", str(data), "--out", str(SCRATCH / name)])
 
 
-def calibrate(benchmark_dir):
-    # writes calibration.json next to rows.json
-    run(["uv", "run", "python", "-m", "kev.calibrate", "--rows", str(benchmark_dir / "rows.json")])
+def calibrate():
+    """Kev's calibration report. It needs enough development records for its folds, so a failure
+    here is reported and the run goes on: the checkpoint and benchmarks are already saved."""
+    try:
+        run(["uv", "run", "python", "-m", "kev.calibrate", "--rows", str(SCRATCH / "finetuned-development" / "rows.json")])
+    except subprocess.CalledProcessError:
+        print("kev.calibrate failed; see the message above. The other results are saved.", flush=True)
+        return None
+    report = json.loads((SCRATCH / "finetuned-development" / "calibration.json").read_text())
+    return report.get("workload_temperature")
 
 
-def headline(benchmark_dir):
-    report = json.loads((benchmark_dir / "report.json").read_text())
-    clean = report["clean"]
+def headline(name):
+    clean = json.loads((SCRATCH / name / "report.json").read_text())["clean"]
     return {"n": clean["n"], "acc": round(clean["acc"], 4), "ece": round(clean["ece"], 4)}
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("input_dir", type=Path, help="Folder with train.jsonl and development.jsonl in Kev's format")
-    parser.add_argument("output_dir", type=Path, help="Folder for the checkpoint and the reports")
+    parser.add_argument("output_dir", type=Path, help="New or empty folder for the results, on a mounted bucket")
     parser.add_argument("--init-from", default=INIT_MODEL, help="Released Kev model to start from (repo@revision)")
     parser.add_argument("--epochs", type=int, default=2)
     parser.add_argument("--lr", type=float, default=2e-5)
     parser.add_argument("--max-steps", type=int, default=0, help="Stop after this many optimizer steps, for a smoke test")
     args = parser.parse_args()
+    # Kev's commands run from its own checkout, so relative paths must not reach them
+    args.input_dir = args.input_dir.resolve()
+    args.output_dir = args.output_dir.resolve()
 
     check_gpu()
-    check_input(args.input_dir)
+    check_records(args.input_dir / "train.jsonl")
+    check_records(args.input_dir / "development.jsonl")
+    prepare_output(args.output_dir)
     started = time.time()
     install_kev()
 
-    scratch = Path("/tmp/out")
     development = args.input_dir / "development.jsonl"
-    train(args, scratch / "checkpoint")
-    benchmark(scratch / "checkpoint", development, scratch / "finetuned-development")
-    benchmark(args.init_from, development, scratch / "baseline-development")
-    calibrate(scratch / "finetuned-development")
+    train(args)
+    save("checkpoint", args.output_dir)
+    benchmark(SCRATCH / "checkpoint", development, "finetuned-development")
+    save("finetuned-development", args.output_dir)
+    benchmark(args.init_from, development, "baseline-development")
+    save("baseline-development", args.output_dir)
+    temperature = calibrate()
+    if temperature is not None:
+        save("finetuned-development", args.output_dir)  # adds calibration.json
 
-    args.output_dir.mkdir(parents=True, exist_ok=True)
-    subprocess.run(["cp", "-r", f"{scratch}/.", str(args.output_dir)], check=True)
     summary = {
+        "status": "completed",
         "kev_commit": KEV_COMMIT,
         "init_from": args.init_from,
         "base_revision": BASE_REVISION,
-        "finetuned": headline(scratch / "finetuned-development"),
-        "released": headline(scratch / "baseline-development"),
+        "finetuned": headline("finetuned-development"),
+        "released": headline("baseline-development"),
+        "workload_temperature": temperature,
         "seconds": round(time.time() - started),
     }
     (args.output_dir / "run.json").write_text(json.dumps(summary, indent=2))

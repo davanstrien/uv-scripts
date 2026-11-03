@@ -252,25 +252,20 @@ produces a plain, vLLM-servable model — pair it with
 
 ## Fine-tune a Kev decision model (`train-kev.py`)
 
-[Kev](https://github.com/jaredpalmer/kev) is an open decision model by Jared Palmer: a Qwen3.5
-backbone with a LoRA and a decision head. It reads a text and returns a probability for each option
-of a fixed-choice question. This script fine-tunes the released
-[Kev-4B](https://huggingface.co/jaredpalmer/kev-4b) on your own labelled questions.
+[Kev](https://github.com/jaredpalmer/kev) is an open decision model by Jared Palmer. It answers
+yes/no, multiple-choice and rating questions about a text, with a probability for each answer.
+[Kev-4B](https://huggingface.co/jaredpalmer/kev-4b) is a rank-16 LoRA adapter and a small pointer
+head on Qwen3.5-4B-Base. This script fine-tunes the released Kev-4B on your own labelled questions.
 
 The script is a thin launcher. It pins one Kev commit and the Kev-4B v1.0 weights, installs Kev,
 and runs Kev's own `kev.train`, `kev.benchmark` and `kev.calibrate`. All training and evaluation
-code is Kev's. Kev's own fine-tuning docs use Modal; use this script when your data and credit
-are already on the Hub.
+code is Kev's. Kev's own recipes run on Modal (the `kev-finetune` skill) or on a GPU you have
+([Fine-Tune on Your Own Data](https://github.com/jaredpalmer/kev#fine-tune-on-your-own-data));
+use this script when your data and credit are already on the Hub.
 
-```bash
-hf jobs uv run -v hf://buckets/<you>/kev-data:/mnt/kev \
-  https://huggingface.co/datasets/uv-scripts/classification/raw/main/train-kev.py \
-  /mnt/kev/newsgroups /mnt/kev/runs/newsgroups-v1
-```
-
-The flavor (`a100-large`), the timeout (1 h) and the `HF_TOKEN` secret come from the script header.
-The input folder needs `train.jsonl` and `development.jsonl`. Each line is one record in Kev's
-format; a record can carry more than one question:
+First put `train.jsonl` and `development.jsonl` in a bucket folder (the snippet at the end of this
+section shows one way). Each line is one record in Kev's format; a record can carry more than one
+question:
 
 ```json
 {"state": "<the text>",
@@ -280,34 +275,50 @@ format; a record can carry more than one question:
                              "label": "comp.graphics"}}}
 ```
 
-The output folder gets `checkpoint/`, `finetuned-development/` and `baseline-development/` (Kev
-benchmark reports for the fine-tuned and the released model), `finetuned-development/calibration.json`
-and a `run.json` summary.
+Then run:
+
+```bash
+hf jobs uv run --flavor a100-large --timeout 1h --secrets HF_TOKEN \
+  -v hf://buckets/<you>/kev-data:/mnt/kev \
+  https://huggingface.co/datasets/uv-scripts/classification/raw/main/train-kev.py \
+  /mnt/kev/newsgroups /mnt/kev/runs/newsgroups-v1
+```
+
+The script checks every record and the output folder before it installs anything. The output
+folder must be new or empty. It gets `checkpoint/`, `finetuned-development/` and
+`baseline-development/` (Kev benchmark reports for the fine-tuned and the released model),
+`finetuned-development/calibration.json` and a `run.json` summary. Each result is copied to the
+bucket as soon as it is written.
 
 ### Measured
 
 | Task | Train / test records | Flavor | Time | Cost | Released Kev-4B | Fine-tuned |
 |---|---|---|---|---|---|---|
-| [`SetFit/20_newsgroups`](https://huggingface.co/datasets/SetFit/20_newsgroups) (20 classes) | 1,000 / 426 | `a100-large` | 31 min | about $1.29 | 62.4% | 72.3% |
+| [`SetFit/20_newsgroups`](https://huggingface.co/datasets/SetFit/20_newsgroups) (20 classes) | 846 / 426 (1,000 / 500 prepared) | `a100-large` | 31 min | about $1.29 | 62.4% | 72.3% |
 
-One seed, 2026-10-30. The paired difference is +9.9 points (95% CI +6.1 to +13.6).
+One seed, 2026-10-30. The paired difference is +9.9 points (95% CI +6.1 to +13.6). Training took
+about 25 of the 31 minutes (846 records, 2 epochs).
 
-The fine-tuned model is overconfident: mean confidence 0.82 against accuracy 0.72 (ECE 0.100).
-`kev.calibrate` on the same development records: one temperature, fitted out-of-fold, brings ECE
-to 0.028 and mean confidence to 0.73, with accuracy unchanged (ECE change -0.072, 95% CI -0.092 to
--0.023).
+**The fine-tuned model is overconfident**: mean confidence 0.82 against accuracy 0.72 (ECE 0.100).
+The fine-tuned checkpoint runs at temperature 1.0. `calibration.json` reports what one temperature
+fitted on your development records would do; nothing in the checkpoint changes. On 20 Newsgroups,
+the out-of-fold fit (`workload_oof`) brings ECE to 0.028 and mean confidence to 0.73, with accuracy
+unchanged (ECE change -0.072, 95% CI -0.092 to -0.023). To use the fitted value
+(`workload_temperature`, 1.52 here), set `KEV_TEMPERATURE=1.52` when you load the checkpoint with Kev.
 
 ### Good to know
 
-- **Calibration is a report.** The fine-tuned checkpoint runs at temperature 1.0. `calibration.json`
-  shows what one temperature fitted on your development records would do, in-sample and out-of-fold.
-  Nothing in the checkpoint changes. If you use the probabilities, divide the logits by `workload_temperature` from that
-  file (1.52 on 20 Newsgroups); the `workload_oof` arm shows what that does on records it was not fitted on.
-- **Long records are dropped.** Kev skips records over its token limit and lists them in
-  `rejected.json`. On 20 Newsgroups this dropped 154 of 1,000 training and 74 of 500 test posts.
+- **Long records are dropped.** Kev's training context is 384 state tokens. `kev.train` drops longer
+  records and prints how many; `kev.benchmark` drops them too and lists them in `rejected.json`. On
+  20 Newsgroups, after cutting posts at 2,000 characters, this dropped 154 of 1,000 training and 74 of
+  500 test posts.
+- **Raise `--timeout` before you add data or epochs.** Training time grows with records × epochs.
+  If the Job hits the timeout, the results already copied stay in the bucket.
 - **Everything is pinned:** the Kev commit, the Kev-4B weights (by commit, because a tag can move)
   and the Qwen3.5 base revision. If the `kev-1.0` tag moves, the script stops with a message.
-- **Smoke test first:** `--max-steps 5` runs the whole path in a few minutes.
+- **No extra kernels.** Kev's Modal images also install `flash-linear-attention` and `causal-conv1d`.
+  In our `a100-large` runs they gave no speed-up, so this script leaves them out.
+- **Smoke test first:** `--max-steps 5` runs the whole path in about 6 minutes.
 - **No 20 Newsgroups checkpoint is published.** `SetFit/20_newsgroups` declares no licence.
 
 <details><summary>Turn a labelled dataset into Kev records (the 20 Newsgroups example)</summary>
