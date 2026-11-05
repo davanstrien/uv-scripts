@@ -367,7 +367,7 @@ Two scripts do this. `classify-dataset.py` runs on vLLM and is the one to start 
 A GPU is required. Run on Jobs with the vLLM image:
 
 ```bash
-hf jobs uv run --flavor l4x1 --image vllm/vllm-openai:latest --secrets HF_TOKEN \
+hf jobs uv run --flavor l4x1 --image vllm/vllm-openai:v0.32.0 --secrets HF_TOKEN \
   https://huggingface.co/datasets/uv-scripts/classification/raw/main/classify-dataset.py \
   --input-dataset stanfordnlp/imdb \
   --column text \
@@ -382,7 +382,7 @@ date or label. Drop both to label the whole split.
 ### With reasoning and label descriptions
 
 ```bash
-hf jobs uv run --flavor l4x1 --image vllm/vllm-openai:latest --secrets HF_TOKEN \
+hf jobs uv run --flavor l4x1 --image vllm/vllm-openai:v0.32.0 --secrets HF_TOKEN \
   https://huggingface.co/datasets/uv-scripts/classification/raw/main/classify-dataset.py \
   --input-dataset user/support-tickets \
   --column content \
@@ -408,7 +408,7 @@ model must end with `{"label": "..."}`, and rows where that cannot be parsed are
 | `--max-samples` | Label only the first N rows (or N random rows with `--shuffle`) |
 | `--shuffle`, `--shuffle-seed` | Shuffle before `--max-samples` (seed default 42) |
 
-Run `uv run classify-dataset.py --help` for all options.
+Run `uv run classify-dataset.py --help` for all options (no GPU or vLLM needed).
 
 ### Good to know
 
@@ -418,5 +418,7 @@ Run `uv run classify-dataset.py --help` for all options.
   truncated to 4,000 characters.
 - **Label names matter.** Use clear, distinct names, add `--label-descriptions` when names are
   ambiguous, and try a larger model for nuanced tasks.
-- **vLLM version**: `ImportError: cannot import name GuidedDecodingParams` means the vLLM
-  version does not match; the script requires `vllm>=0.6.6`.
+- **vLLM version**: on Jobs, vLLM, PyTorch and Transformers come from the `vllm/vllm-openai`
+  image, so the script header does not list them. For a local GPU run (Linux + CUDA), add vLLM
+  yourself: `uv run --with vllm classify-dataset.py ...`. The script needs vLLM 0.12 or newer
+  (`StructuredOutputsParams`).
