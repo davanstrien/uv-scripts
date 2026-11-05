@@ -60,13 +60,16 @@ import logging
 import os
 import sys
 from collections import Counter
-from typing import List, Optional, Union, Dict, Any
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
 from PIL import Image
 from datasets import load_dataset
 from huggingface_hub import login
 from toolz import partition_all
 from tqdm.auto import tqdm
+
+if TYPE_CHECKING:
+    from vllm import LLM, SamplingParams
 
 # torch and vllm are imported inside main(), so `uv run vlm-classify.py --help` works
 # without them. On HF Jobs they come from the vLLM image (see the header).
@@ -126,6 +129,27 @@ def create_classification_messages(
             ],
         }
     ]
+
+
+def classify_messages(
+    llm: "LLM", sampling_params: "SamplingParams", messages: List[List[Dict]]
+) -> List[Optional[str]]:
+    """Run one vLLM chat call; return one label per message (None for an empty output)."""
+    outputs = llm.chat(
+        messages=messages,
+        sampling_params=sampling_params,
+        use_tqdm=False,  # Already have outer progress bar
+    )
+    if len(outputs) != len(messages):
+        raise RuntimeError(
+            f"vLLM returned {len(outputs)} outputs for {len(messages)} prompts"
+        )
+
+    labels = []
+    for output in outputs:
+        text = output.outputs[0].text.strip() if output.outputs else ""
+        labels.append(text or None)
+    return labels
 
 
 def main(
@@ -219,70 +243,81 @@ def main(
         structured_outputs=structured,
     )
 
-    # Process images in batches to avoid memory issues
+    # Process images in batches to avoid memory issues.
+    # labels[i] is the label for dataset row i; rows that fail keep None and get an
+    # entry in errors, so a failure can never shift labels onto other rows.
     logger.info(f"Processing {len(dataset)} images in batches of {batch_size}")
 
-    all_classifications = []
+    labels: List[Optional[str]] = [None] * len(dataset)
+    errors: Dict[int, str] = {}
 
-    # Process in batches using lazy loading
     for batch_indices in tqdm(
         partition_all(batch_size, range(len(dataset))),
         total=(len(dataset) + batch_size - 1) // batch_size,
         desc="Classifying images",
     ):
-        batch_indices = list(batch_indices)
-
-        # Load only this batch's images
-        batch_images = []
-        valid_batch_indices = []
-
+        # Load and encode only this batch's images. A row that cannot be loaded
+        # is recorded as failed and left out of the batch.
+        batch_rows = []
+        batch_messages = []
         for idx in batch_indices:
             try:
                 image = dataset[idx][image_column]
-                batch_images.append(image)
-                valid_batch_indices.append(idx)
+                batch_messages.append(
+                    create_classification_messages(image, prompt, max_size=max_size)
+                )
+                batch_rows.append(idx)
             except Exception as e:
-                logger.warning(f"Skipping image at index {idx}: {e}")
-                all_classifications.append(None)
+                errors[idx] = f"could not load image: {e}"
 
-        if not batch_images:
+        if not batch_rows:
             continue
 
         try:
-            # Create messages for just this batch
-            batch_messages = [
-                create_classification_messages(img, prompt, max_size=max_size)
-                for img in batch_images
-            ]
-
-            # Process with vLLM
-            outputs = llm.chat(
-                messages=batch_messages,
-                sampling_params=sampling_params,
-                use_tqdm=False,  # Already have outer progress bar
-            )
-
-            # Extract classifications
-            for output in outputs:
-                if output.outputs:
-                    label = output.outputs[0].text.strip()
-                    all_classifications.append(label)
-                else:
-                    all_classifications.append(None)
-                    logger.warning("Empty output for an image")
-
+            batch_labels = classify_messages(llm, sampling_params, batch_messages)
         except Exception as e:
-            logger.error(f"Error processing batch: {e}")
-            # Add None for failed batch
-            all_classifications.extend([None] * len(batch_images))
+            # One bad input (for example an image whose prompt is longer than
+            # --max-model-len) fails the whole vLLM call, so retry the batch's
+            # rows one at a time and lose only the rows that fail on their own.
+            logger.warning(
+                f"Batch failed ({str(e)[:200]}); retrying its {len(batch_rows)} images one at a time"
+            )
+            batch_labels = []
+            for idx, messages in zip(batch_rows, batch_messages):
+                try:
+                    batch_labels.extend(
+                        classify_messages(llm, sampling_params, [messages])
+                    )
+                except Exception as row_error:
+                    errors[idx] = str(row_error)
+                    batch_labels.append(None)
 
-    # Ensure we have the right number of classifications
-    while len(all_classifications) < len(dataset):
-        all_classifications.append(None)
+        for idx, label in zip(batch_rows, batch_labels):
+            labels[idx] = label
+            if label is None and idx not in errors:
+                errors[idx] = "empty model output"
+
+    # Report failures before pushing. If nothing was labelled, stop: an all-null
+    # label column looks like a finished dataset but holds no results.
+    if errors:
+        examples = list(errors.items())[:3]
+        if len(errors) == len(dataset):
+            logger.error(
+                f"All {len(dataset)} images failed, so nothing was pushed. First errors:"
+            )
+            for idx, message in examples:
+                logger.error(f"  row {idx}: {message[:300]}")
+            sys.exit(1)
+        logger.warning(
+            f"{len(errors)} of {len(dataset)} images have no label "
+            "(null in the 'label' column). First errors:"
+        )
+        for idx, message in examples:
+            logger.warning(f"  row {idx}: {message[:300]}")
 
     # Add classifications to dataset
     logger.info("Adding classifications to dataset...")
-    dataset = dataset.add_column("label", all_classifications[: len(dataset)])
+    dataset = dataset.add_column("label", labels)
 
     # Push to hub
     logger.info(f"Pushing to {output_dataset}...")
@@ -290,18 +325,16 @@ def main(
 
     # Print summary
     logger.info("Classification complete!")
-    logger.info(f"Processed {len(all_classifications)} images")
+    logger.info(f"Labelled {len(dataset) - len(errors)} of {len(dataset)} images")
     logger.info(f"Output dataset: {output_dataset}")
 
-    # Show distribution of classifications
-    label_counts = Counter(all_classifications)
+    # Show distribution of classifications, including rows with no label
+    label_counts = Counter(labels)
     logger.info("Classification distribution:")
-    for label, count in sorted(label_counts.items()):
-        if label is not None:  # Skip None values in summary
-            percentage = (
-                (count / len(all_classifications)) * 100 if all_classifications else 0
-            )
-            logger.info(f"  {label}: {count} ({percentage:.1f}%)")
+    for label, count in sorted(label_counts.items(), key=lambda item: str(item[0])):
+        percentage = (count / len(labels)) * 100 if labels else 0
+        name = label if label is not None else "(no label)"
+        logger.info(f"  {name}: {count} ({percentage:.1f}%)")
 
 
 if __name__ == "__main__":
