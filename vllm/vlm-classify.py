@@ -26,7 +26,7 @@
 Classify images using Vision Language Models with vLLM.
 
 This script processes images through VLMs to classify them into user-defined categories,
-using vLLM's GuidedDecodingParams for structured output.
+using vLLM's StructuredOutputsParams for structured output.
 
 Examples:
     # Local GPU (Linux + CUDA): the header leaves vllm/torch/transformers to

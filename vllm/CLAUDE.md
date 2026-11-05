@@ -21,14 +21,7 @@ Run on the pinned **`vllm/vllm-openai:v0.32.0`** image for HF Jobs (ships vLLM +
 **APIs (verified):** structured outputs use `StructuredOutputsParams` (`structured_outputs=`, ≥0.11.0 — `GuidedDecodingParams`/`guided_decoding=` removed in 0.12.0); classification auto-detects the pooling runner from the model architecture (the old `LLM(..., task="classify")` arg was removed → use `LLM(model)`).
 
 ### 3. Dependencies
-Include custom PyPI indexes for vLLM and FlashInfer:
-```python
-# [[tool.uv.index]]
-# url = "https://flashinfer.ai/whl/cu126/torch2.6"
-# 
-# [[tool.uv.index]]
-# url = "https://wheels.vllm.ai/nightly"
-```
+List only what the image does not provide (for example `datasets`, `huggingface-hub`, `toolz`). No custom `[[tool.uv.index]]` blocks are needed; see §2.
 
 ## Current Scripts
 

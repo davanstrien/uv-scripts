@@ -18,7 +18,7 @@ Vision Language Model (VLM) image classification with structured output constrai
 **Features:**
 
 - 🖼️ Process images through state-of-the-art VLMs (Qwen2-VL)
-- 🎯 Structured classification using vLLM's `GuidedDecodingParams`
+- 🎯 Structured classification using vLLM's `StructuredOutputsParams`
 - 📐 Automatic image resizing to optimize token usage
 - 💾 Memory-efficient lazy batch processing
 - 🏷️ Simple CLI interface for defining classes
@@ -228,7 +228,7 @@ Scripts use UV's inline metadata for dependency management, plus a `[tool.hf-job
 # ///
 ```
 
-vLLM, PyTorch, Transformers and FlashInfer come from the image: `PYTHONPATH` points at its packages. Do not add them to `dependencies`. uv would then install newer PyPI copies next to the image's, and the current `flashinfer-python` wheel adds a `b12x` module that the v0.32.0 image's vLLM imports and crashes on. For a local GPU run, use `uv run --with vllm <script>.py ...`. `hf jobs uv run` reads the `[tool.hf-jobs]` table from hf CLI 1.32; with an older CLI, pass `--image`, `--python /usr/bin/python3` and `-e PYTHONPATH=/usr/local/lib/python3.12/dist-packages` yourself.
+vLLM, PyTorch, Transformers and FlashInfer come from the image: `PYTHONPATH` points at its packages. Do not add them to `dependencies`. uv would then install newer PyPI copies next to the image's, and the current `flashinfer-python` wheel adds a `b12x` module that the v0.32.0 image's vLLM imports and crashes on. For a local GPU run, use `uv run --with vllm <script>.py ...`. `hf jobs uv run` reads the `[tool.hf-jobs]` table from hf CLI 1.32; with an older CLI, pass the header's settings as flags yourself: `--image`, `--flavor`, `--timeout`, `--secrets HF_TOKEN`, `--python /usr/bin/python3` and `-e PYTHONPATH=/usr/local/lib/python3.12/dist-packages`.
 
 For bleeding-edge features, use the `UV_PRERELEASE=if-necessary` environment variable to allow pre-release versions when needed.
 
