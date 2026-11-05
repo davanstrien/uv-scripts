@@ -70,9 +70,38 @@ Upstream settings kept:
 - Escaped dollar delimiters are repaired (`\\$x\\$` -> `$x$`) as the client does; `raw`
   keeps the model's text.
 
-Speed settings (measured; see SERVING below): the page preparation runs in
-`--prepare-workers` threads, and saturate's adaptive window sets how many pages are in
-flight. `--window N` pins it instead.
+Speed settings: pages are prepared in `--prepare-workers` threads (default: the CPU_CORES
+that HF Jobs sets), and saturate's adaptive window sets how many pages are in flight, up to
+a cap that fits the Job's memory (window_cap below). `--window N` pins it instead. The
+server also gets `--max-num-batched-tokens 16384` (see SERVING).
+
+Measured speed, LightOnOCR-3-0.8B (2026-11-05, vLLM 0.30.0). 600 pages: 350 book pages from
+finebooks/bhl-impact-gt and 250 pages of typed industry documents, all fitted to 2048 px.
+Steady state, excluding the server start (about 4 min, also paid by lighton-ocr3.py):
+
+  flavor          pages/s   $ per 1,000 pages   lighton-ocr3.py (offline batches)
+  a10g-small        2.2         0.12                0.90 pages/s, $0.31
+  l4x1              1.6         0.14
+  a100-large        6.2         0.11                1.27 pages/s, $0.55
+  rtx-pro-6000      9.2         0.08
+
+The 4B on a100-large: 2.7 pages/s, $0.26 per 1,000 pages; on these book pages its
+character error rate was higher than the 0.8B's (0.10 mean, 0.023 median, one run), so
+check a sample before paying for it. The header's a10g-small is a
+good default for small and medium runs; for large runs add --flavor rtx-pro-6000 (or
+a100-large). On a100-large, --serve-args "--api-server-count 4" gave 7.3 pages/s instead
+of 6.2 (it needs spare CPU cores, so it is not the default). In every run the outputs
+differed from lighton-ocr3.py's no more than two runs of this recipe differ from each
+other (sampling at temperature 0.2), and the character error rate on the book pages stayed
+at 0.08 mean, 0.02 median.
+
+Truncation and repair: 9 to 12 of the 600 pages stopped at max_tokens 4096 in each run,
+most of them typed tables. With --repair-max-tokens 12000, 8 of 12 such pages finished:
+3 were loops that ended on the second try and 5 were long pages (4,900 to 6,100 tokens).
+The other 4 looped again up to the cap. The pass added 22% to the run's output tokens.
+With --repair-max-tokens 8192 (suggested), 5 of 9 such pages finished, the same 4 looped
+again, and the pass added 16%. Pages that loop on both tries keep their first output in
+data/.
 
 The SERVING dict below is the per-model tuning prior. Agents can `ast.literal_eval` it
 without running the script; the script itself consumes it.
@@ -98,7 +127,7 @@ import tempfile
 # - patch 32: 16 px patches with a 2x2 merge, so a 2048x2048 page is at most 64x64 = 4,096
 #   image tokens (used for the context check).
 # - --max-num-batched-tokens 16384: speed only. vLLM 0.30 serves with 2048 on A10G, L4 and
-#   A100 (8192 on 96 GB+ GPUs), less than one page's image tokens. Measured on a100-large:
+#   A100 (8192 on other GPUs of 70 GB or more), less than one page's image tokens. Measured on a100-large:
 #   6.20 and 6.30 pages/s against 5.83 without it, outputs within the run-to-run noise.
 # - pages_per_gib: see window_cap().
 SERVING = {
@@ -112,7 +141,7 @@ SERVING = {
         "--no-enable-prefix-caching",
         "--max-num-batched-tokens", "16384",
     ],
-    "pages_per_gib": 8,
+    "pages_per_gib": 6,
     "max_tokens": 4096,
     "temperature": 0.2,
     "top_p": 0.9,
@@ -126,10 +155,11 @@ def window_cap() -> int:
     """Most pages in flight that this machine's memory allows.
 
     Every page in flight holds about 0.1 GiB of image data on the host (the client's copy and
-    the server's preprocessed image), on top of about 9 GiB for the engine itself. On
-    a10g-small (14.9 GiB limit) 32 pages in flight peaked at 12.0 GiB, while 64 reached the
-    limit and the Job stopped making progress. So the window may grow by SERVING
-    "pages_per_gib" pages per GiB above 10 GiB: 39 on a10g-small, about 140 on l4x1, the full
+    the server's preprocessed image), on top of 7 to 9 GiB for the engine itself. On
+    a10g-small (14.9 GiB limit), 64 pages in flight reached the limit and the Job stopped
+    making progress; 32 peaked at 12.0 GiB, and up to 39 peaked at 13.0 and 14.8 GiB on two
+    runs. So the window may grow by SERVING "pages_per_gib" pages per GiB above 10 GiB: 29 on
+    a10g-small (which is GPU-bound from about 20 pages in flight), about 100 on l4x1, the full
     512 on a100-large. The limit is read from the container (cgroup v2), then from the MEMORY
     variable that HF Jobs sets.
     """
@@ -242,7 +272,7 @@ def main():
                     help="Keep the model's text in `markdown` without repairing escaped dollars")
     ap.add_argument("--repair-max-tokens", type=int, default=0,
                     help="Re-send pages that hit --max-tokens once, with this cap and "
-                         "temperature 0.1, into repair/ (default 0: off)")
+                         "temperature 0.1, into repair/ (default 0: off; 8192 suggested)")
     ap.add_argument("--window", default="auto",
                     help="Pages in flight: 'auto' (saturate adapts it) or a fixed number")
     ap.add_argument("--prepare-workers", type=int, default=None,

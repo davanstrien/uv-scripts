@@ -104,7 +104,7 @@ These are the maintained recipes. Each one has a tested `[tool.hf-jobs]` header,
 
 Start with a model under 2B. Use a larger model only if the output of a small one is not good enough. Check the licence before you use a model: Surya and lift use a modified OpenRAIL-M licence (free for research, personal use and startups under $5M; no competitive use against Datalab's API), and the Hunyuan licence excludes the EU, the UK and South Korea.
 
-**Variants and tools:** `glm-ocr-bucket.py`, `surya-ocr-bucket.py` and `lighton-ocr3-bucket.py` read images and PDFs from a Bucket and write one `.md` per page. `lighton-ocr3-bucket.py` also takes `hf://buckets/...` URLs for input and output directly, so it reads large buckets in batches through the Hub API without mounting them. It reads `.jp2`, skips pages that already have output (so a re-run resumes), and in `--mode grounding` writes a `.json` sidecar with the layout blocks. `surya-ocr-bucket.py` also writes a `.json` sidecar with the layout blocks, resumes from existing JSON, and can mount or copy its input (`--io-mode mount|copy`); the dataset version, `surya-ocr.py`, keeps the blocks in a `surya_blocks` column. `lighton-ocr2-saturate.py`, `ovis-ocr2-saturate.py` and `xiaomi-ocr-0-saturate.py` are for large runs, and `ocr-vllm-judge.py` compares outputs ([Scaling up](#scaling-up)). `pp-doclayout.py` and `lfm2-extract.py` are described in [Structured extraction and layout](#structured-extraction-and-layout).
+**Variants and tools:** `glm-ocr-bucket.py`, `surya-ocr-bucket.py` and `lighton-ocr3-bucket.py` read images and PDFs from a Bucket and write one `.md` per page. `lighton-ocr3-bucket.py` also takes `hf://buckets/...` URLs for input and output directly, so it reads large buckets in batches through the Hub API without mounting them. It reads `.jp2`, skips pages that already have output (so a re-run resumes), and in `--mode grounding` writes a `.json` sidecar with the layout blocks. `surya-ocr-bucket.py` also writes a `.json` sidecar with the layout blocks, resumes from existing JSON, and can mount or copy its input (`--io-mode mount|copy`); the dataset version, `surya-ocr.py`, keeps the blocks in a `surya_blocks` column. `lighton-ocr3-saturate.py`, `lighton-ocr2-saturate.py`, `ovis-ocr2-saturate.py` and `xiaomi-ocr-0-saturate.py` are for large runs, and `ocr-vllm-judge.py` compares outputs ([Scaling up](#scaling-up)). `pp-doclayout.py` and `lfm2-extract.py` are described in [Structured extraction and layout](#structured-extraction-and-layout).
 
 Which model is best depends on your documents. The public olmOCR-Bench leaderboard is one command away:
 
@@ -230,7 +230,7 @@ The image is about 11 GB, so a cold start takes several minutes. On dense pages 
 
 ## Scaling up
 
-**Large datasets:** `lighton-ocr2-saturate.py`, `ovis-ocr2-saturate.py` and `xiaomi-ocr-0-saturate.py` start a vLLM server in the Job (the Xiaomi recipe can use SGLang instead) and send pages to it with adaptive concurrency. They stream results to the output repo as parquet parts. If a run stops, run the same command again and it skips the rows that are done. A failed page is stored as an error row, and `--retry-errors` tries those rows again. The output layout is different from the other recipes; the script header explains how to read it. [SERVING.md](SERVING.md) compares server mode with offline batches (measured throughput and output parity).
+**Large datasets:** `lighton-ocr3-saturate.py`, `lighton-ocr2-saturate.py`, `ovis-ocr2-saturate.py` and `xiaomi-ocr-0-saturate.py` start a vLLM server in the Job (the Xiaomi recipe can use SGLang instead) and send pages to it with adaptive concurrency. They stream results to the output repo as parquet parts. If a run stops, run the same command again and it skips the rows that are done. A failed page is stored as an error row, and `--retry-errors` tries those rows again. The output layout is different from the other recipes; the script header explains how to read it. [SERVING.md](SERVING.md) compares server mode with offline batches (measured throughput and output parity). For LightOnOCR-3-0.8B, `lighton-ocr3-saturate.py` measured 2.2 pages/s on `a10g-small` and 9.2 pages/s on `rtx-pro-6000` (about $0.08 per 1,000 pages), against 0.90 and 1.27 pages/s for `lighton-ocr3.py` on `a10g-small` and `a100-large`.
 
 **Whole books and long documents:** `unlimited-ocr2.py` runs [Unlimited-OCR-2](https://huggingface.co/baidu/Unlimited-OCR-2) on Baidu's own SGLang build. It groups page images into documents and sends 16 consecutive pages per request, so a paragraph that runs over a page break comes back joined. Point it at a folder of pages, for example a Bucket:
 
@@ -245,7 +245,7 @@ The header picks `rtx-pro-6000` (the fastest per dollar in our tests; 24 GB GPUs
 
 ```bash
 hf jobs uv run --detach --timeout 4h \
-    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/lighton-ocr2-saturate.py \
+    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/lighton-ocr3-saturate.py \
     your-dataset your-output
 ```
 

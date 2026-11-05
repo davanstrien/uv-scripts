@@ -390,6 +390,29 @@
     "image": "vllm/vllm-openai:v0.30.0",
     "notes": "Bucket sibling of lighton-ocr3.py (same model, prompt, sampling). Input/output: hf://buckets/... URLs via bucketbag v0.3.1 (no mount) or directories. Reads .jp2; resume-by-skip."
   },
+  "lighton-ocr3-saturate.py": {
+    "model_id": "lightonai/LightOnOCR-3-0.8B",
+    "params": "0.8B (or 4B via --model)",
+    "backend": "saturate (in-job vllm serve + saturate pump)",
+    "image": "vllm/vllm-openai:v0.30.0",
+    "task": "ocr",
+    "output": "markdown; --mode grounding adds labelled layout blocks with 0-1000 boxes (layout_blocks JSON column)",
+    "license": "apache-2.0",
+    "notes": "Large-run sibling of lighton-ocr3.py: same prompt modes, sampling and page resize; LightOn's serve flags (--max-model-len 18000) plus --max-num-batched-tokens 16384. Window capped by host memory. Measured 2026-11-05 (0.8B, 600 pages, steady state): a10g-small 2.2 pages/s, a100-large 6.2, rtx-pro-6000 9.2 (about $0.08 per 1,000 pages); lighton-ocr3.py: 0.90 and 1.27. Not LightOnOCR-3-1B.",
+    "languages": {
+      "evidence": "not-stated",
+      "notes": "LightOnOCR-3 cards give no language list (LightOnOCR-2 named 11)."
+    },
+    "support": "core",
+    "jobs": {
+      "image": "vllm/vllm-openai:v0.30.0",
+      "flavor": "a10g-small",
+      "timeout": "4h",
+      "secrets": [
+        "HF_TOKEN"
+      ]
+    }
+  },
   "lighton-ocr2-server.py": {
     "model_id": "lightonai/LightOnOCR-2-1B",
     "params": "1B",
