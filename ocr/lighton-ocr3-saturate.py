@@ -49,7 +49,8 @@ finished rows; --retry-errors re-admits failed ones.
 repeating a line). --repair-max-tokens N sends those pages once more, at the end of the
 run, with a cap of N tokens and temperature 0.1, and writes the results to `repair/`
 (`load_dataset(<output>, data_dir="repair")`); join on id and prefer the repair row where
-its finish_reason is "stop". Only pages truncated in this run are repaired.
+its finish_reason is "stop". A restarted run also repairs the pages that an earlier,
+interrupted run saved as truncated.
 
 Models (Apache-2.0):
   lightonai/LightOnOCR-3-0.8B  (default)  85.5 olmOCR-Bench, 74.6 ParseBench
@@ -92,16 +93,17 @@ pages its character error rate was higher than the 0.8B's (0.10 mean, 0.023 medi
 run), so check a sample before paying for it. The header's a10g-small is a good default
 for small and medium runs; for large runs add --flavor rtx-pro-6000 (or a100-large). In
 every run the outputs differed from lighton-ocr3.py's no more than two runs of this recipe
-differ from each other (sampling at temperature 0.2), and the character error rate on the
-book pages stayed at 0.08 mean, 0.02 median.
+differ from each other (sampling at temperature 0.2). The character error rate on the 282
+book pages with at least 20 characters of ground truth was 0.077 to 0.083 mean and 0.020
+median in every 0.8B run.
 
 Truncation and repair: 9 to 12 of the 600 pages stopped at max_tokens 4096 in each run,
 most of them typed tables. With --repair-max-tokens 12000, 8 of 12 such pages finished:
-3 were loops that ended on the second try and 5 were long pages (4,900 to 6,100 tokens).
-The other 4 looped again up to the cap. The pass added 22% to the run's output tokens.
-With --repair-max-tokens 8192 (suggested), 5 of 9 such pages finished, the same 4 looped
-again, and the pass added 16%. Pages that loop on both tries keep their first output in
-data/.
+3 in fewer than 4,096 tokens on the second try, and 5 long pages that needed 4,900 to
+6,100 tokens. The other 4 hit the cap again. The pass added 22% to the run's output
+tokens. With --repair-max-tokens 8192 (suggested), 5 of 9 such pages finished, the same 4
+hit the cap again, and the pass added 16%. Pages that hit the cap on both tries keep
+their first output in data/.
 
 The SERVING dict below is the per-model tuning prior. Agents can `ast.literal_eval` it
 without running the script; the script itself consumes it.
@@ -188,6 +190,42 @@ def window_cap() -> int:
     if limit_gib is None:
         return 512
     return max(8, min(512, int((limit_gib - 10) * SERVING["pages_per_gib"])))
+
+
+def flag_value(tokens: list[str], name: str):
+    """Last value given for `name` in a `vllm serve` argument list (`--x v` or `--x=v`), else None."""
+    value = None
+    for index, token in enumerate(tokens):
+        if token == name and index + 1 < len(tokens):
+            value = tokens[index + 1]
+        elif token.startswith(name + "="):
+            value = token.split("=", 1)[1]
+    return value
+
+
+def saved_truncations(output_dataset: str) -> set:
+    """Ids whose saved result in data/ stopped at max_tokens and that have no saved repair.
+
+    A restarted run skips rows already in data/, so without this the pages truncated
+    before the restart would never reach the repair pass. Reads only three columns.
+    """
+    import fsspec
+    import pyarrow.parquet as pq
+
+    def records(subdir, columns):
+        fs, root = fsspec.core.url_to_fs(f"hf://datasets/{output_dataset}/{subdir}")
+        if not fs.exists(root):
+            return
+        for path in fs.glob(f"{root}/part-*.parquet"):
+            with fs.open(path, "rb") as handle:
+                yield from pq.read_table(handle, columns=columns).to_pylist()
+
+    finish = {}
+    for record in records("data", ["id", "error", "finish_reason"]):
+        if record["error"] is None:
+            finish[record["id"]] = record["finish_reason"]
+    repaired = {r["id"] for r in records("repair", ["id", "error"]) if r["error"] is None}
+    return {row_id for row_id, reason in finish.items() if reason == "length" and row_id not in repaired}
 
 
 def max_image_tokens(longest_edge: int) -> int:
@@ -293,17 +331,24 @@ def main():
                     help="Re-admit rows whose only record is an error row")
     args = ap.parse_args()
 
-    room = SERVING["context"] - max_image_tokens(args.longest_edge) - 64
+    user_serve_args = shlex.split(args.serve_args)
+    if args.longest_edge < 1:
+        ap.error("--longest-edge must be at least 1")
+    try:  # --serve-args may set its own --max-model-len; vLLM uses the last one given
+        context = int(flag_value(user_serve_args, "--max-model-len") or SERVING["context"])
+    except ValueError:
+        ap.error("--max-model-len in --serve-args must be a whole number of tokens")
+    room = context - max_image_tokens(args.longest_edge) - 64
     for flag, value in (("--max-tokens", args.max_tokens), ("--repair-max-tokens", args.repair_max_tokens)):
         if value > room:
-            ap.error(f"{flag} {value} can overflow the {SERVING['context']}-token context with a "
+            ap.error(f"{flag} {value} can overflow the {context}-token context with a "
                      f"{args.longest_edge} px page; use at most {room}")
     if args.max_tokens < 1:
         ap.error("--max-tokens must be at least 1")
     if args.repair_max_tokens and args.repair_max_tokens <= args.max_tokens:
         ap.error("--repair-max-tokens must be larger than --max-tokens")
-    if args.window != "auto" and not args.window.isdigit():
-        ap.error("--window must be 'auto' or a number")
+    if args.window != "auto" and not (args.window.isdigit() and int(args.window) >= 1):
+        ap.error("--window must be 'auto' or a number of at least 1")
 
     import pyarrow as pa
     from saturate import Auto, Engine, Fixed, dataset_rows, pump
@@ -313,7 +358,8 @@ def main():
     elif args.id_column in ("index", "content"):
         # saturate reads these two names as id strategies, so a column with one of them
         # needs a callable. It returns the raw value, so saturate still refuses a null id.
-        ids = lambda example: example[args.id_column]
+        def ids(example):
+            return example[args.id_column]
     else:
         ids = args.id_column
 
@@ -330,25 +376,31 @@ def main():
         ("prompt_tokens", pa.int64()), ("completion_tokens", pa.int64()),
     ])  # fmt: skip
 
-    # Pages that hit --max-tokens, kept on local disk for the repair pass.
+    # Pages that hit --max-tokens, kept on local disk for the repair pass: those truncated
+    # in this run (stashed in parse) and those saved as truncated by an earlier, interrupted
+    # run (stashed as the stream passes them; the main pass skips them).
     repair_dir = tempfile.mkdtemp(prefix="lighton-ocr3-repair-") if args.repair_max_tokens else None
+    earlier = saved_truncations(args.output_dataset) if repair_dir else set()
     truncated = []
+
+    def stash(row_id, image):
+        path = os.path.join(repair_dir, hashlib.sha1(row_id.encode()).hexdigest() + ".png")
+        with open(path, "wb") as handle:
+            handle.write(page_png(image, args.longest_edge))
+        truncated.append((row_id, path))
 
     def to_request(row):
         png = page_png(row[args.image_column], args.longest_edge)
         return chat_request(args.model, png, args.mode, args.max_tokens, args.temperature, args.top_p)
 
-    def make_parse(stash: bool):
+    def make_parse(stash_truncated: bool):
         def parse(row, body):
             choice = body["choices"][0]
             raw = (choice["message"].get("content") or "").strip()
             markdown, blocks = postprocess(raw, args.mode, fix_dollars=not args.no_fix_dollars)
             usage = body.get("usage") or {}
-            if stash and choice.get("finish_reason") == "length":
-                path = os.path.join(repair_dir, hashlib.sha1(row["__id"].encode()).hexdigest() + ".png")
-                with open(path, "wb") as handle:
-                    handle.write(page_png(row[args.image_column], args.longest_edge))
-                truncated.append((row["__id"], path))
+            if stash_truncated and choice.get("finish_reason") == "length":
+                stash(row["__id"], row[args.image_column])
             return {
                 "markdown": markdown,
                 "raw": raw,
@@ -363,6 +415,8 @@ def main():
     def with_ids(source):
         # Keep each row's id on the row, so parse can name the page it stashes for repair.
         for row_id, row in source:
+            if row_id in earlier:
+                stash(row_id, row[args.image_column])
             yield row_id, {**row, "__id": row_id}
 
     cap = window_cap()
@@ -379,11 +433,11 @@ def main():
     extra = [
         "--max-model-len", str(SERVING["context"]),
         *SERVING["serve_args"],
-        *shlex.split(args.serve_args),
+        *user_serve_args,
     ]
     # Several API server processes share the image decoding and preprocessing, which one
     # process cannot keep up with on a fast GPU. Only where there are cores to spare.
-    if cores >= SERVING["api_servers_min_cores"] and "--api-server-count" not in extra:
+    if cores >= SERVING["api_servers_min_cores"] and flag_value(extra, "--api-server-count") is None:
         extra += ["--api-server-count", str(SERVING["api_servers"])]
         print(f"server: --api-server-count {SERVING['api_servers']} ({cores} CPU cores)", file=sys.stderr)
 
@@ -409,7 +463,7 @@ def main():
 
             repair_stats = pump(repair_rows(), repair_request, make_parse(False), endpoint,
                                 f"hf://datasets/{args.output_dataset}/repair", window=window,
-                                schema=schema)
+                                retry_errors=args.retry_errors, schema=schema)
             print("LIGHTON_OCR3_SATURATE_REPAIR " + repair_stats.to_json(), flush=True)
 
     print(f"https://huggingface.co/datasets/{args.output_dataset} "

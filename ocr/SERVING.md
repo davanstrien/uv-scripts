@@ -34,8 +34,9 @@ small flavors the window is capped by host memory, because each page in flight h
 0.1 GiB of image data. On fast GPUs one vLLM API server cannot preprocess images quickly
 enough (128-256 pages in flight, 36-60 running in the engine, none waiting); 4 API servers
 (`--api-server-count 4`) gave +16% on `a100-large`, +9% on `rtx-pro-6000`, +10% on `a10g-large`. At temperature 0.2 the outputs of two server runs differ on about 40%
-of pages; the offline recipe differs from a server run by the same amount, and the character
-error rate on the 350 book pages (ground truth from IMPACT) is the same in every run.
+of pages; the offline recipe differs from a server run by the same amount. The character
+error rate on the 282 book pages with at least 20 characters of ground truth (IMPACT) was
+0.077 to 0.083 mean and 0.020 median in every 0.8B run, offline or server.
 
 The job command stays the standard `hf jobs uv run` shape: the driver spawns
 `vllm serve` itself as a subprocess when no server is reachable (flags live in the
