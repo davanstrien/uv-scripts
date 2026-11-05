@@ -50,6 +50,12 @@ recipe, LightOn's card, Paddle's vLLM recipe, Unlimited-OCR's recipe):
 
 OCR workloads never reuse images, so prefix/multimodal caches only cost memory.
 
+**One exception: HPD-Parsing** (`hpd-parsing-saturate.py`). Its vendor entrypoint sets
+`--enable-prefix-caching` on purpose. Hierarchical parallel decoding forks a child branch per
+page region, and the children reuse the parent branch's prefix KV, so the cache does real work
+(hit rate 52.9% on 5 UFO pages in July 2026, 43.9% on 10 in November). Do not change it to
+`--no-enable-prefix-caching` in a sweep.
+
 ## Version pins carry over — via the image tag
 
 Where an offline recipe pins an engine version, the server variant needs the same pin

@@ -1,7 +1,7 @@
 {
   "_meta": {
     "description": "Machine-readable catalog of the OCR recipes in this directory: script -> model, params, backend, support level, the tested Jobs launch config (the script's [tool.hf-jobs] header), and what the model's own card claims about language coverage. Human-readable language notes: LANGUAGES.md. Language evidence levels, strongest first: per-language-benchmark | count-claim | named-list | multilingual-unspecified | english-only | not-stated | not-applicable. Claims come from model cards (compiled 2026-07-15) - treat as claims, not guarantees.",
-    "updated": "2026-11-03",
+    "updated": "2026-11-05",
     "run_pattern": "hf jobs uv run https://huggingface.co/datasets/uv-scripts/ocr/raw/main/<script> <input-dataset> <output-dataset>  (hf CLI >= 1.32 reads image/flavor/secrets from the script's [tool.hf-jobs] header; add --timeout for long runs. Scripts without a `jobs` entry need --flavor/-s HF_TOKEN (and any --image in their docstring).)",
     "support_levels": {
       "core": "Maintained. Smoke-tested flagless on HF Jobs on 2026-09-23/24 with the pinned launch config in `jobs`.",
@@ -1058,5 +1058,34 @@
       ]
     },
     "image": "vllm/vllm-openai:v0.29.0"
+  },
+  "hpd-parsing-saturate.py": {
+    "model_id": "PaddlePaddle/HPD-Parsing",
+    "params": "1B",
+    "backend": "saturate (in-job vllm serve from Paddle's vLLM fork 0.17.1+hpdparsing: request forking + P-MTP speculative decoding)",
+    "image": "cr.hf.co/davanstrien/hpd-parsing-vllm:87496aa5-uv0.13.6",
+    "task": "ocr | layout",
+    "output": "markdown + hpd_blocks (per-block type, bbox, text; bbox 0-1000 NORMALIZED, not pixels) + raw + looped_blocks",
+    "license": "apache-2.0",
+    "notes": "Runs only on Paddle's vLLM fork, shipped in their registry image. The header image is that image (latest-nvidia-gpu, pinned by digest 87496aa5) plus uv, built by images/hpd-parsing/build.sh; the docstring also gives the command for Paddle's image directly. Serve command = the image's own entrypoint, except the P-MTP speculative head path (downloaded locally) and a --revision pin. Keeps --enable-prefix-caching ON: forked children share the parent's prefix KV. max_tokens bounds one decoding branch, not the page, so dense pages can loop in many branches; looped_blocks flags them. 94.91 OmniDocBench v1.6; accuracy below ovis-ocr2 and paddleocr-vl-1.6. ~11 GB image pull on a cold node.",
+    "languages": {
+      "evidence": "named-list",
+      "count": 2,
+      "named": [
+        "en",
+        "zh"
+      ],
+      "notes": "Card metadata lists en + zh only; no per-language numbers. Smoke runs on degraded French scans produced stray Chinese characters - treat other languages as unsupported."
+    },
+    "support": "experimental",
+    "support_note": "Dense pages loop: filter on looped_blocks == 0. Check a sample of your own pages.",
+    "jobs": {
+      "image": "cr.hf.co/davanstrien/hpd-parsing-vllm:87496aa5-uv0.13.6",
+      "flavor": "l4x1",
+      "timeout": "2h",
+      "secrets": [
+        "HF_TOKEN"
+      ]
+    }
   }
 }

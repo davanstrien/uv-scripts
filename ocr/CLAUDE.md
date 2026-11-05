@@ -96,6 +96,7 @@ Legend: ✅ production-ready · ⚠️ works only with a required pinned image �
 | `unlimited-ocr2.py` | ✅+image | SGLang (Baidu wheel) on `lmsysorg/sglang:v0.5.20-cu130` | rtx-pro-6000 | 16-page windows; ≥48 GB GPU |
 | `unlimited-ocr2-saturate.py` | 🧪+image | same | rtx-pro-6000 | tuned/experimental: repair pass, JP2 fast decode, PDFs |
 | `unlimited-ocr2-live.py` | 🧪+image | same | rtx-pro-6000 | experimental: minimal script + `--live-port` dashboard (streams the page being read) |
+| `hpd-parsing-saturate.py` | 🧪+image | saturate + Paddle's vLLM fork on `cr.hf.co/davanstrien/hpd-parsing-vllm` (vendor image + uv) | l4x1 | `markdown` + `hpd_blocks` + `looped_blocks` — see gotcha |
 | `minicpm-ocr.py` | 🧪+image | in-job vLLM nightly + minicpm-ocr SDK on `cr.hf.co/davanstrien/minicpm-ocr` | a10g-large | vendor pipeline; custom public image; dataset **or** bucket I/O (bucketbag), `markdown_status` |
 | `surya-ocr.py` | ✅+image | vLLM `:v0.20.1` | l4x1 | offline backend inject; site-packages PYTHONPATH |
 | `surya-ocr-bucket.py` | ✅+image | vLLM `:v0.20.1` | l4x1 | bucket I/O; pin `surya-ocr==0.20.0` |
@@ -190,6 +191,48 @@ require) against `vllm serve` started in the job. Measured/learned 2026-10-27:
   `markdown_status`; bucket mode writes only `ok` pages so a re-run retries the rest (Codex review, 27 Oct).
 - vLLM runs in its own process group and is terminated → killed → reaped on every exit path; one bad
   image or a failed SDK run marks its pages `error: ...` instead of losing finished batches.
+
+### `hpd-parsing-saturate.py` — Paddle's vLLM fork, on their image plus uv
+`PaddlePaddle/HPD-Parsing` (1B, InternVL3.5 + Qwen3-0.6B) runs only on Paddle's **fork of vLLM**
+(`0.17.1+hpdparsing`), which adds the request forking its decoding needs. The fork ships only in
+`ccr-2vdh3abv-pub.cnc.bj.baidubce.com/paddlepaddle/hpd-parsing-vllm` (tags `latest-nvidia-gpu`, and
+`-offline` with weights baked in). It pulls anonymously; the recipe pins `latest-nvidia-gpu` by digest
+(`87496aa5…`, built 2026-07-16, unchanged as of 2026-11-05). ~11 GB. Job scheduling time (queue + pull) on
+5 Nov: 7–27 min from Paddle's registry, 2.5 min for the same image from `cr.hf.co`.
+Inside: CUDA 12.8.1, python3.10 venv at `/home/hpd/venv` first on `PATH`, user `hpd`, FlashInfer.
+Measured 2026-07-27 and 2026-11-05:
+1. **No `uv` in Paddle's image**, which `hf jobs uv run` needs. The header uses
+   `cr.hf.co/davanstrien/hpd-parsing-vllm`: Paddle's image (digest-pinned) plus one layer with `uv`/`uvx`
+   (`images/hpd-parsing/build.sh`, `crane append` on a CPU Job, ~7 min; public). To rebuild after a Paddle
+   update, change `BASE_DIGEST` in `build.sh`. The docstring keeps a `hf jobs run … bash -lc 'pip install uv
+   && uv run …'` command for Paddle's image directly.
+2. `requires-python` includes 3.10 so uv uses the image's own Python instead of downloading one.
+3. **Speculative head path:** the entrypoint's `"model": "PaddlePaddle/HPD-Parsing/P-MTP"` is a local
+   directory in the `-offline` image only. The recipe downloads the `P-MTP/*` subfolder and passes its
+   path. Expected log line, every run: `Error retrieving safetensors: Repo id must be in the form …`.
+4. **`--enable-prefix-caching` stays ON** (forked children share the parent's prefix KV; 43.9–52.9% hit
+   rate). `--attention-config '{"use_prefill_query_quantization":true}'` is fork-only. Both come from
+   `/home/hpd/entrypoint.sh`. Works on `a100-large` (sm80) as well as `l4x1`.
+5. **Bboxes are 0–1000 normalized**, not pixels (`px = v/1000 * width`), verified by overlay in July.
+   The parser is the demo Space's bbox-preserving `parse_blocks`; the model repo's `eval/hpd_to_markdown.py`
+   drops chart/seal blocks and bboxes. Re-parsing July's `hpd_raw` reproduced July's markdown on 34/34 pages.
+6. saturate's readiness probe logs `The model 'readiness-probe' does not exist` (404) once; that is the
+   "server is alive" signal, not an error.
+
+**Limits seen in testing: loops, and `max_tokens` does not bound a page.** Each forked child branch has
+its own `max_tokens` budget, so a page that fragments into hundreds of regions can emit far more than the
+cap (179k completion tokens for one page at `max_tokens` 8000). On 12 Chronicling America pages
+(1774–1809), 3 pages looped: 726,706 chars (July) / 544,120 (November) vs 24,907 in LoC's OCR on the
+worst. Those 3 ended with `finish_reason=length`, the other 9 with `stop`, and `looped_blocks` > 0 on
+exactly the same 3. One UFO page had a 26,675-char loop. `looped_blocks` counts blocks
+of ≥2000 bytes whose zlib ratio is ≥4 (≥10 for `table`): ordinary text compresses ~2×, loops 6–330×
+(a counting loop "of the 860th of the 861th …" is the 6× case), the most compressible real block was a
+1.5 KB table at 5.3×. Calibrated on 345 blocks from the July outputs: 0 false positives. The text is
+kept as the model wrote it; filter rows on `looped_blocks == 0`. Accuracy (94.91 OmniDocBench v1.6) is
+below `ovis-ocr2`/`paddleocr-vl-1.6`; the recipe earns its place with the layout column. en/zh only.
+
+`hpd-parsing-server.py` (PR #95, July) is the hand-rolled driver for the same server; this recipe
+replaces it.
 
 ### `unlimited-ocr2.py` / `unlimited-ocr2-saturate.py` — Baidu SGLang wheel, multi-page windows
 v2 has no vLLM support; Baidu ships a custom SGLang wheel in the model repo. Its pins (torch 2.13.0,
@@ -343,6 +386,15 @@ ARM wheels) — if a nightly-recipe install fails on resolution, wait and retry 
 ---
 
 ## Change log
+
+- **2026-11-05** — added `hpd-parsing-saturate.py` (experimental) for `PaddlePaddle/HPD-Parsing` (1B,
+  Apache-2.0): the July server recipe's serve command and block parser, driven by saturate `==0.3.0`
+  (`Engine(cmd=…)` for the vendor fork), plus a `looped_blocks` flag. Header image
+  `cr.hf.co/davanstrien/hpd-parsing-vllm` = Paddle's image (pinned by digest) + uv (`images/hpd-parsing/`). Smoke-tested on HF Jobs: `a100-large`, 10 UFO pages, 10/10, 0
+  error rows, 12 s pump time; `l4x1`, 12 Chronicling America pages in two runs to one repo (5, then 12:
+  the second run skipped the 5 done rows), 12/12, 0 error rows; 9 clean pages within 1–5% of LoC's OCR
+  length, 3 looping pages flagged. Header defaults on the public image (`l4x1`, published-path
+  equivalent: local script, no flags but `--max-samples 5`): 5/5, 0 error rows, 153 s scheduling incl. pull.
 
 - **2026-11-02** — `xiaomi-ocr-0-saturate.py` moved to `core`. NASA demo: 7/7 in 31 s; checked pages read well, but a table lost one item and some cells lost separators. 16 multilingual historical newspaper pages: 16/16 with no error rows, but repetition loops on 2 small-print German Fraktur pages (lines about 10–13 px after the 2048 px fit), a partial loop on a third, and Chinese characters inserted on 3 pages. `finish_reason` stayed `stop` on all of them.
 - **2026-10-30** — added `xiaomi-ocr-0-saturate.py` for `xiaomi-research/Xiaomi-OCR-0` (0.8B, Qwen3.5 arch), on
