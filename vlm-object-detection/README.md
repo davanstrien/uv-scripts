@@ -218,6 +218,10 @@ hf jobs uv run \
 
 The script header supplies the image (`vllm/vllm-openai:v0.32.0`), the flavor (`a10g-small`) and the `HF_TOKEN` secret. A 20-image run takes about 4 minutes end to end, almost all of it model load; generating the 20 answers takes a few seconds.
 
+![WeVisOne-VL-4B on a CPPE-5 test image: model boxes on the left, ground truth on the right](./example-cppe5-wevisone.png)
+
+*Example output: [`davanstrien/wevisone-cppe5-20samples`](https://huggingface.co/datasets/davanstrien/wevisone-cppe5-20samples), produced by the command above. It holds the same 20 rows as the Qwen3.6 example [`davanstrien/qwen3.6-cppe5-20samples`](https://huggingface.co/datasets/davanstrien/qwen3.6-cppe5-20samples), so the two models can be compared row by row. Render it yourself with `uv run inspect-detections.py davanstrien/wevisone-cppe5-20samples --split test --source rishitdagli/cppe-5`.*
+
 **Smoke results** (about 20 images per dataset, a box counts when IoU ≥ 0.5 with a ground-truth box, one-to-one matching). Qwen3.6 is `qwen3vl-detect.py` with `Qwen/Qwen3.6-35B-A3B` and a prompt listing the same classes.
 
 | Dataset (images, GT boxes) | Qwen3.6 box P / R | WeVisOne box P / R | WeVisOne `--merge-duplicates` box P / R | Label recall: Qwen3.6 / WeVisOne / merged |
