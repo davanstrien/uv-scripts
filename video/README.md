@@ -22,14 +22,14 @@ Scripts run directly from their Hub URL — no clone or local checkout needed:
 
 ```bash
 # Caption every video in a bucket: dense scene captions + timestamped events
-hf jobs uv run --image vllm/vllm-openai:latest --flavor a10g-small \
+hf jobs uv run --image vllm/vllm-openai:v0.32.0 --flavor a10g-small \
     -s HF_TOKEN \
     -v hf://buckets/user/my-videos:/input:ro \
     https://huggingface.co/datasets/uv-scripts/video/raw/main/marlin-caption.py \
     /input hf://buckets/user/my-videos/captions
 
 # Temporal grounding: when does an event happen?
-hf jobs uv run --image vllm/vllm-openai:latest --flavor a10g-small \
+hf jobs uv run --image vllm/vllm-openai:v0.32.0 --flavor a10g-small \
     -s HF_TOKEN \
     -v hf://buckets/user/my-videos:/input:ro \
     https://huggingface.co/datasets/uv-scripts/video/raw/main/marlin-caption.py \

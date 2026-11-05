@@ -2,11 +2,15 @@
 # requires-python = ">=3.11"
 # dependencies = [
 #     "saturate[hf]==0.3.0",
-#     "vllm",
 #     "qwen-vl-utils",
 # ]
 #
 # [tool.hf-jobs]
+# # vllm comes from the image: saturate starts `vllm serve` from PATH. Listing vllm above puts a
+# # newer PyPI vllm CLI first on PATH, and its flashinfer-python dependency (0.7.2.post1) ships a
+# # top-level b12x module that the image lacks. The image's vllm (via PYTHONPATH) imports it and
+# # crashes (missing flashinfer/experimental/b12x/_api.py). Seen on v0.32.0 (2026-11-05);
+# # re-test before moving the tag. Local GPU: uv run --with vllm.
 # image = "vllm/vllm-openai:v0.32.0"
 # python = "/usr/bin/python3"
 # env = { PYTHONPATH = "/usr/local/lib/python3.12/dist-packages" }
@@ -52,8 +56,8 @@ chunks where the event never occurs (the model has no "not present" answer). Tre
 spans as a shortlist to rank or verify downstream — when the event is really there,
 they are precise (matches caption-mode events to the half-second in testing).
 
-  # Local machine with a CUDA GPU
-  uv run marlin-caption.py ./videos ./captions-out
+  # Local machine with a CUDA GPU (the header leaves vllm to the HF Jobs image)
+  uv run --with vllm marlin-caption.py ./videos ./captions-out
 
 Memory safety (learned the hard way — defaults encode a measured config):
   * --mm-processor-cache-gb 0 is passed to vLLM: its multimodal cache grows without
