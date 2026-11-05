@@ -130,6 +130,11 @@ import tempfile
 #   A100 (8192 on other GPUs of 70 GB or more), less than one page's image tokens. Measured on a100-large:
 #   6.20 and 6.30 pages/s against 5.83 without it, outputs within the run-to-run noise.
 # - pages_per_gib: see window_cap().
+# - api_servers 4 when CPU_CORES >= 12: speed only. With one vLLM API server, a100-large and
+#   rtx-pro-6000 had 128-256 pages in flight but only 36-60 running in the engine and none
+#   waiting: the rest queued for image preprocessing in the API process. Measured on
+#   a100-large: 7.3 pages/s with 4 API servers, 6.2 with one. Small flavors (a10g-small,
+#   3 cores) keep one, to leave CPU for page preparation.
 SERVING = {
     "models": ["lightonai/LightOnOCR-3-0.8B", "lightonai/LightOnOCR-3-4B"],
     "image": "vllm/vllm-openai:v0.30.0",
@@ -142,6 +147,8 @@ SERVING = {
         "--max-num-batched-tokens", "16384",
     ],
     "pages_per_gib": 6,
+    "api_servers": 4,
+    "api_servers_min_cores": 12,
     "max_tokens": 4096,
     "temperature": 0.2,
     "top_p": 0.9,
@@ -365,14 +372,18 @@ def main():
         if int(args.window) > cap:
             print(f"warning: --window {args.window} is above the {cap} pages this machine's "
                   "memory allows; the Job may run out of memory", file=sys.stderr)
-    workers = args.prepare_workers
-    if workers is None:
-        workers = max(1, int(float(os.environ.get("CPU_CORES") or "4")))
+    cores = max(1, int(float(os.environ.get("CPU_CORES") or "4")))
+    workers = args.prepare_workers if args.prepare_workers is not None else cores
     extra = [
         "--max-model-len", str(SERVING["context"]),
         *SERVING["serve_args"],
         *shlex.split(args.serve_args),
     ]
+    # Several API server processes share the image decoding and preprocessing, which one
+    # process cannot keep up with on a fast GPU. Only where there are cores to spare.
+    if cores >= SERVING["api_servers_min_cores"] and "--api-server-count" not in extra:
+        extra += ["--api-server-count", str(SERVING["api_servers"])]
+        print(f"server: --api-server-count {SERVING['api_servers']} ({cores} CPU cores)", file=sys.stderr)
 
     output = f"hf://datasets/{args.output_dataset}/data"
     with Engine(args.model, engine="vllm", extra_args=extra) as endpoint:
