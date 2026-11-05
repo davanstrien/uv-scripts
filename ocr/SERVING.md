@@ -26,6 +26,18 @@ same data, same sampling, driver concurrency 32):
    image cells were empty, the offline recipe produced 0 usable outputs and the server
    recipe produced all of the valid ones.
 
+**LightOnOCR-3-0.8B** (`lighton-ocr3.py` against `lighton-ocr3-saturate.py`, 600 pages: 350
+book pages from finebooks/bhl-impact-gt and 250 typed industry documents, 2026-11-05, steady
+state): `a10g-small` 0.90 → 2.2 pages/s, `a100-large` 1.27 → 7.2 pages/s. Most of the gain is
+pages in flight (the offline recipe sends batches of 16 and waits for the slowest page); on
+small flavors the window is capped by host memory, because each page in flight holds about
+0.1 GiB of image data. On fast GPUs one vLLM API server cannot preprocess images quickly
+enough (128-256 pages in flight, 36-60 running in the engine, none waiting); 4 API servers
+(`--api-server-count 4`) gave +16% on `a100-large`, +9% on `rtx-pro-6000`, +10% on `a10g-large`. At temperature 0.2 the outputs of two server runs differ on about 40%
+of pages; the offline recipe differs from a server run by the same amount. The character
+error rate on the 282 book pages with at least 20 characters of ground truth (IMPACT) was
+0.077 to 0.083 mean and 0.020 median in every 0.8B run, offline or server.
+
 The job command stays the standard `hf jobs uv run` shape: the driver spawns
 `vllm serve` itself as a subprocess when no server is reachable (flags live in the
 script's `SERVE_ARGS`, taken from the model's own card where they exist), so the only
