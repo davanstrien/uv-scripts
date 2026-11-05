@@ -19,12 +19,14 @@ Instruction-prompted object detection with vision-language models via vLLM. Desi
 |---|---|---|---|
 | `sam3/` | Class names | bbox + score | Known categories, scale |
 | `vlm-object-detection/` | Free-form instruction | bbox + label + sub_label | Exploratory labelling, structured per-element labels |
+| `vlm-object-detection/wevisone-detect.py` | Class names | bbox + label + alt_labels | Known categories with a grounding VLM: small objects, dense pages |
 
 ## Scripts
 
 | Script | Status | Use |
 |---|---|---|
 | `qwen3vl-detect.py` | **Stable** | Standard zero-shot detection |
+| `wevisone-detect.py` | **New** | Class-list detection with [WeVisOne-VL](https://huggingface.co/tencent/WeVisOne-VL-4B), a 4B grounding model. Same output schema. See [Class-list detection](#class-list-detection-with-wevisone-vl) |
 | `qwen3vl-detect-fewshot.py` | **Experimental** | One-shot in-context example — pass an example image + its labelled output to demonstrate the task |
 | `inspect-detections.py` | **Utility** | Render a side-by-side PNG of model detections vs ground truth (when source has GT) for each row of an output dataset. Used to generate all visual comparisons in this README. |
 
@@ -200,6 +202,49 @@ Or skip the dataset repo and mount a local folder directly — `-v ./example:/ex
 
 Pick an example that looks similar to your typical target page — the model anchors heavily to "what a page should look like."
 
+## Class-list detection with WeVisOne-VL
+
+`wevisone-detect.py` runs [`tencent/WeVisOne-VL-4B`](https://huggingface.co/tencent/WeVisOne-VL-4B) (or `-2B`), a Qwen3-VL model that WeChat Vision trained for grounding: open-vocabulary detection, referring, counting and pointing. You pass class names, not an instruction. It loads in stock vLLM, fits a 24 GB GPU, and writes the same `detections` column as `qwen3vl-detect.py`, so `inspect-detections.py` works on its output.
+
+Use it when you know your classes and care about finding every instance, including small objects and dense pages. Use `qwen3vl-detect.py` when you need a free-form instruction, descriptive `sub_label`s, or fine-grained labels.
+
+```bash
+hf jobs uv run \
+  https://huggingface.co/datasets/uv-scripts/vlm-object-detection/raw/main/wevisone-detect.py \
+  rishitdagli/cppe-5 your-username/cppe5-wevisone \
+  --classes "Coverall,Face_Shield,Gloves,Goggles,Mask" \
+  --split test --max-samples 20 --shuffle
+```
+
+The script header supplies the image (`vllm/vllm-openai:v0.32.0`), the flavor (`a10g-small`) and the `HF_TOKEN` secret. A 20-image run takes about 4 minutes end to end, almost all of it model load; generating the 20 answers takes a few seconds.
+
+**Smoke results** (about 20 images per dataset, a box counts when IoU ≥ 0.5 with a ground-truth box, one-to-one matching). Qwen3.6 is `qwen3vl-detect.py` with `Qwen/Qwen3.6-35B-A3B` and a prompt listing the same classes.
+
+| Dataset (images, GT boxes) | Qwen3.6 box P / R | WeVisOne box P / R | WeVisOne `--merge-duplicates` box P / R | Label recall: Qwen3.6 / WeVisOne / merged |
+|---|---|---|---|---|
+| [Beyond Words](https://huggingface.co/datasets/biglam/loc_beyond_words) newspaper pages (20, 284) | 0.15 / 0.15 | 0.18 / **0.26** | 0.30 / 0.26 | 0.13 / **0.24** / 0.22 |
+| [CPPE-5](https://huggingface.co/datasets/rishitdagli/cppe-5) medical PPE (20, 111) | **0.85** / 0.93 | 0.79 / 0.93 | 0.84 / 0.93 | 0.91 / **0.92** / 0.86 |
+| [ENA24](https://huggingface.co/datasets/davanstrien/ena24-detection) camera traps, 23 species (20, 20) | **1.00 / 1.00** | 0.47 / 0.90 | 0.90 / 0.90 | **0.80** / 0.75 / 0.30 |
+| [Cigarette litter](https://huggingface.co/datasets/lojony/cigarette-litter-street-photos) street photos, validation (19, 43) | 1.00 / 0.79 | 1.00 / **0.88** | 1.00 / 0.88 | 0.79 / **0.88** / 0.88 |
+| [Mixed-traffic dashcam](https://huggingface.co/datasets/jasleen2737/vehicle-mixed-traffic-detection) frames, val (20, 71) | **0.57 / 0.70** | 0.28 / 0.68 | 0.37 / 0.68 | **0.66** / 0.55 / 0.49 |
+
+Box P / R ignore the label; label recall also requires the right class. The cigarette set's `maybe` boxes are ignored (not scored either way). With 20 images and 20–284 ground-truth boxes, a change of one to three boxes moves a number by up to 15 points, so treat small gaps as noise. Two identical ENA24 runs gave WeVisOne label recall of 0.65 and 0.75 (vLLM output is not bit-for-bit reproducible across runs).
+
+- The **cigarette litter** and **dashcam traffic** datasets were uploaded to the Hub in November 2026, after WeVisOne-VL's release (22 October), so they are unlikely to be in its training data.
+- The traffic and Beyond Words ground truth is incomplete: both models find road users and pictures that annotators did not box, so precision is understated for both.
+
+**Behaviour to know about**
+
+- **One object, several classes.** The model answers each class on its own, so a fox can come back as Red Fox, Grey Fox and Coyote. Every box is kept, and each box's `alt_labels` lists the other classes given to the same region (IoU ≥ `--duplicate-iou`, default 0.8). A reviewer sees the ambiguity; nothing is thrown away. The cost is box precision on multi-class lists: each extra class name is an extra box (ENA24 0.47, dashcam 0.28 in the table).
+- **`--merge-duplicates`** folds overlapping boxes of different classes into one box, labelled with the class that comes first in `--classes`. There are no scores to choose by, so this only helps when your class order is a real priority. With an arbitrary order it hurts labels: ENA24 species recall fell from 0.75 to 0.30. Before using the output as training data, merge here or dedupe downstream after review.
+- **No confidence scores.** Absent classes come back as `<box>none</box>` and are skipped.
+- **Whole-page boxes.** On some newspaper pages the model adds one box around the entire page. Filter by box area if that matters for your data.
+- **Image size.** Images are resized to at most about 2 MP (`--max-image-tokens 2025`, the release default). Tiny objects in large photos still came through (cigarette ends in 4000×1800 street photos).
+- **Class names** go into the prompt as plain phrases (`Face_Shield` is sent as "Face Shield"); the output `label` is the name exactly as you passed it. The prompt separates classes with ". ", so names cannot contain `.` or `,` (the script stops early if they do). Plain names work better than coded group names: for the traffic set, ask for "motorcycle, scooter, bicycle" and map them to "2-wheeler" afterwards.
+- **Licence.** The WeVisOne-VL weights and code are Apache-2.0.
+
 ## Acknowledgements
 
 Adapted from the [`Qwen/Object-Detection-with-Qwen`](https://modelscope.cn/studios/Qwen/Object-Detection-with-Qwen) demo on ModelScope. The Qwen-VL family is from Alibaba's Qwen team; weights are available on Hugging Face under apache-2.0.
+
+`wevisone-detect.py` uses [WeVisOne-VL](https://github.com/Tencent/WeVisOne-VL) from WeChat Vision, Tencent (Apache-2.0); its prompt template and answer parser follow that repository.
