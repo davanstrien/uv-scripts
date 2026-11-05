@@ -6,12 +6,14 @@
 #     "huggingface-hub",
 #     "setuptools",
 #     "toolz",
-#     "torch",
-#     "transformers",
-#     "vllm>=0.11.0",
 # ]
 #
 # [tool.hf-jobs]
+# # vllm, torch and transformers come from the image (PYTHONPATH). Listing them above makes uv
+# # install newer PyPI copies plus their deps. PYTHONPATH shadows the copies, but the current
+# # flashinfer-python wheel (0.7.2.post1) also ships a top-level b12x module that the image lacks.
+# # The image's vllm imports it and crashes (missing flashinfer/experimental/b12x/_api.py).
+# # Seen on v0.32.0 (2026-11-05); re-test before moving the tag. Local GPU: uv run --with vllm.
 # image = "vllm/vllm-openai:v0.32.0"
 # python = "/usr/bin/python3"
 # env = { PYTHONPATH = "/usr/local/lib/python3.12/dist-packages" }
@@ -27,16 +29,17 @@ a BERT-style model via vLLM, and saves the results back to the Hub with predicte
 labels and confidence scores.
 
 Example usage:
-    # Local execution
-    uv run classify-dataset.py \\
+    # Local execution (Linux + CUDA). The header leaves vllm, torch and
+    # transformers to the HF Jobs image, so add vllm with --with.
+    uv run --with vllm classify-dataset.py \\
         davanstrien/ModernBERT-base-is-new-arxiv-dataset \\
         username/input-dataset \\
         username/output-dataset \\
         --inference-column text \\
         --batch-size 10000
 
-    # HF Jobs execution (see script output for full command)
-    hfjobs run --flavor l4x1 ...
+    # HF Jobs execution (the header sets the vLLM image, flavor and HF_TOKEN secret)
+    hf jobs uv run classify-dataset.py model/name input-dataset output-dataset
 """
 
 import argparse
@@ -46,14 +49,14 @@ import sys
 from typing import Optional
 
 import httpx
-import torch
-import torch.nn.functional as F
-import vllm
 from datasets import load_dataset
 from huggingface_hub import hf_hub_url, login
 from toolz import concat, keymap, partition_all
 from tqdm.auto import tqdm
-from vllm import LLM
+
+# torch and vllm are imported inside the functions that use them, so
+# `uv run classify-dataset.py --help` works without them. On HF Jobs they come from
+# the vLLM image (see the header).
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
@@ -63,6 +66,9 @@ logger = logging.getLogger(__name__)
 
 def check_gpu_availability():
     """Check if CUDA is available and log GPU information."""
+    import torch
+    import vllm
+
     if not torch.cuda.is_available():
         logger.error("CUDA is not available. This script requires a GPU.")
         logger.error(
@@ -114,6 +120,9 @@ def get_top_label(output, label_map: Optional[dict[int, str]] = None):
     Returns:
         Tuple of (label, confidence_score)
     """
+    import torch
+    import torch.nn.functional as F
+
     logits = torch.tensor(output.outputs.probs)
     probs = F.softmax(logits, dim=0)
     top_idx = torch.argmax(probs).item()
@@ -143,6 +152,8 @@ def main(
         batch_size: Number of examples to process at once
         hf_token: Hugging Face authentication token
     """
+    from vllm import LLM
+
     # GPU check
     check_gpu_availability()
 
@@ -215,16 +226,18 @@ if __name__ == "__main__":
             formatter_class=argparse.RawDescriptionHelpFormatter,
             epilog="""
 Examples:
+  # Local GPU (Linux + CUDA): the header leaves vllm/torch/transformers to
+  # the HF Jobs image, so add vllm with --with.
   # Basic usage
-  uv run classify-dataset.py model/name input-dataset output-dataset
+  uv run --with vllm classify-dataset.py model/name input-dataset output-dataset
   
   # With custom column and batch size
-  uv run classify-dataset.py model/name input-dataset output-dataset \\
+  uv run --with vllm classify-dataset.py model/name input-dataset output-dataset \\
     --inference-column prompt \\
     --batch-size 50000
   
   # Using environment variable for token
-  HF_TOKEN=hf_xxx uv run classify-dataset.py model/name input-dataset output-dataset
+  HF_TOKEN=hf_xxx uv run --with vllm classify-dataset.py model/name input-dataset output-dataset
             """,
         )
 
@@ -276,19 +289,12 @@ vLLM Classification Script
 This script requires arguments. For usage information:
     uv run classify-dataset.py --help
 
-Example HF Jobs command:
-    hfjobs run \\
-        --flavor l4x1 \\
-        --secret HF_TOKEN=$(python -c "from huggingface_hub import HfFolder; print(HfFolder.get_token())") \\
-        vllm/vllm-openai:latest \\
-        /bin/bash -c '
-            uv run https://huggingface.co/datasets/uv-scripts/vllm/resolve/main/classify-dataset.py \\
-                davanstrien/ModernBERT-base-is-new-arxiv-dataset \\
-                username/input-dataset \\
-                username/output-dataset \\
-                --inference-column text \\
-                --batch-size 100000
-        ' \\
-        --project vllm-classify \\
-        --name my-classification-job
+Example HF Jobs command (the header sets the vLLM image, l4x1 and the HF_TOKEN secret):
+    hf jobs uv run \\
+        https://huggingface.co/datasets/uv-scripts/vllm/raw/main/classify-dataset.py \\
+        davanstrien/ModernBERT-base-is-new-arxiv-dataset \\
+        username/input-dataset \\
+        username/output-dataset \\
+        --inference-column text \\
+        --batch-size 100000
         """)

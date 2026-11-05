@@ -5,13 +5,15 @@
 #     "huggingface-hub",
 #     "pillow",
 #     "toolz",
-#     "torch",
 #     "tqdm",
-#     "transformers",
-#     "vllm>=0.11.0",  # StructuredOutputsParams API (guided_decoding removed in 0.12.0)
 # ]
 #
 # [tool.hf-jobs]
+# # vllm, torch and transformers come from the image (PYTHONPATH). Listing them above makes uv
+# # install newer PyPI copies plus their deps. PYTHONPATH shadows the copies, but the current
+# # flashinfer-python wheel (0.7.2.post1) also ships a top-level b12x module that the image lacks.
+# # The image's vllm imports it and crashes (missing flashinfer/experimental/b12x/_api.py).
+# # Seen on v0.32.0 (2026-11-05); re-test before moving the tag. Local GPU: uv run --with vllm.
 # image = "vllm/vllm-openai:v0.32.0"
 # python = "/usr/bin/python3"
 # env = { PYTHONPATH = "/usr/local/lib/python3.12/dist-packages" }
@@ -24,17 +26,19 @@
 Classify images using Vision Language Models with vLLM.
 
 This script processes images through VLMs to classify them into user-defined categories,
-using vLLM's GuidedDecodingParams for structured output.
+using vLLM's StructuredOutputsParams for structured output.
 
 Examples:
+    # Local GPU (Linux + CUDA): the header leaves vllm/torch/transformers to
+    # the HF Jobs image, so add vllm with --with.
     # Basic classification
-    uv run vlm-classify.py \\
+    uv run --with vllm vlm-classify.py \\
         username/input-dataset \\
         username/output-dataset \\
         --classes "document,photo,diagram,other"
     
     # With custom prompt and model
-    uv run vlm-classify.py \\
+    uv run --with vllm vlm-classify.py \\
         username/input-dataset \\
         username/output-dataset \\
         --classes "index-card,manuscript,title-page,other" \\
@@ -42,7 +46,7 @@ Examples:
         --model Qwen/Qwen2-VL-7B-Instruct
     
     # Quick test with sample limit
-    uv run vlm-classify.py \\
+    uv run --with vllm vlm-classify.py \\
         davanstrien/sloane-index-cards \\
         username/test-output \\
         --classes "index,content,other" \\
@@ -58,14 +62,14 @@ import sys
 from collections import Counter
 from typing import List, Optional, Union, Dict, Any
 
-import torch
 from PIL import Image
 from datasets import load_dataset
 from huggingface_hub import login
 from toolz import partition_all
 from tqdm.auto import tqdm
-from vllm import LLM, SamplingParams
-from vllm.sampling_params import StructuredOutputsParams
+
+# torch and vllm are imported inside main(), so `uv run vlm-classify.py --help` works
+# without them. On HF Jobs they come from the vLLM image (see the header).
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -142,6 +146,9 @@ def main(
     private: bool = False,
 ):
     """Classify images from a dataset using a Vision Language Model."""
+    import torch
+    from vllm import LLM, SamplingParams
+    from vllm.sampling_params import StructuredOutputsParams
 
     # Check GPU availability
     if not torch.cuda.is_available():
@@ -303,14 +310,16 @@ if __name__ == "__main__":
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
+    # Local GPU (Linux + CUDA): the header leaves vllm/torch/transformers to
+    # the HF Jobs image, so add vllm with --with.
     # Basic classification
-    uv run vlm-classify.py \\
+    uv run --with vllm vlm-classify.py \\
         username/input-dataset \\
         username/output-dataset \\
         --classes "document,photo,diagram,other"
     
     # With custom prompt
-    uv run vlm-classify.py \\
+    uv run --with vllm vlm-classify.py \\
         username/input-dataset \\
         username/output-dataset \\
         --classes "index-card,manuscript,other" \\

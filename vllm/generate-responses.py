@@ -2,15 +2,16 @@
 # requires-python = ">=3.10"
 # dependencies = [
 #     "datasets",
-#     "flashinfer-python",
 #     "huggingface-hub",
 #     "hf-xet>= 1.1.7",
-#     "torch",
-#     "transformers",
-#     "vllm>=0.11.0",
 # ]
 #
 # [tool.hf-jobs]
+# # vllm, torch, transformers and flashinfer come from the image (PYTHONPATH). Listing them above
+# # makes uv install newer PyPI copies. PYTHONPATH shadows the copies, but the current
+# # flashinfer-python wheel (0.7.2.post1) also ships a top-level b12x module that the image lacks.
+# # The image's vllm imports it and crashes (missing flashinfer/experimental/b12x/_api.py).
+# # Seen on v0.32.0 (2026-11-05); re-test before moving the tag. Local GPU: uv run --with vllm.
 # image = "vllm/vllm-openai:v0.32.0"
 # python = "/usr/bin/python3"
 # env = { PYTHONPATH = "/usr/local/lib/python3.12/dist-packages" }
@@ -26,14 +27,15 @@ applies the model's chat template, generates responses using vLLM, and saves the
 results back to the Hub with a comprehensive dataset card.
 
 Example usage:
-    # Local execution with auto GPU detection
-    uv run generate-responses.py \\
+    # Local execution with auto GPU detection. The header leaves vllm, torch and
+    # transformers to the HF Jobs image, so add vllm with --with.
+    uv run --with vllm generate-responses.py \\
         username/input-dataset \\
         username/output-dataset \\
         --messages-column messages
 
     # With custom model and sampling parameters
-    uv run generate-responses.py \\
+    uv run --with vllm generate-responses.py \\
         username/input-dataset \\
         username/output-dataset \\
         --model-id meta-llama/Llama-3.1-8B-Instruct \\
@@ -51,14 +53,18 @@ import logging
 import os
 import sys
 from datetime import datetime
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from datasets import load_dataset
 from huggingface_hub import DatasetCard, get_token, login
-from torch import cuda
 from tqdm.auto import tqdm
-from transformers import AutoTokenizer
-from vllm import LLM, SamplingParams
+
+if TYPE_CHECKING:
+    from vllm import SamplingParams
+
+# torch, transformers and vllm are imported inside the functions that use them, so
+# `uv run generate-responses.py --help` works without them. On HF Jobs they come from
+# the vLLM image (see the header).
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
@@ -68,6 +74,8 @@ logger = logging.getLogger(__name__)
 
 def check_gpu_availability() -> int:
     """Check if CUDA is available and return the number of GPUs."""
+    from torch import cuda
+
     if not cuda.is_available():
         logger.error("CUDA is not available. This script requires a GPU.")
         logger.error(
@@ -89,7 +97,7 @@ def create_dataset_card(
     model_id: str,
     messages_column: str,
     prompt_column: Optional[str],
-    sampling_params: SamplingParams,
+    sampling_params: "SamplingParams",
     tensor_parallel_size: int,
     num_examples: int,
     generation_time: str,
@@ -111,6 +119,12 @@ def create_dataset_card(
 - **Max Model Length Used**: {max_model_len_used:,} tokens
 
 Note: Prompts exceeding the maximum model length were skipped and have empty responses."""
+
+    # Built outside the card f-string: a backslash inside an f-string expression is a
+    # SyntaxError before Python 3.12.
+    max_model_len_line = (
+        f" \\\n    --max-model-len {max_model_len_used}" if max_model_len_used else ""
+    )
 
     return f"""---
 tags:
@@ -154,10 +168,10 @@ The dataset contains all columns from the source dataset plus:
 
 Generated using the vLLM inference script from [uv-scripts/vllm](https://huggingface.co/datasets/uv-scripts/vllm).
 
-To reproduce this generation:
+To reproduce this generation on HF Jobs (the script header sets the vLLM image, flavor and HF_TOKEN secret):
 
 ```bash
-uv run https://huggingface.co/datasets/uv-scripts/vllm/raw/main/generate-responses.py \\
+hf jobs uv run https://huggingface.co/datasets/uv-scripts/vllm/raw/main/generate-responses.py \\
     {source_dataset} \\
     <output-dataset> \\
     --model-id {model_id} \\
@@ -165,7 +179,7 @@ uv run https://huggingface.co/datasets/uv-scripts/vllm/raw/main/generate-respons
     --temperature {sampling_params.temperature} \\
     --top-p {sampling_params.top_p} \\
     --top-k {sampling_params.top_k} \\
-    --max-tokens {sampling_params.max_tokens}{f" \\\\\\n    --max-model-len {max_model_len_used}" if max_model_len_used else ""}
+    --max-tokens {sampling_params.max_tokens}{max_model_len_line}
 ```
 """
 
@@ -213,6 +227,9 @@ def main(
         max_samples: Maximum number of samples to process (None for all)
         hf_token: Hugging Face authentication token
     """
+    from transformers import AutoTokenizer
+    from vllm import LLM, SamplingParams
+
     generation_start_time = datetime.now().isoformat()
 
     # GPU check and configuration
@@ -423,22 +440,24 @@ if __name__ == "__main__":
             formatter_class=argparse.RawDescriptionHelpFormatter,
             epilog="""
 Examples:
+  # Local GPU (Linux + CUDA): the header leaves vllm/torch/transformers to
+  # the HF Jobs image, so add vllm with --with.
   # Basic usage with default Qwen model
-  uv run generate-responses.py input-dataset output-dataset
+  uv run --with vllm generate-responses.py input-dataset output-dataset
   
   # With custom model and parameters
-  uv run generate-responses.py input-dataset output-dataset \\
+  uv run --with vllm generate-responses.py input-dataset output-dataset \\
     --model-id meta-llama/Llama-3.1-8B-Instruct \\
     --temperature 0.9 \\
     --max-tokens 2048
   
   # Force specific GPU configuration
-  uv run generate-responses.py input-dataset output-dataset \\
+  uv run --with vllm generate-responses.py input-dataset output-dataset \\
     --tensor-parallel-size 2 \\
     --gpu-memory-utilization 0.95
   
   # Using environment variable for token
-  HF_TOKEN=hf_xxx uv run generate-responses.py input-dataset output-dataset
+  HF_TOKEN=hf_xxx uv run --with vllm generate-responses.py input-dataset output-dataset
             """,
         )
 

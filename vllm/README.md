@@ -7,7 +7,7 @@ tags: [uv-script, vllm, gpu, inference, hf-jobs]
 
 Ready-to-run UV scripts for GPU-accelerated inference using [vLLM](https://github.com/vllm-project/vllm).
 
-These scripts use [UV's inline script metadata](https://docs.astral.sh/uv/guides/scripts/) to automatically manage dependencies - just run with `uv run` and everything installs automatically!
+These scripts use [UV's inline script metadata](https://docs.astral.sh/uv/guides/scripts/) to manage dependencies. On HF Jobs they run on the `vllm/vllm-openai` image, which provides vLLM, PyTorch and Transformers, so the script headers leave those out. On your own Linux + CUDA machine, add vLLM explicitly: `uv run --with vllm <script>.py ...`.
 
 ## 📋 Available Scripts
 
@@ -18,7 +18,7 @@ Vision Language Model (VLM) image classification with structured output constrai
 **Features:**
 
 - 🖼️ Process images through state-of-the-art VLMs (Qwen2-VL)
-- 🎯 Structured classification using vLLM's `GuidedDecodingParams`
+- 🎯 Structured classification using vLLM's `StructuredOutputsParams`
 - 📐 Automatic image resizing to optimize token usage
 - 💾 Memory-efficient lazy batch processing
 - 🏷️ Simple CLI interface for defining classes
@@ -28,13 +28,13 @@ Vision Language Model (VLM) image classification with structured output constrai
 
 ```bash
 # Basic classification
-uv run vlm-classify.py \
+uv run --with vllm vlm-classify.py \
     username/input-dataset \
     username/output-dataset \
     --classes "document,photo,diagram,other"
 
 # With custom prompt and image resizing
-uv run vlm-classify.py \
+uv run --with vllm vlm-classify.py \
     username/input-dataset \
     username/output-dataset \
     --classes "index-card,manuscript,title-page,other" \
@@ -42,7 +42,7 @@ uv run vlm-classify.py \
     --max-size 768
 
 # Quick test with sample limit
-uv run vlm-classify.py \
+uv run --with vllm vlm-classify.py \
     davanstrien/sloane-index-cards \
     username/test-output \
     --classes "index,content,other" \
@@ -89,7 +89,7 @@ Batch text classification using BERT-style encoder models (e.g., BERT, RoBERTa, 
 
 ```bash
 # Local execution (requires GPU)
-uv run classify-dataset.py \
+uv run --with vllm classify-dataset.py \
     davanstrien/ModernBERT-base-is-new-arxiv-dataset \
     username/input-dataset \
     username/output-dataset \
@@ -103,7 +103,7 @@ uv run classify-dataset.py \
 hf jobs uv run \
     --flavor l4x1 \
     --image vllm/vllm-openai:v0.32.0 \
-    https://huggingface.co/datasets/uv-scripts/vllm/resolve/main/classify-dataset.py \
+    https://huggingface.co/datasets/uv-scripts/vllm/raw/main/classify-dataset.py \
     davanstrien/ModernBERT-base-is-new-arxiv-dataset \
     username/input-dataset \
     username/output-dataset \
@@ -130,14 +130,14 @@ Generate responses for prompts using generative LLMs (e.g., Llama, Qwen, Mistral
 
 ```bash
 # With chat-formatted messages (default)
-uv run generate-responses.py \
+uv run --with vllm generate-responses.py \
     username/input-dataset \
     username/output-dataset \
     --messages-column messages \
     --max-tokens 1024
 
 # With plain text prompts (NEW!)
-uv run generate-responses.py \
+uv run --with vllm generate-responses.py \
     username/input-dataset \
     username/output-dataset \
     --prompt-column question \
@@ -145,7 +145,7 @@ uv run generate-responses.py \
     --max-samples 100
 
 # With custom model and parameters
-uv run generate-responses.py \
+uv run --with vllm generate-responses.py \
     username/input-dataset \
     username/output-dataset \
     --model-id meta-llama/Llama-3.1-8B-Instruct \
@@ -207,21 +207,28 @@ vLLM is a high-throughput inference engine optimized for:
 
 ### Dependencies
 
-Scripts use UV's inline metadata for automatic dependency management:
+Scripts use UV's inline metadata for dependency management, plus a `[tool.hf-jobs]` table that sets the image, flavor and secrets for `hf jobs uv run`:
 
 ```python
 # /// script
 # requires-python = ">=3.10"
 # dependencies = [
 #     "datasets",
-#     "flashinfer-python",
-#     "huggingface-hub[hf_transfer]",
-#     "torch",
-#     "transformers",
-#     "vllm",
+#     "huggingface-hub",
+#     "hf-xet>= 1.1.7",
 # ]
+#
+# [tool.hf-jobs]
+# image = "vllm/vllm-openai:v0.32.0"
+# python = "/usr/bin/python3"
+# env = { PYTHONPATH = "/usr/local/lib/python3.12/dist-packages" }
+# flavor = "a100-large"
+# secrets = ["HF_TOKEN"]
+# timeout = "2h"
 # ///
 ```
+
+vLLM, PyTorch, Transformers and FlashInfer come from the image: `PYTHONPATH` points at its packages. Do not add them to `dependencies`. uv would then install newer PyPI copies next to the image's, and the current `flashinfer-python` wheel adds a `b12x` module that the v0.32.0 image's vLLM imports and crashes on. For a local GPU run, use `uv run --with vllm <script>.py ...`. `hf jobs uv run` reads the `[tool.hf-jobs]` table from hf CLI 1.32; with an older CLI, pass the header's settings as flags yourself: `--image`, `--flavor`, `--timeout`, `--secrets HF_TOKEN`, `--python /usr/bin/python3` and `-e PYTHONPATH=/usr/local/lib/python3.12/dist-packages`.
 
 For bleeding-edge features, use the `UV_PRERELEASE=if-necessary` environment variable to allow pre-release versions when needed.
 
