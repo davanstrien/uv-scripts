@@ -122,12 +122,13 @@ not return overlapping or duplicate boxes.
 ## Hardware notes
 
 - **A100-large + `vllm/vllm-openai:v0.32.0` image** is the working combo. The default uv-script image installs PyPI's latest PyTorch, which has a CUDA driver mismatch on a100 hosts (driver 12.9, PyTorch wants newer). Workaround: `--image vllm/vllm-openai:v0.32.0 --python /usr/bin/python3 -e PYTHONPATH=/usr/local/lib/python3.12/dist-packages` (uses the image's pre-installed driver-compatible torch + vllm).
+- **Local GPU runs**: the script headers leave `vllm`, `torch` and `transformers` to the Jobs image, so on your own Linux + CUDA machine add vLLM explicitly: `uv run --with vllm qwen3vl-detect.py …`.
 - **H200 was unreliable** in our testing — flashinfer's runtime JIT compile of cutlass kernels for `compute_90a` failed in the same image. Stick with A100 for now.
 - **`max_num_seqs` is auto-capped to `batch_size`**. Qwen3.6's hybrid Gated-DeltaNet architecture allocates per-sequence SSM cache blocks; vLLM's default 256 can exceed available blocks and crash CUDA graph capture. We never decode > batch_size concurrently anyway.
 
 ## CLI reference
 
-Run `uv run qwen3vl-detect.py --help` for the full flag set. Most-tuned flags:
+Run `uv run qwen3vl-detect.py --help` for the full flag set (no GPU or vLLM needed). Most-tuned flags:
 
 - `--prompt` / `--prompt-file` — the detection instruction
 - `--model` — any vLLM-supported VLM. Default: `Qwen/Qwen3.6-35B-A3B`. For smaller GPUs use `Qwen/Qwen3.5-9B` and lower `--max-model-len` / `--max-image-tokens`.
