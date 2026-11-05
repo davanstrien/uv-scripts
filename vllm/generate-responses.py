@@ -168,10 +168,10 @@ The dataset contains all columns from the source dataset plus:
 
 Generated using the vLLM inference script from [uv-scripts/vllm](https://huggingface.co/datasets/uv-scripts/vllm).
 
-To reproduce this generation:
+To reproduce this generation on HF Jobs (the script header sets the vLLM image, flavor and HF_TOKEN secret):
 
 ```bash
-uv run --with vllm https://huggingface.co/datasets/uv-scripts/vllm/raw/main/generate-responses.py \\
+hf jobs uv run https://huggingface.co/datasets/uv-scripts/vllm/raw/main/generate-responses.py \\
     {source_dataset} \\
     <output-dataset> \\
     --model-id {model_id} \\

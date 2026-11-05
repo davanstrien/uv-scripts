@@ -291,7 +291,7 @@ This script requires arguments. For usage information:
 
 Example HF Jobs command (the header sets the vLLM image, l4x1 and the HF_TOKEN secret):
     hf jobs uv run \\
-        https://huggingface.co/datasets/uv-scripts/vllm/resolve/main/classify-dataset.py \\
+        https://huggingface.co/datasets/uv-scripts/vllm/raw/main/classify-dataset.py \\
         davanstrien/ModernBERT-base-is-new-arxiv-dataset \\
         username/input-dataset \\
         username/output-dataset \\
