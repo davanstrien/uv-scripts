@@ -152,10 +152,17 @@ def classify_messages(
     return labels
 
 
-def is_engine_dead(error: Exception) -> bool:
-    """True if vLLM's engine process has died, so every later call would fail too."""
-    # Checked by class name so the script does not depend on where vLLM defines it.
-    return type(error).__name__ == "EngineDeadError"
+def is_input_error(error: Exception) -> bool:
+    """True if one bad input caused the error, so retrying the other rows can help.
+
+    vLLM 0.32 raises VLLMValidationError for a bad request (for example a prompt
+    longer than --max-model-len); older vLLM and the multimodal processors raise
+    ValueError. Anything else (a dead engine, CUDA out of memory, a broken output
+    count) is not about one row and stops the run. The vLLM class is matched by
+    name so the script does not depend on where vLLM defines it.
+    """
+    names = {cls.__name__ for cls in type(error).__mro__}
+    return "VLLMValidationError" in names or isinstance(error, ValueError)
 
 
 def classify_one_at_a_time(
@@ -171,7 +178,7 @@ def classify_one_at_a_time(
         try:
             labels.extend(classify_messages(llm, sampling_params, [row_messages]))
         except Exception as e:
-            if is_engine_dead(e):
+            if not is_input_error(e):
                 raise
             errors[idx] = str(e)
             labels.append(None)
@@ -235,6 +242,10 @@ def main(
     if max_samples:
         dataset = dataset.select(range(min(max_samples, len(dataset))))
         logger.info(f"Limited to {len(dataset)} samples")
+
+    if len(dataset) == 0:
+        logger.error(f"Split '{split}' of {input_dataset} has no rows to classify.")
+        sys.exit(1)
 
     # Log resizing configuration
     if max_size:
@@ -302,9 +313,9 @@ def main(
         try:
             batch_labels = classify_messages(llm, sampling_params, batch_messages)
         except Exception as e:
-            # A dead engine fails every later call: stop instead of walking the
-            # rest of the dataset and pushing nulls.
-            if is_engine_dead(e):
+            # Stop on engine or runtime failures (see is_input_error): retrying
+            # them row by row would walk the rest of the dataset and push nulls.
+            if not is_input_error(e):
                 raise
             # One bad input (for example an image whose prompt is longer than
             # --max-model-len) fails the whole vLLM call, so retry the batch's
@@ -323,8 +334,9 @@ def main(
 
     # Report failures before pushing. If nothing was labelled, stop: an all-null
     # label column looks like a finished dataset but holds no results.
+    labelled = sum(1 for label in labels if label is not None)
     if errors:
-        all_failed = len(errors) == len(dataset)
+        all_failed = labelled == 0
         log = logger.error if all_failed else logger.warning
         if all_failed:
             log(f"All {len(dataset)} images failed, so nothing was pushed. First errors:")
@@ -340,8 +352,8 @@ def main(
                 "Some images need more tokens than --max-model-len allows: "
                 "set --max-size (for example 768) or raise --max-model-len."
             )
-        if all_failed:
-            sys.exit(1)
+    if labelled == 0:
+        sys.exit(1)
 
     # Add classifications to dataset
     logger.info("Adding classifications to dataset...")
@@ -353,7 +365,7 @@ def main(
 
     # Print summary
     logger.info("Classification complete!")
-    logger.info(f"Labelled {len(dataset) - len(errors)} of {len(dataset)} images")
+    logger.info(f"Labelled {labelled} of {len(dataset)} images")
     logger.info(f"Output dataset: {output_dataset}")
 
     # Show distribution of classifications, including rows with no label
