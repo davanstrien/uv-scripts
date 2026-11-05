@@ -468,7 +468,7 @@ def main():
 
     print(f"https://huggingface.co/datasets/{args.output_dataset} "
           f"({stats.rows_processed} ok, {stats.rows_failed} error rows, "
-          f"{len(truncated) if repair_dir else 'n/a'} truncated pages repaired)", file=sys.stderr)
+          f"{len(truncated) if repair_dir else 'n/a'} truncated pages re-sent to repair/)", file=sys.stderr)
 
 
 if __name__ == "__main__":
