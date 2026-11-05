@@ -5,13 +5,13 @@
 #     "huggingface-hub",
 #     "pillow",
 #     "toolz",
-#     "torch",
 #     "tqdm",
-#     "transformers",
-#     "vllm>=0.15.1",
 # ]
 #
 # [tool.hf-jobs]
+# # vllm, torch and transformers come from the image (PYTHONPATH). Listing them above makes uv
+# # install the newest PyPI vllm deps (e.g. b12x) next to the image's vllm, which then crashes
+# # looking for a flashinfer module the image does not ship.
 # image = "vllm/vllm-openai:v0.32.0"
 # python = "/usr/bin/python3"
 # env = { PYTHONPATH = "/usr/local/lib/python3.12/dist-packages" }
