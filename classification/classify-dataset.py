@@ -2,14 +2,16 @@
 # /// script
 # requires-python = ">=3.10"
 # dependencies = [
-#     "vllm>=0.12.0",  # StructuredOutputsParams API (guided_decoding removed in 0.12.0)
-#     "transformers>=4.53.0",
-#     "torch",
 #     "datasets",
 #     "huggingface-hub[hf_transfer]",
 # ]
 #
 # [tool.hf-jobs]
+# # vllm, torch and transformers come from the image (PYTHONPATH). Listing them above makes uv
+# # install newer PyPI copies plus their deps. PYTHONPATH shadows the copies, but the current
+# # flashinfer-python wheel (0.7.2.post1) also ships a top-level b12x module that the image lacks.
+# # The image's vllm imports it and crashes (missing flashinfer/experimental/b12x/_api.py).
+# # Seen on v0.32.0 (2026-11-05); re-test before moving the tag. Local GPU: uv run --with vllm.
 # image = "vllm/vllm-openai:v0.32.0"
 # python = "/usr/bin/python3"
 # env = { PYTHONPATH = "/usr/local/lib/python3.12/dist-packages" }
@@ -24,8 +26,9 @@ Classify text columns in Hugging Face datasets using vLLM with structured output
 This script provides efficient GPU-based classification with guaranteed valid outputs,
 optimized for running on HF Jobs.
 
-Example:
-    uv run classify-dataset.py \\
+Example (local GPU, Linux + CUDA; the header leaves vllm, torch and transformers to
+the HF Jobs image, so add vllm with --with; the script needs vLLM 0.12 or newer):
+    uv run --with vllm classify-dataset.py \\
         --input-dataset imdb \\
         --column text \\
         --labels "positive,negative" \\
@@ -44,14 +47,17 @@ import argparse
 import logging
 import os
 import sys
-from typing import List
+from typing import TYPE_CHECKING, List
 
-import torch
 from datasets import load_dataset
 from huggingface_hub import HfApi, get_token
-from transformers import AutoTokenizer
-from vllm import LLM, SamplingParams
-from vllm.sampling_params import StructuredOutputsParams
+
+if TYPE_CHECKING:
+    from transformers import AutoTokenizer
+
+# torch, transformers and vllm are imported inside main(), after argument parsing, so
+# `uv run classify-dataset.py --help` works without them. On HF Jobs they come from the
+# vLLM image (see the header).
 
 # Default model - SmolLM3 for good balance of speed and quality
 DEFAULT_MODEL = "HuggingFaceTB/SmolLM3-3B"
@@ -337,7 +343,7 @@ def validate_text(text: str) -> bool:
 
 
 def prepare_prompts(
-    texts: List[str], labels: List[str], tokenizer: AutoTokenizer, 
+    texts: List[str], labels: List[str], tokenizer: "AutoTokenizer", 
     label_descriptions: dict = None, enable_reasoning: bool = False
 ) -> tuple[List[str], List[int]]:
     """Prepare prompts using chat template for classification, filtering invalid texts."""
@@ -364,6 +370,11 @@ def prepare_prompts(
 
 def main():
     args = parse_args()
+
+    import torch
+    from transformers import AutoTokenizer
+    from vllm import LLM, SamplingParams
+    from vllm.sampling_params import StructuredOutputsParams
 
     # Check authentication early
     logger.info("Checking authentication...")
@@ -601,22 +612,22 @@ def main():
 
 if __name__ == "__main__":
     if len(sys.argv) == 1:
-        print("Example commands:")
+        print("Example commands (local GPU runs add vLLM with --with; on HF Jobs the image provides it):")
         print("\n# Simple classification:")
-        print("uv run classify-dataset.py \\")
+        print("uv run --with vllm classify-dataset.py \\")
         print("  --input-dataset stanfordnlp/imdb \\")
         print("  --column text \\")
         print("  --labels 'positive,negative' \\")
         print("  --output-dataset user/imdb-classified")
         print("\n# With label descriptions:")
-        print("uv run classify-dataset.py \\")
+        print("uv run --with vllm classify-dataset.py \\")
         print("  --input-dataset user/support-tickets \\")
         print("  --column content \\")
         print("  --labels 'bug,feature,question' \\")
         print("  --label-descriptions 'bug:something is broken or not working,feature:request for new functionality,question:asking for help or clarification' \\")
         print("  --output-dataset user/tickets-classified")
         print("\n# With reasoning mode (thinking + JSON output):")
-        print("uv run classify-dataset.py \\")
+        print("uv run --with vllm classify-dataset.py \\")
         print("  --input-dataset stanfordnlp/imdb \\")
         print("  --column text \\")
         print("  --labels 'positive,negative,neutral' \\")
