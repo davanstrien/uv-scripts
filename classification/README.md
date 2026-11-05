@@ -408,7 +408,7 @@ model must end with `{"label": "..."}`, and rows where that cannot be parsed are
 | `--max-samples` | Label only the first N rows (or N random rows with `--shuffle`) |
 | `--shuffle`, `--shuffle-seed` | Shuffle before `--max-samples` (seed default 42) |
 
-Run `uv run classify-dataset.py --help` for all options.
+Run `uv run classify-dataset.py --help` for all options (no GPU or vLLM needed).
 
 ### Good to know
 
