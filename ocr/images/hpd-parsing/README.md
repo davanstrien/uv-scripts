@@ -1,7 +1,6 @@
 # cr.hf.co/davanstrien/hpd-parsing-vllm
 
-Status: built 2026-11-05, **private**. Jobs pull it only once it is public; until then run the
-recipe on the vendor image with the uv bootstrap in its docstring.
+Public. Built 2026-11-05. Public page: https://huggingface.co/containers/davanstrien/hpd-parsing-vllm
 
 Runtime image for [`../../hpd-parsing-saturate.py`](../../hpd-parsing-saturate.py): Paddle's
 HPD-Parsing image with `uv` added, so the recipe runs with `hf jobs uv run`.

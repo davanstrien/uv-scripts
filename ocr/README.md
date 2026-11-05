@@ -219,14 +219,11 @@ hf jobs uv run https://huggingface.co/datasets/uv-scripts/ocr/raw/main/pp-doclay
     your-dataset your-layout-output --max-samples 10
 ```
 
-**[HPD-Parsing](https://huggingface.co/PaddlePaddle/HPD-Parsing)** (`hpd-parsing-saturate.py`, 1B, Apache-2.0, experimental) reads text and layout in one pass. Next to the `markdown` it writes an `hpd_blocks` column with a type, a box and the text for each block, in reading order. The boxes are on a 0–1000 scale, not pixels. The model needs Paddle's own vLLM build, which ships in Paddle's container image. That image has no `uv`, so start the Job with `hf jobs run` and install `uv` in the command:
+**[HPD-Parsing](https://huggingface.co/PaddlePaddle/HPD-Parsing)** (`hpd-parsing-saturate.py`, 1B, Apache-2.0, experimental) reads text and layout in one pass. Next to the `markdown` it writes an `hpd_blocks` column with a type, a box and the text for each block, in reading order. The boxes are on a 0–1000 scale, not pixels. The model needs Paddle's own vLLM build; the script header picks an image with it ([`images/hpd-parsing/`](images/hpd-parsing/)).
 
 ```bash
-hf jobs run --detach --flavor l4x1 -s HF_TOKEN --timeout 2h \
-    ccr-2vdh3abv-pub.cnc.bj.baidubce.com/paddlepaddle/hpd-parsing-vllm@sha256:87496aa5dd702a7df6c70bb00c29d5bf8d1a0f0505d66b613fafa6f71cd72de2 \
-    -- bash -lc 'pip install -q uv==0.13.6 && uv run \
-        https://huggingface.co/datasets/uv-scripts/ocr/raw/main/hpd-parsing-saturate.py \
-        your-dataset your-output --max-samples 5'
+hf jobs uv run https://huggingface.co/datasets/uv-scripts/ocr/raw/main/hpd-parsing-saturate.py \
+    your-dataset your-output --max-samples 5
 ```
 
 The image is about 11 GB, so a cold start takes several minutes. On dense pages with hundreds of blocks the model can repeat itself inside many blocks at once. The `looped_blocks` column counts those blocks; keep rows where it is 0. The model card lists English and Chinese only.

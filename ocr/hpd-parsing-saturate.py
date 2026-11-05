@@ -4,6 +4,12 @@
 #     "saturate[hf]==0.3.0",
 #     "pillow>=10",
 # ]
+#
+# [tool.hf-jobs]
+# image = "cr.hf.co/davanstrien/hpd-parsing-vllm:87496aa5-uv0.13.6"
+# flavor = "l4x1"
+# timeout = "2h"
+# secrets = ["HF_TOKEN"]
 # ///
 """
 Parse document images with HPD-Parsing via saturate.
@@ -19,22 +25,29 @@ The server half is the vendor's own `vllm serve` command, started in the job. Th
 driver half (concurrency, retries, output, resume) is the `saturate` library:
 adaptive concurrency, resumable parquet output and durable error rows.
 
-NEEDS THE VENDOR IMAGE. Forking is a scheduler feature of Paddle's vLLM fork
-(`0.17.1+hpdparsing`), which ships in their registry image. That image has no
-`uv`, so `hf jobs uv run --image ...` cannot start it, and this script has no
-[tool.hf-jobs] header for the same reason. Start the job with `hf jobs run` and
-install uv in the command:
+NEEDS PADDLE'S vLLM FORK. Forking is a scheduler feature of Paddle's vLLM fork
+(`0.17.1+hpdparsing`), which ships in their registry image. The [tool.hf-jobs]
+header above names `cr.hf.co/davanstrien/hpd-parsing-vllm`: Paddle's image
+(`latest-nvidia-gpu`, pinned by digest, built 2026-07-16) plus `uv`, which their
+image lacks. Build script and digest: images/hpd-parsing/ in the uv-scripts repo.
+Run on HF Jobs (`hf` CLI 1.32+ reads image, flavor, timeout and secrets from the
+header):
+
+  hf jobs uv run --detach \\
+      https://huggingface.co/datasets/uv-scripts/ocr/raw/main/hpd-parsing-saturate.py \\
+      <input-dataset> <output-dataset>
+
+Smoke test first with --max-samples 5. Budget for an ~11 GB image pull on a cold
+node before anything runs. requires-python includes 3.10 so that uv uses the
+image's own Python (3.10) instead of downloading one.
+
+On Paddle's image directly (no uv in it), install uv in the job command:
 
   hf jobs run --detach --flavor l4x1 -s HF_TOKEN --timeout 2h \\
       ccr-2vdh3abv-pub.cnc.bj.baidubce.com/paddlepaddle/hpd-parsing-vllm@sha256:87496aa5dd702a7df6c70bb00c29d5bf8d1a0f0505d66b613fafa6f71cd72de2 \\
       -- bash -lc 'pip install -q uv==0.13.6 && uv run \\
           https://huggingface.co/datasets/uv-scripts/ocr/raw/main/hpd-parsing-saturate.py \\
           <input-dataset> <output-dataset>'
-
-Smoke test first with --max-samples 5. Budget for an ~11 GB image pull on a cold
-node before anything runs. The digest is the `latest-nvidia-gpu` tag as of
-2026-11-05 (image built 2026-07-16). requires-python includes 3.10 so that uv
-uses the image's own Python (3.10) instead of downloading one.
 
 Output: the output repo (created private if missing) holds `data/part-*.parquet`
 with rows `{id, markdown, hpd_blocks, raw, looped_blocks, finish_reason, model,
@@ -104,12 +117,14 @@ import zlib
 # - max_pixels 0 (no client-side downscale): the model picks its 448 px tile grid
 #   partly from image area (find_closest_aspect_ratio_optim), so pre-shrinking can
 #   land a page on a smaller grid. Set --max-pixels only for huge payloads.
-# - image: the vendor tag `latest-nvidia-gpu`, pinned by digest on 2026-11-05.
+# - image: Paddle's `latest-nvidia-gpu` tag pinned by digest on 2026-11-05
+#   (base_image), plus uv (image; built by images/hpd-parsing/build.sh).
 SERVING = {
     "model": "PaddlePaddle/HPD-Parsing",
     "revision": "91de80054c23ab4238e3d7073fa2b83c2a7e301e",
     "served_model_name": "HPD-Parsing",
-    "image": (
+    "image": "cr.hf.co/davanstrien/hpd-parsing-vllm:87496aa5-uv0.13.6",
+    "base_image": (
         "ccr-2vdh3abv-pub.cnc.bj.baidubce.com/paddlepaddle/hpd-parsing-vllm"
         "@sha256:87496aa5dd702a7df6c70bb00c29d5bf8d1a0f0505d66b613fafa6f71cd72de2"
     ),
@@ -140,11 +155,9 @@ FORK_PROMPT = "document parsing with fork."
 PLAIN_PROMPT = "document parsing."
 
 RUN_COMMAND = (
-    "hf jobs run --detach --flavor l4x1 -s HF_TOKEN --timeout 2h \\\n"
-    f"    {SERVING['image']} \\\n"
-    "    -- bash -lc 'pip install -q uv==0.13.6 && uv run \\\n"
-    "        https://huggingface.co/datasets/uv-scripts/ocr/raw/main/hpd-parsing-saturate.py \\\n"
-    "        <input-dataset> <output-dataset>'"
+    f"hf jobs uv run --detach --image {SERVING['image']} --flavor l4x1 -s HF_TOKEN \\\n"
+    "    https://huggingface.co/datasets/uv-scripts/ocr/raw/main/hpd-parsing-saturate.py \\\n"
+    "    <input-dataset> <output-dataset>"
 )
 
 
@@ -397,8 +410,8 @@ def vendor_vllm() -> str:
     if "hpdparsing" not in version:
         found = f"found vllm {version!r} at {vllm}" if vllm else "no `vllm` on PATH"
         sys.exit(
-            f"HPD-Parsing needs Paddle's vLLM fork (0.17.1+hpdparsing), which ships only in "
-            f"their image ({found}). Run the job on that image:\n\n{RUN_COMMAND}"
+            f"HPD-Parsing needs Paddle's vLLM fork (0.17.1+hpdparsing); {found}. "
+            f"Run the job on an image that has it:\n\n{RUN_COMMAND}"
         )
     print(f"vendor vllm {version} at {vllm}", file=sys.stderr)
     return vllm

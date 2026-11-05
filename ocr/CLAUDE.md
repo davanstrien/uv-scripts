@@ -96,7 +96,7 @@ Legend: ✅ production-ready · ⚠️ works only with a required pinned image �
 | `unlimited-ocr2.py` | ✅+image | SGLang (Baidu wheel) on `lmsysorg/sglang:v0.5.20-cu130` | rtx-pro-6000 | 16-page windows; ≥48 GB GPU |
 | `unlimited-ocr2-saturate.py` | 🧪+image | same | rtx-pro-6000 | tuned/experimental: repair pass, JP2 fast decode, PDFs |
 | `unlimited-ocr2-live.py` | 🧪+image | same | rtx-pro-6000 | experimental: minimal script + `--live-port` dashboard (streams the page being read) |
-| `hpd-parsing-saturate.py` | 🧪+image | saturate + Paddle's vLLM fork (vendor registry image, pinned by digest) | l4x1 | no `uv` in the image → `hf jobs run` + uv bootstrap, no header; `markdown` + `hpd_blocks` + `looped_blocks` — see gotcha |
+| `hpd-parsing-saturate.py` | 🧪+image | saturate + Paddle's vLLM fork on `cr.hf.co/davanstrien/hpd-parsing-vllm` (vendor image + uv) | l4x1 | `markdown` + `hpd_blocks` + `looped_blocks` — see gotcha |
 | `minicpm-ocr.py` | 🧪+image | in-job vLLM nightly + minicpm-ocr SDK on `cr.hf.co/davanstrien/minicpm-ocr` | a10g-large | vendor pipeline; custom public image; dataset **or** bucket I/O (bucketbag), `markdown_status` |
 | `surya-ocr.py` | ✅+image | vLLM `:v0.20.1` | l4x1 | offline backend inject; site-packages PYTHONPATH |
 | `surya-ocr-bucket.py` | ✅+image | vLLM `:v0.20.1` | l4x1 | bucket I/O; pin `surya-ocr==0.20.0` |
@@ -192,18 +192,20 @@ require) against `vllm serve` started in the job. Measured/learned 2026-10-27:
 - vLLM runs in its own process group and is terminated → killed → reaped on every exit path; one bad
   image or a failed SDK run marks its pages `error: ...` instead of losing finished batches.
 
-### `hpd-parsing-saturate.py` — vendor fork on the vendor's registry image
+### `hpd-parsing-saturate.py` — Paddle's vLLM fork, on their image plus uv
 `PaddlePaddle/HPD-Parsing` (1B, InternVL3.5 + Qwen3-0.6B) runs only on Paddle's **fork of vLLM**
 (`0.17.1+hpdparsing`), which adds the request forking its decoding needs. The fork ships only in
 `ccr-2vdh3abv-pub.cnc.bj.baidubce.com/paddlepaddle/hpd-parsing-vllm` (tags `latest-nvidia-gpu`, and
 `-offline` with weights baked in). It pulls anonymously; the recipe pins `latest-nvidia-gpu` by digest
-(`87496aa5…`, built 2026-07-16, unchanged as of 2026-11-05). ~11 GB; a cold pull took ~15 min on 5 Nov.
+(`87496aa5…`, built 2026-07-16, unchanged as of 2026-11-05). ~11 GB. Job scheduling time (queue + pull) on
+5 Nov: 7–27 min from Paddle's registry, 2.5 min for the same image from `cr.hf.co`.
 Inside: CUDA 12.8.1, python3.10 venv at `/home/hpd/venv` first on `PATH`, user `hpd`, FlashInfer.
 Measured 2026-07-27 and 2026-11-05:
-1. **No `uv` in the image**, so `hf jobs uv run --image …` cannot start it. Run
-   `hf jobs run … <image> -- bash -lc 'pip install -q uv==0.13.6 && uv run <script-url> …'`; hence no
-   `[tool.hf-jobs]` header. `images/hpd-parsing/build.sh` builds a derived image with uv (`crane append`
-   on a CPU Job, ~5 min) for a header-driven `hf jobs uv run`; for that route the image must be public.
+1. **No `uv` in Paddle's image**, which `hf jobs uv run` needs. The header uses
+   `cr.hf.co/davanstrien/hpd-parsing-vllm`: Paddle's image (digest-pinned) plus one layer with `uv`/`uvx`
+   (`images/hpd-parsing/build.sh`, `crane append` on a CPU Job, ~7 min; public). To rebuild after a Paddle
+   update, change `BASE_DIGEST` in `build.sh`. The docstring keeps a `hf jobs run … bash -lc 'pip install uv
+   && uv run …'` command for Paddle's image directly.
 2. `requires-python` includes 3.10 so uv uses the image's own Python instead of downloading one.
 3. **Speculative head path:** the entrypoint's `"model": "PaddlePaddle/HPD-Parsing/P-MTP"` is a local
    directory in the `-offline` image only. The recipe downloads the `P-MTP/*` subfolder and passes its
@@ -387,11 +389,12 @@ ARM wheels) — if a nightly-recipe install fails on resolution, wait and retry 
 
 - **2026-11-05** — added `hpd-parsing-saturate.py` (experimental) for `PaddlePaddle/HPD-Parsing` (1B,
   Apache-2.0): the July server recipe's serve command and block parser, driven by saturate `==0.3.0`
-  (`Engine(cmd=…)` for the vendor fork), plus a `looped_blocks` flag. Vendor image pinned by digest, uv
-  installed in the run command (no header). Smoke-tested on HF Jobs: `a100-large`, 10 UFO pages, 10/10, 0
+  (`Engine(cmd=…)` for the vendor fork), plus a `looped_blocks` flag. Header image
+  `cr.hf.co/davanstrien/hpd-parsing-vllm` = Paddle's image (pinned by digest) + uv (`images/hpd-parsing/`). Smoke-tested on HF Jobs: `a100-large`, 10 UFO pages, 10/10, 0
   error rows, 12 s pump time; `l4x1`, 12 Chronicling America pages in two runs to one repo (5, then 12:
   the second run skipped the 5 done rows), 12/12, 0 error rows; 9 clean pages within 1–5% of LoC's OCR
-  length, 3 looping pages flagged. `images/hpd-parsing/` builds an optional derived image with uv.
+  length, 3 looping pages flagged. Header defaults on the public image (`l4x1`, published-path
+  equivalent: local script, no flags but `--max-samples 5`): 5/5, 0 error rows, 153 s scheduling incl. pull.
 
 - **2026-11-02** — `xiaomi-ocr-0-saturate.py` moved to `core`. NASA demo: 7/7 in 31 s; checked pages read well, but a table lost one item and some cells lost separators. 16 multilingual historical newspaper pages: 16/16 with no error rows, but repetition loops on 2 small-print German Fraktur pages (lines about 10–13 px after the 2048 px fit), a partial loop on a third, and Chinese characters inserted on 3 pages. `finish_reason` stayed `stop` on all of them.
 - **2026-10-30** — added `xiaomi-ocr-0-saturate.py` for `xiaomi-research/Xiaomi-OCR-0` (0.8B, Qwen3.5 arch), on

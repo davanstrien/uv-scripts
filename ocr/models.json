@@ -1063,12 +1063,11 @@
     "model_id": "PaddlePaddle/HPD-Parsing",
     "params": "1B",
     "backend": "saturate (in-job vllm serve from Paddle's vLLM fork 0.17.1+hpdparsing: request forking + P-MTP speculative decoding)",
-    "image": "ccr-2vdh3abv-pub.cnc.bj.baidubce.com/paddlepaddle/hpd-parsing-vllm@sha256:87496aa5dd702a7df6c70bb00c29d5bf8d1a0f0505d66b613fafa6f71cd72de2",
-    "run_pattern_override": "hf jobs run --detach --flavor l4x1 -s HF_TOKEN --timeout 2h <image> -- bash -lc 'pip install -q uv==0.13.6 && uv run <script-url> <input-dataset> <output-dataset>'",
+    "image": "cr.hf.co/davanstrien/hpd-parsing-vllm:87496aa5-uv0.13.6",
     "task": "ocr | layout",
     "output": "markdown + hpd_blocks (per-block type, bbox, text; bbox 0-1000 NORMALIZED, not pixels) + raw + looped_blocks",
     "license": "apache-2.0",
-    "notes": "Runs only on Paddle's vLLM fork, shipped only in their registry image, which has no uv: hf jobs uv run --image fails, so the run command installs uv (see run_pattern_override) and the script has no [tool.hf-jobs] header. Serve command = the image's own entrypoint, except the P-MTP speculative head path (the vendor string is not a repo id; the script downloads that subfolder) and a --revision pin. Keeps --enable-prefix-caching ON: forked children share the parent's prefix KV. max_tokens bounds one decoding branch, not the page, so dense pages can loop in many branches; looped_blocks flags them. 94.91 OmniDocBench v1.6; accuracy below ovis-ocr2 and paddleocr-vl-1.6. ~11 GB image pull on a cold node.",
+    "notes": "Runs only on Paddle's vLLM fork, shipped in their registry image. The header image is that image (latest-nvidia-gpu, pinned by digest 87496aa5) plus uv, built by images/hpd-parsing/build.sh; the docstring also gives the command for Paddle's image directly. Serve command = the image's own entrypoint, except the P-MTP speculative head path (downloaded locally) and a --revision pin. Keeps --enable-prefix-caching ON: forked children share the parent's prefix KV. max_tokens bounds one decoding branch, not the page, so dense pages can loop in many branches; looped_blocks flags them. 94.91 OmniDocBench v1.6; accuracy below ovis-ocr2 and paddleocr-vl-1.6. ~11 GB image pull on a cold node.",
     "languages": {
       "evidence": "named-list",
       "count": 2,
@@ -1079,6 +1078,14 @@
       "notes": "Card metadata lists en + zh only; no per-language numbers. Smoke runs on degraded French scans produced stray Chinese characters - treat other languages as unsupported."
     },
     "support": "experimental",
-    "support_note": "Vendor-fork image with a uv bootstrap in the run command (no header). Dense pages loop: filter on looped_blocks == 0."
+    "support_note": "Dense pages loop: filter on looped_blocks == 0. Check a sample of your own pages.",
+    "jobs": {
+      "image": "cr.hf.co/davanstrien/hpd-parsing-vllm:87496aa5-uv0.13.6",
+      "flavor": "l4x1",
+      "timeout": "2h",
+      "secrets": [
+        "HF_TOKEN"
+      ]
+    }
   }
 }
