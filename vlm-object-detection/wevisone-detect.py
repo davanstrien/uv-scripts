@@ -47,18 +47,21 @@ Measured behaviour (20-image smokes, IoU >= 0.5 against ground truth):
     several classes (a fox as Red Fox, Grey Fox and Coyote). Every box is kept;
     each box's `alt_labels` lists the other classes given to the same region
     (IoU >= --duplicate-iou), so a reviewer sees the ambiguity.
-  * --merge-duplicates keeps one box per region instead, labelled with the class
-    that comes first in --classes (there are no scores to choose by). Box-level
-    precision goes up, but labels get worse when the order is arbitrary: on ENA24
-    species, label recall fell from 0.65 to 0.40. Use it for coarse or
-    priority-ordered classes.
+  * Keeping every box costs box precision on multi-class lists: each extra class
+    name on the same object is an extra box (ENA24: 0.47 vs 0.90 merged).
+    --merge-duplicates folds overlapping boxes of different classes into one box,
+    labelled with the class listed first in --classes (there are no scores to
+    choose by). Labels get worse when that order is arbitrary: ENA24 species
+    recall fell from 0.75 to 0.30. Merge for coarse or priority-ordered classes,
+    or dedupe downstream before using the boxes as training data.
   * Class names go into the prompt as plain phrases ("Face_Shield" is sent as
-    "Face Shield"); the output label is the name exactly as you passed it.
+    "Face Shield"); the output label is the name exactly as you passed it. The
+    prompt separates classes with ". ", so names cannot contain "." or ",".
   * There are no confidence scores.
   * Compared with qwen3vl-detect.py on Qwen3.6-35B-A3B: higher box recall on small
     objects and dense pages (cigarette ends 0.88 vs 0.79, newspaper pages 0.26 vs
-    0.15), similar or slightly lower elsewhere, and weaker fine-grained labels
-    (ENA24 species recall 0.65 vs 0.80).
+    0.15), similar box recall elsewhere, lower box precision by default (see
+    above), and slightly weaker fine-grained labels (ENA24 species recall 0.75 vs 0.80).
 """
 
 import argparse
@@ -67,11 +70,13 @@ import json
 import logging
 import os
 import re
+import shlex
 import sys
 from datetime import datetime
 from typing import Any
 
 from datasets import Dataset, Features, List, Value, concatenate_datasets, load_dataset
+from datasets import Image as ImageFeature
 from huggingface_hub import DatasetCard, login
 from PIL import Image
 from toolz import partition_all
@@ -89,9 +94,11 @@ SCRIPT_URL = "https://huggingface.co/datasets/uv-scripts/vlm-object-detection/ra
 SYSTEM_PROMPT = "You are a helpful assistant."
 # Answers look like <ref>cat</ref><box><12><40><380><990>,<500><42><880><991></box>; coordinates
 # are bins on a 0-1000 grid. A truncated answer may lose its closing tag. Absent classes come back
-# as <box>none</box>, which yields no boxes. Follows evaluation/utils/parser.py in the same repo.
+# as <box>none</box>, which yields no boxes. Follows evaluation/utils/parser.py in the same repo,
+# except that the next <ref> is a lookahead, so an answer missing a closing tag does not swallow
+# the following class.
 REF_RE = re.compile(
-    r"<ref>(.*?)</ref>\s*<(box|point|polygon)>(.*?)(?:</(?:box|point|polygon)>|<ref>|$)",
+    r"<ref>(.*?)</ref>\s*<(box|point|polygon)>(.*?)(?:</(?:box|point|polygon)>|(?=<ref>)|$)",
     re.DOTALL,
 )
 BIN_RE = re.compile(r"<(\d+)>")
@@ -121,8 +128,10 @@ def build_prompt(prompt_names: list[str]) -> str:
     )
 
 
-def to_pil(image: Image.Image | dict | str) -> Image.Image:
-    """Convert HF dataset image entries (PIL / dict-with-bytes / path) to PIL."""
+def to_pil(image: Image.Image | dict | str | None) -> Image.Image | None:
+    """Convert HF dataset image entries (PIL / dict-with-bytes / path) to PIL; None stays None."""
+    if image is None:
+        return None
     if isinstance(image, Image.Image):
         return image
     if isinstance(image, dict) and image.get("bytes"):
@@ -143,7 +152,7 @@ def parse_detections(
     for phrase, shape, body in REF_RE.findall(text):
         if shape != "box":
             continue
-        phrase = phrase.strip()
+        phrase = phrase.strip().rstrip(".").strip()
         label = label_for.get(phrase.lower(), phrase)
         for segment in body.strip().rstrip(",").split(","):
             values = [int(v) for v in BIN_RE.findall(segment)]
@@ -157,6 +166,8 @@ def parse_detections(
                     max(0, min(width, round(x2 / 1000 * width))),
                     max(0, min(height, round(y2 / 1000 * height))),
                 ]
+                if box[2] <= box[0] or box[3] <= box[1]:
+                    continue  # collapsed to zero width or height after scaling/clamping
                 detections.append(
                     {"bbox": box, "label": label, "sub_label": "", "alt_labels": []}
                 )
@@ -315,6 +326,35 @@ def push_card(
     card.push_to_hub(args.output_dataset)
 
 
+def build_reproduce_args(args: argparse.Namespace) -> str:
+    """Script arguments for the card's reproduce command. Never includes --hf-token."""
+    parts = [shlex.quote(args.input_dataset), "<output-dataset>"]
+    parts += ["--classes", shlex.quote(args.classes)]
+    if args.split != "train":
+        parts += ["--split", shlex.quote(args.split)]
+    if args.model != DEFAULT_MODEL:
+        parts += ["--model", shlex.quote(args.model)]
+    if args.image_column != "image":
+        parts += ["--image-column", shlex.quote(args.image_column)]
+    if args.max_samples:
+        parts += ["--max-samples", str(args.max_samples)]
+    if args.shuffle:
+        parts += ["--shuffle", "--seed", str(args.seed)]
+    if args.duplicate_iou != 0.8:
+        parts += ["--duplicate-iou", str(args.duplicate_iou)]
+    if args.merge_duplicates:
+        parts.append("--merge-duplicates")
+    if args.max_image_tokens != 2025:
+        parts += ["--max-image-tokens", str(args.max_image_tokens)]
+    if args.max_model_len != 8192:
+        parts += ["--max-model-len", str(args.max_model_len)]
+    if args.max_tokens != 4096:
+        parts += ["--max-tokens", str(args.max_tokens)]
+    if args.private:
+        parts.append("--private")
+    return " ".join(parts)
+
+
 def build_card_body(
     args: argparse.Namespace,
     classes: list[str],
@@ -333,9 +373,7 @@ def build_card_body(
             f"{stats['with_alt_labels']} boxes share their region with a box of another class "
             "(see `alt_labels`)."
         )
-    args_summary = " ".join(
-        f'"{a}"' if (" " in a or "," in a) else a for a in sys.argv[1:]
-    ).replace(args.output_dataset, "<output-dataset>")
+    reproduce_args = build_reproduce_args(args)
     return f"""
 # Class-list detection with WeVisOne-VL
 
@@ -362,12 +400,31 @@ These are **zero-shot labels**: no human checked them. Treat them as a first pas
 
 ```bash
 hf jobs uv run {f"--flavor {hw} " if hw else ""}{SCRIPT_URL} \\
-    {args_summary}
+    {reproduce_args}
 ```
 """
 
 
 def main(args: argparse.Namespace) -> None:
+    classes = [c.strip() for c in args.classes.split(",") if c.strip()]
+    if not classes:
+        sys.exit(
+            "--classes is empty. Pass a comma-separated list, e.g. --classes 'cat,dog'."
+        )
+    with_period = [c for c in classes if "." in c]
+    if with_period:
+        sys.exit(
+            f"Class names cannot contain '.', which the prompt uses to separate classes: "
+            f"{with_period}. Rename them (e.g. 'St Bernard')."
+        )
+    if args.max_image_tokens + args.max_tokens + 256 > args.max_model_len:
+        sys.exit(
+            f"--max-image-tokens ({args.max_image_tokens}) + --max-tokens ({args.max_tokens}) "
+            f"does not fit in --max-model-len ({args.max_model_len}). Raise --max-model-len."
+        )
+    # A split slice such as 'train[:100]' loads fine but is not a valid name to push to.
+    output_split = args.split.split("[")[0]
+
     import torch
 
     if not torch.cuda.is_available():
@@ -385,11 +442,6 @@ def main(args: argparse.Namespace) -> None:
     if args.hf_token:  # HF_TOKEN in the environment is picked up without a login call
         login(token=args.hf_token)
 
-    classes = [c.strip() for c in args.classes.split(",") if c.strip()]
-    if not classes:
-        sys.exit(
-            "--classes is empty. Pass a comma-separated list, e.g. --classes 'cat,dog'."
-        )
     prompt_names = [c.replace("_", " ") for c in classes]
     label_for = {p.lower(): c for p, c in zip(prompt_names, classes, strict=True)}
     class_rank = {c: i for i, c in enumerate(classes)}
@@ -402,6 +454,10 @@ def main(args: argparse.Namespace) -> None:
         sys.exit(
             f"Column '{args.image_column}' not found. Columns: {dataset.column_names}"
         )
+    if not isinstance(dataset.features[args.image_column], ImageFeature):
+        # Paths or URLs would be uploaded as plain strings and the pixels lost after the Job.
+        logger.info("Casting column '%s' to Image", args.image_column)
+        dataset = dataset.cast_column(args.image_column, ImageFeature())
     clashes = {"detections", "raw_response", "inference_info"} & set(
         dataset.column_names
     )
@@ -455,14 +511,31 @@ def main(args: argparse.Namespace) -> None:
         list(partition_all(args.batch_size, range(len(dataset)))),
         desc="WeVisOne detection",
     ):
-        images = [
-            to_pil(dataset[i][args.image_column]).convert("RGB") for i in batch_indices
-        ]
+        images = []
+        for i in batch_indices:
+            image = to_pil(dataset[i][args.image_column])
+            images.append(image.convert("RGB") if image is not None else None)
         requests = [
-            {"prompt": chat_prompt, "multi_modal_data": {"image": im}} for im in images
+            {"prompt": chat_prompt, "multi_modal_data": {"image": im}}
+            for im in images
+            if im is not None
         ]
-        outputs = llm.generate(requests, sampling_params, use_tqdm=False)
-        for image, output in zip(images, outputs, strict=True):
+        generated = iter(llm.generate(requests, sampling_params, use_tqdm=False))
+        for image in images:
+            if image is None:  # empty image cell: keep the row, with no detections
+                all_detections.append([])
+                all_raw.append("")
+                all_info.append(
+                    json.dumps(
+                        {
+                            "model_id": args.model,
+                            "image_size": None,
+                            "error": "missing image",
+                        }
+                    )
+                )
+                continue
+            output = next(generated)
             text = output.outputs[0].text if output.outputs else ""
             detections = parse_detections(text, image.width, image.height, label_for)
             merged = 0
@@ -516,7 +589,7 @@ def main(args: argparse.Namespace) -> None:
     logger.info("Pushing to %s", args.output_dataset)
     dataset.push_to_hub(
         args.output_dataset,
-        split=args.split,
+        split=output_split,
         private=args.private,
         create_pr=args.create_pr,
         commit_message=f"WeVisOne detection: {args.model} on {len(dataset)} rows",
@@ -550,7 +623,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--classes",
         required=True,
-        help="Comma-separated class names (e.g. 'Coverall,Gloves,Mask'); order sets priority for --merge-duplicates",
+        help="Comma-separated class names (e.g. 'Coverall,Gloves,Mask'); names cannot contain ',' or '.'. "
+        "Order sets priority for --merge-duplicates",
     )
     parser.add_argument(
         "--model", default=DEFAULT_MODEL, help=f"Model (default: {DEFAULT_MODEL})"
@@ -583,8 +657,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--merge-duplicates",
         action="store_true",
-        help="Keep one box per region, labelled with the class listed first in --classes "
-        "(default: keep every box and fill alt_labels)",
+        help="Fold overlapping boxes of different classes into one box, labelled with the class "
+        "listed first in --classes (default: keep every box and fill alt_labels)",
     )
     parser.add_argument(
         "--max-tokens", type=int, default=4096, help="Output cap (default: 4096)"
