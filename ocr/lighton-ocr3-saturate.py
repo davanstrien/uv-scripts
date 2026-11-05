@@ -97,6 +97,10 @@ import tempfile
 # - longest_edge 2048: the card's rendering tip and the client's page size for these models.
 # - patch 32: 16 px patches with a 2x2 merge, so a 2048x2048 page is at most 64x64 = 4,096
 #   image tokens (used for the context check).
+# - --max-num-batched-tokens 16384: speed only. vLLM 0.30 serves with 2048 on A10G, L4 and
+#   A100 (8192 on 96 GB+ GPUs), less than one page's image tokens. Measured on a100-large:
+#   6.20 and 6.30 pages/s against 5.83 without it, outputs within the run-to-run noise.
+# - pages_per_gib: see window_cap().
 SERVING = {
     "models": ["lightonai/LightOnOCR-3-0.8B", "lightonai/LightOnOCR-3-4B"],
     "image": "vllm/vllm-openai:v0.30.0",
@@ -106,7 +110,9 @@ SERVING = {
         "--limit-mm-per-prompt", '{"image": 1}',
         "--mm-processor-cache-gb", "0",
         "--no-enable-prefix-caching",
+        "--max-num-batched-tokens", "16384",
     ],
+    "pages_per_gib": 8,
     "max_tokens": 4096,
     "temperature": 0.2,
     "top_p": 0.9,
@@ -114,6 +120,35 @@ SERVING = {
     "longest_edge": 2048,
     "patch": 32,
 }
+
+
+def window_cap() -> int:
+    """Most pages in flight that this machine's memory allows.
+
+    Every page in flight holds about 0.1 GiB of image data on the host (the client's copy and
+    the server's preprocessed image), on top of about 9 GiB for the engine itself. On
+    a10g-small (14.9 GiB limit) 32 pages in flight peaked at 12.0 GiB, while 64 reached the
+    limit and the Job stopped making progress. So the window may grow by SERVING
+    "pages_per_gib" pages per GiB above 10 GiB: 39 on a10g-small, about 140 on l4x1, the full
+    512 on a100-large. The limit is read from the container (cgroup v2), then from the MEMORY
+    variable that HF Jobs sets.
+    """
+    limit_gib = None
+    try:
+        with open("/sys/fs/cgroup/memory.max") as handle:
+            value = handle.read().strip()
+        if value != "max":
+            limit_gib = int(value) / 2**30
+    except (OSError, ValueError):
+        pass
+    if limit_gib is None and os.environ.get("MEMORY"):
+        try:  # e.g. "16.0G" (decimal gigabytes)
+            limit_gib = float(os.environ["MEMORY"].upper().rstrip("GIB ")) * 1e9 / 2**30
+        except ValueError:
+            pass
+    if limit_gib is None:
+        return 512
+    return max(8, min(512, int((limit_gib - 10) * SERVING["pages_per_gib"])))
 
 
 def max_image_tokens(longest_edge: int) -> int:
@@ -291,7 +326,15 @@ def main():
         for row_id, row in source:
             yield row_id, {**row, "__id": row_id}
 
-    window = Auto() if args.window == "auto" else Fixed(int(args.window))
+    cap = window_cap()
+    if args.window == "auto":
+        window = Auto(initial=min(64, cap), max_limit=cap)
+        print(f"window: auto, at most {cap} pages in flight (host memory)", file=sys.stderr)
+    else:
+        window = Fixed(int(args.window))
+        if int(args.window) > cap:
+            print(f"warning: --window {args.window} is above the {cap} pages this machine's "
+                  "memory allows; the Job may run out of memory", file=sys.stderr)
     workers = args.prepare_workers
     if workers is None:
         workers = max(1, int(float(os.environ.get("CPU_CORES") or "4")))
