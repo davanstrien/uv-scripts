@@ -152,6 +152,32 @@ def classify_messages(
     return labels
 
 
+def is_engine_dead(error: Exception) -> bool:
+    """True if vLLM's engine process has died, so every later call would fail too."""
+    # Checked by class name so the script does not depend on where vLLM defines it.
+    return type(error).__name__ == "EngineDeadError"
+
+
+def classify_one_at_a_time(
+    llm: "LLM",
+    sampling_params: "SamplingParams",
+    rows: List[int],
+    messages: List[List[Dict]],
+    errors: Dict[int, str],
+) -> List[Optional[str]]:
+    """Retry a failed batch row by row. Record each failing row in errors."""
+    labels = []
+    for idx, row_messages in zip(rows, messages):
+        try:
+            labels.extend(classify_messages(llm, sampling_params, [row_messages]))
+        except Exception as e:
+            if is_engine_dead(e):
+                raise
+            errors[idx] = str(e)
+            labels.append(None)
+    return labels
+
+
 def main(
     input_dataset: str,
     output_dataset: str,
@@ -276,21 +302,19 @@ def main(
         try:
             batch_labels = classify_messages(llm, sampling_params, batch_messages)
         except Exception as e:
+            # A dead engine fails every later call: stop instead of walking the
+            # rest of the dataset and pushing nulls.
+            if is_engine_dead(e):
+                raise
             # One bad input (for example an image whose prompt is longer than
             # --max-model-len) fails the whole vLLM call, so retry the batch's
             # rows one at a time and lose only the rows that fail on their own.
             logger.warning(
                 f"Batch failed ({str(e)[:200]}); retrying its {len(batch_rows)} images one at a time"
             )
-            batch_labels = []
-            for idx, messages in zip(batch_rows, batch_messages):
-                try:
-                    batch_labels.extend(
-                        classify_messages(llm, sampling_params, [messages])
-                    )
-                except Exception as row_error:
-                    errors[idx] = str(row_error)
-                    batch_labels.append(None)
+            batch_labels = classify_one_at_a_time(
+                llm, sampling_params, batch_rows, batch_messages, errors
+            )
 
         for idx, label in zip(batch_rows, batch_labels):
             labels[idx] = label
@@ -300,20 +324,24 @@ def main(
     # Report failures before pushing. If nothing was labelled, stop: an all-null
     # label column looks like a finished dataset but holds no results.
     if errors:
-        examples = list(errors.items())[:3]
-        if len(errors) == len(dataset):
-            logger.error(
-                f"All {len(dataset)} images failed, so nothing was pushed. First errors:"
+        all_failed = len(errors) == len(dataset)
+        log = logger.error if all_failed else logger.warning
+        if all_failed:
+            log(f"All {len(dataset)} images failed, so nothing was pushed. First errors:")
+        else:
+            log(
+                f"{len(errors)} of {len(dataset)} images have no label "
+                "(null in the 'label' column). First errors:"
             )
-            for idx, message in examples:
-                logger.error(f"  row {idx}: {message[:300]}")
+        for idx, message in list(errors.items())[:3]:
+            log(f"  row {idx}: {message[:300]}")
+        if any("longer than the maximum model length" in m for m in errors.values()):
+            log(
+                "Some images need more tokens than --max-model-len allows: "
+                "set --max-size (for example 768) or raise --max-model-len."
+            )
+        if all_failed:
             sys.exit(1)
-        logger.warning(
-            f"{len(errors)} of {len(dataset)} images have no label "
-            "(null in the 'label' column). First errors:"
-        )
-        for idx, message in examples:
-            logger.warning(f"  row {idx}: {message[:300]}")
 
     # Add classifications to dataset
     logger.info("Adding classifications to dataset...")
