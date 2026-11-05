@@ -398,7 +398,7 @@
     "task": "ocr",
     "output": "markdown; --mode grounding adds labelled layout blocks with 0-1000 boxes (layout_blocks JSON column)",
     "license": "apache-2.0",
-    "notes": "Large-run sibling of lighton-ocr3.py: same prompt modes, sampling and page resize; LightOn's serve flags (--max-model-len 18000) plus --max-num-batched-tokens 16384. Window capped by host memory. Measured 2026-11-05 (0.8B, 600 pages, steady state): a10g-small 2.2 pages/s, a100-large 6.2, rtx-pro-6000 9.2 (about $0.08 per 1,000 pages); lighton-ocr3.py: 0.90 and 1.27. Not LightOnOCR-3-1B.",
+    "notes": "Large-run sibling of lighton-ocr3.py: same prompt modes, sampling and page resize; LightOn's serve flags (--max-model-len 18000) plus --max-num-batched-tokens 16384, and 4 vLLM API servers when CPU_CORES >= 12. Window capped by host memory. Measured 2026-11-05 (0.8B, 600 pages, steady state): a10g-small 2.2 pages/s, a100-large 7.2, rtx-pro-6000 10.0 (about $0.08 per 1,000 pages); lighton-ocr3.py: 0.90 and 1.27. Not LightOnOCR-3-1B.",
     "languages": {
       "evidence": "not-stated",
       "notes": "LightOnOCR-3 cards give no language list (LightOnOCR-2 named 11)."

@@ -50,7 +50,7 @@ Run on your own GPU (vLLM and torch come from the image on Jobs, so add them her
 For large scans with very small type, try a higher --longest-edge and --max-tokens.
 
 For large runs use lighton-ocr3-saturate.py: same model, prompts and sampling, served by
-vLLM with many pages in flight (measured 2.4x the pages per second on a10g-small, 4.9x on
+vLLM with many pages in flight (measured 2.4x the pages per second on a10g-small, 5.7x on
 a100-large), with resumable output.
 
 The image is pinned to vLLM 0.30.0 because LightOn's client reports that vLLM 0.27.1

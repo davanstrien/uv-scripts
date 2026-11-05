@@ -73,7 +73,8 @@ Upstream settings kept:
 Speed settings: pages are prepared in `--prepare-workers` threads (default: the CPU_CORES
 that HF Jobs sets), and saturate's adaptive window sets how many pages are in flight, up to
 a cap that fits the Job's memory (window_cap below). `--window N` pins it instead. The
-server also gets `--max-num-batched-tokens 16384` (see SERVING).
+server also gets `--max-num-batched-tokens 16384`, and 4 API server processes on flavors
+with 12 or more CPU cores (see SERVING). Pass --serve-args "--api-server-count N" to choose.
 
 Measured speed, LightOnOCR-3-0.8B (2026-11-05, vLLM 0.30.0). 600 pages: 350 book pages from
 finebooks/bhl-impact-gt and 250 pages of typed industry documents, all fitted to 2048 px.
@@ -82,18 +83,17 @@ Steady state, excluding the server start (about 4 min, also paid by lighton-ocr3
   flavor          pages/s   $ per 1,000 pages   lighton-ocr3.py (offline batches)
   a10g-small        2.2         0.12                0.90 pages/s, $0.31
   l4x1              1.6         0.14
-  a100-large        6.2         0.11                1.27 pages/s, $0.55
-  rtx-pro-6000      9.2         0.08
+  a10g-large        2.7         0.15
+  a100-large        7.2         0.10                1.27 pages/s, $0.55
+  rtx-pro-6000     10.0         0.08
 
-The 4B on a100-large: 2.7 pages/s, $0.26 per 1,000 pages; on these book pages its
-character error rate was higher than the 0.8B's (0.10 mean, 0.023 median, one run), so
-check a sample before paying for it. The header's a10g-small is a
-good default for small and medium runs; for large runs add --flavor rtx-pro-6000 (or
-a100-large). On a100-large, --serve-args "--api-server-count 4" gave 7.3 pages/s instead
-of 6.2 (it needs spare CPU cores, so it is not the default). In every run the outputs
-differed from lighton-ocr3.py's no more than two runs of this recipe differ from each
-other (sampling at temperature 0.2), and the character error rate on the book pages stayed
-at 0.08 mean, 0.02 median.
+The 4B on a100-large (one API server): 2.7 pages/s, $0.26 per 1,000 pages; on these book
+pages its character error rate was higher than the 0.8B's (0.10 mean, 0.023 median, one
+run), so check a sample before paying for it. The header's a10g-small is a good default
+for small and medium runs; for large runs add --flavor rtx-pro-6000 (or a100-large). In
+every run the outputs differed from lighton-ocr3.py's no more than two runs of this recipe
+differ from each other (sampling at temperature 0.2), and the character error rate on the
+book pages stayed at 0.08 mean, 0.02 median.
 
 Truncation and repair: 9 to 12 of the 600 pages stopped at max_tokens 4096 in each run,
 most of them typed tables. With --repair-max-tokens 12000, 8 of 12 such pages finished:
@@ -132,9 +132,11 @@ import tempfile
 # - pages_per_gib: see window_cap().
 # - api_servers 4 when CPU_CORES >= 12: speed only. With one vLLM API server, a100-large and
 #   rtx-pro-6000 had 128-256 pages in flight but only 36-60 running in the engine and none
-#   waiting: the rest queued for image preprocessing in the API process. Measured on
-#   a100-large: 7.3 pages/s with 4 API servers, 6.2 with one. Small flavors (a10g-small,
-#   3 cores) keep one, to leave CPU for page preparation.
+#   waiting: the rest queued for image preprocessing in the API process. Measured, 4 API
+#   servers against one: a100-large 7.29 and 7.18 against 6.20 and 6.30 pages/s,
+#   rtx-pro-6000 10.0 against 9.15, a10g-large 2.74 against 2.49; outputs within the
+#   run-to-run noise. Small flavors (a10g-small 3 cores, l4x1 8) keep one, to leave CPU
+#   for page preparation.
 SERVING = {
     "models": ["lightonai/LightOnOCR-3-0.8B", "lightonai/LightOnOCR-3-4B"],
     "image": "vllm/vllm-openai:v0.30.0",
