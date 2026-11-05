@@ -5,13 +5,14 @@
 #     "huggingface-hub",
 #     "pillow",
 #     "toolz",
-#     "torch",
 #     "tqdm",
-#     "transformers",
-#     "vllm>=0.15.1",
 # ]
 #
 # [tool.hf-jobs]
+# # vllm, torch and transformers come from the image (PYTHONPATH). Listing them above makes uv
+# # install a newer PyPI vllm and its deps; PYTHONPATH shadows that vllm but not new deps such
+# # as b12x, which the image's vllm then imports and crashes on (missing flashinfer module).
+# # Seen on v0.32.0 (2026-11-05); re-test before moving the tag. Local GPU: uv run --with vllm.
 # image = "vllm/vllm-openai:v0.32.0"
 # python = "/usr/bin/python3"
 # env = { PYTHONPATH = "/usr/local/lib/python3.12/dist-packages" }
@@ -53,14 +54,11 @@ import sys
 from datetime import datetime
 from typing import Any, Optional, Union
 
-import torch
 from datasets import load_dataset
 from huggingface_hub import login
 from PIL import Image
 from toolz import partition_all
 from tqdm.auto import tqdm
-from transformers import AutoProcessor
-from vllm import LLM, SamplingParams
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s"
@@ -213,6 +211,12 @@ def main(
     seed: int = 42,
     create_pr: bool = False,
 ) -> None:
+    # Imported here rather than at module top so `uv run <script> --help` works without
+    # them; on Jobs they come from the vLLM image (see the header).
+    import torch
+    from transformers import AutoProcessor
+    from vllm import LLM, SamplingParams
+
     if not torch.cuda.is_available():
         logger.error("CUDA is not available. This script requires a GPU.")
         logger.error("For cloud execution: hf jobs uv run --flavor a100-large ...")
@@ -407,13 +411,15 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
+  # Local GPU (Linux + CUDA): the header leaves vllm/torch/transformers to
+  # the Jobs image, so add vllm with --with.
   # Generic detection
-  uv run qwen3vl-detect.py \\
+  uv run --with vllm qwen3vl-detect.py \\
       input-dataset username/output-dataset \\
       --prompt "Detect all visible objects, return JSON with bbox_2d, label, sub_label"
 
   # Component detection (matches the demo's example 1)
-  uv run qwen3vl-detect.py \\
+  uv run --with vllm qwen3vl-detect.py \\
       pcb-images username/labelled-pcbs \\
       --prompt-file prompts/components.txt \\
       --max-samples 20
