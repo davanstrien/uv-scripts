@@ -30,14 +30,20 @@ Rows marked `⚠️ due` are past their smoke-test interval (active 45 days, fro
 
 ## Smoke test (one recipe)
 
+**OCR and other image-to-text recipes** (`INPUT_DATASET OUTPUT_DATASET`, an `image` column):
+
 ```bash
 hf jobs uv run --detach --timeout 45m <folder>/<recipe>.py \
   davanstrien/ufo-ColPali <you>/uvs-smoke-<recipe>-<YYYYMMDD> --max-samples 3 --shuffle --private
 ```
 
 The header supplies the image, flavor, Python, `PYTHONPATH` and secret. Use `--dry-run` first to see
-the resolved Job. Recipes that read files (bucket variants) take mounts instead; copy the command from
-the script's docstring.
+the resolved Job.
+
+**Every other recipe:** do not reuse the OCR command. Read the script's docstring and `add_argument`
+calls first (named arguments, a text column, labels, mounts for bucket variants), and pick a small public
+input of the right shape. Copy the docstring's example, cut it to a few rows, and check the output
+column that recipe writes. A wrong command still starts a paid Job.
 
 - **Job ID:** take it from the `hf jobs logs -f <namespace>/<id>` hint. Do not grep for any 24-hex
   string: image digests contain them too.
@@ -48,7 +54,7 @@ the script's docstring.
 **A pass needs all of these**, not only a completed Job:
 
 1. The Job stage is `COMPLETED` and the output dataset has the expected number of rows.
-2. Read the output text column. No error sentinels (`[OCR ERROR]` and similar), no repetition loops,
+2. Read the output column. No error sentinels (`[OCR ERROR]` and similar), no repetition loops,
    and no empty rows for pages that have text. A blank page can give empty output for every model; check
    the image before you call that a failure.
 3. Note the model revision and the image as run (the log prints both for frozen recipes).

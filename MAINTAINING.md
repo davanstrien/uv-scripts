@@ -65,7 +65,8 @@ successor freezes the recipe it replaces.
 - If the fix is not worth it, mark it `unsupported` (for OCR, in `ocr/models.json`) and say why.
 - Removing a script deletes it from the Hub. Do that only as a deliberate, confirmed step (see
   [AGENTS.md](AGENTS.md)), never as a side effect of a cleanup.
-- To make a frozen recipe active again: remove `exclude-newer`, move it to a current image, smoke-test.
+- To make a frozen recipe active again: set `maintenance = "active"`, remove `frozen_on`,
+  `superseded_by` and `exclude-newer`, move it to a current image tag, smoke-test, and record the result.
 
 ## Image-mode recipes break when PyPI moves
 
@@ -130,6 +131,11 @@ the text was read: no error sentinels, no empty pages that have text, no repetit
 python3 tools/recipe-status.py --write   # regenerate maintenance/STATUS.md
 python3 tools/recipe-status.py --check   # rule breaks for recipes that have a tier
 ```
+
+`--check` also fails on a header that does not parse and on a malformed record. For a frozen recipe,
+the latest record must be a pass on or after `frozen_on`, with the header's image and cutoff and a
+40-character model revision. The tool cannot see the revision in the script's code: check that by
+hand when you freeze a recipe or change its model loading.
 
 `maintenance/` is not mirrored to the Hub.
 
