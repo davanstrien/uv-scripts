@@ -46,7 +46,10 @@ planned **self-review skill** (see [Deferred](#deferred--tracked)) just enforces
   wheel, a resolver backtrack. In the recipe, record **why** the pin exists and **what would loosen it**
   (e.g. "move back to the default image when a newer vLLM ships a Qwen2.5-VL decode fix"; "drop the
   nightly once the arch lands in a stable release"). Re-test periodically and relax when the gap closes —
-  that's what the `bump-vllm-pins` skill is for; prefer floors over exact pins once you can.
+  that's what the `maintain-recipes` skill is for; prefer floors over exact pins once you can.
+  This applies to **active** recipes. **Frozen** recipes (superseded or little used) pin image digest,
+  package cutoff and model revision on purpose and get fixes only when they break — see
+  [MAINTAINING.md](https://github.com/davanstrien/uv-scripts/blob/main/MAINTAINING.md).
 - **Env guards on the bare image.** Set `VLLM_USE_FLASHINFER_SAMPLER=0` (and `VLLM_USE_DEEP_GEMM=0`
   for nightly vLLM) **before** importing `vllm` — both JIT paths need `nvcc`, which the bare uv image lacks.
 - **Context-length invariant.** `--max-tokens` ≤ `--max-model-len` ≤ the model's real max context
@@ -63,6 +66,10 @@ planned **self-review skill** (see [Deferred](#deferred--tracked)) just enforces
   don't auto-size `max_model_len` from images (it's fixed at engine init, before images are seen).
 - **Dep sanity.** No stale version *caps* that drag a transitive lib back — e.g. `pyarrow<18` forced an
   old `datasets` lacking the `Json` feature → `load_dataset` crashed (the glm-ocr bug). Use floors, not ceilings.
+  **Exception: image limits.** On a pinned image the image's copy of a shared package wins over uv's, so a
+  cap that encodes what the image ships is correct (e.g. `datasets<5.1` because 5.1 needs
+  `huggingface_hub>=1.31` and images before v0.30 ship older). Comment the reason next to the cap
+  ([MAINTAINING.md](https://github.com/davanstrien/uv-scripts/blob/main/MAINTAINING.md), "Image-mode recipes").
 - **Error signalling (known gap).** Scripts currently write sentinels (`[OCR ERROR]`, `[SURYA GENERATE
   ERROR]`) *into* the output column, so partial failures are silent. A companion `ocr_error` status
   column is the deferred fix (see [Deferred](#deferred--tracked)).
@@ -357,7 +364,7 @@ LightOnOCR-2's commentary style).
 
 - **bucketbag adoption** — evaluate adopting `bucketbag` for the bucket recipes (slim recipes / harden
   bucketbag / find other beneficiaries) → [#67](https://github.com/davanstrien/uv-scripts/issues/67).
-- **Self-review skill** (spark) — a dev-only skill (sibling to `bump-vllm-pins`) that reviews a recipe/diff
+- **Self-review skill** (spark) — a dev-only skill (sibling to `maintain-recipes`) that reviews a recipe/diff
   against the [Conventions](#conventions--invariants) block: context-length, collision guard, vLLM-image +
   preflight, env guards, dep sanity, image bounding, optional Jobs smoke. Enforces that list; build after
   the current work.

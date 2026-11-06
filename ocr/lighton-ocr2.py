@@ -8,8 +8,16 @@
 #     "toolz",
 # ]
 #
+# [tool.uv]
+# exclude-newer = "2026-10-01T00:00:00Z"  # frozen: resolve packages as on this date
+#
+# [tool.uv-scripts]
+# maintenance = "frozen"
+# frozen_on = "2026-11-06"
+# superseded_by = "lighton-ocr3.py"
+#
 # [tool.hf-jobs]
-# image = "vllm/vllm-openai:v0.22.1"
+# image = "vllm/vllm-openai@sha256:953d3a06d5e64ab582985cd7401289d3abf2a2c14ef2158e9a84313daeec77d7"  # v0.22.1
 # python = "/usr/bin/python3"
 # env = { PYTHONPATH = "/usr/local/lib/python3.12/dist-packages" }
 # flavor = "a10g-small"
@@ -34,6 +42,10 @@ fails to import LightOnOCR-2 (PixtralRotaryEmbedding). Pass --timeout for a long
       <input-dataset> <output-dataset>
 
 To run on your own GPU, add the engine: `uv run --with vllm==0.22.1 lighton-ocr2.py ...`.
+
+Frozen on 2026-11-06 (superseded by lighton-ocr3.py): the image digest, the package
+resolution date and the model revision are pinned, and it gets fixes only when it breaks.
+See MAINTAINING.md in https://github.com/davanstrien/uv-scripts.
 
 Features:
 - ⚡ Fastest: 42.8 pages/sec on H100 GPU (7× faster than v1)
@@ -79,6 +91,8 @@ logger = logging.getLogger(__name__)
 
 # LightOnOCR-2 model (single variant)
 MODEL = "lightonai/LightOnOCR-2-1B"
+# Frozen: the revision tested on 2026-11-06 (main at that date).
+MODEL_REVISION = "be7c41313c30e940fe5571de59e5fabc779e00c8"
 
 
 def check_cuda_availability():
@@ -371,6 +385,9 @@ def main(
     logger.info("This may take a few minutes on first run...")
     llm = LLM(
         model=MODEL,
+        revision=MODEL_REVISION,
+        code_revision=MODEL_REVISION,
+        tokenizer_revision=MODEL_REVISION,
         trust_remote_code=True,
         max_model_len=max_model_len,
         gpu_memory_utilization=gpu_memory_utilization,
