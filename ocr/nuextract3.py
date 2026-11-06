@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.11"
 # dependencies = [
-#     "datasets>=3.1.0",
+#     "datasets>=3.1.0,<5.1",  # 5.1 needs huggingface_hub>=1.31; the image ships an older 1.x on PYTHONPATH, which wins
 #     "huggingface-hub",
 #     "pillow",
 #     "toolz",

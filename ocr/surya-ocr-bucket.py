@@ -2,7 +2,7 @@
 # requires-python = ">=3.10"
 # dependencies = [
 #     "surya-ocr==0.20.0",
-#     "datasets>=3.1.0",
+#     "datasets>=3.1.0,<5.1",  # 5.1 needs huggingface_hub>=1.31; the image ships an older 1.x on PYTHONPATH, which wins
 #     "huggingface-hub",
 #     "pillow",
 #     "imagecodecs",
@@ -1061,10 +1061,10 @@ def main(args: argparse.Namespace) -> None:
     start_time = datetime.now(timezone.utc)
 
     hf_token = args.hf_token or os.environ.get("HF_TOKEN")
+    # Set the env var instead of login(): the old huggingface_hub in this image
+    # raises KeyError on a Jobs token in login(). Hub calls read HF_TOKEN.
     if hf_token:
-        from huggingface_hub import login
-
-        login(token=hf_token)
+        os.environ["HF_TOKEN"] = hf_token
 
     exts = {e.strip().lower() for e in args.extensions.split(",") if e.strip()}
     io_mode = resolve_io_mode(args.io_mode, args.input_source)

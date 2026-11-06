@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.11"
 # dependencies = [
-#     "datasets>=4.0.0",
+#     "datasets>=4.0.0,<5.1",  # 5.1 needs huggingface_hub>=1.31; the image ships an older 1.x on PYTHONPATH, which wins
 #     "huggingface-hub",
 #     "pillow",
 #     "tqdm",
@@ -80,6 +80,10 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 MODEL = "baidu/Unlimited-OCR"
+# Last revision tested with this recipe and image. The 2026-10-14 upstream update
+# ("compatibility with transformers") makes the remote code import addict and
+# matplotlib at config load, which this image lacks. Re-test before moving it.
+MODEL_REVISION = "07dea832e22aefee32ad281d4b80551282e1c168"
 
 # Prompt and no-repeat-ngram knobs straight from the model card / vLLM recipe (single image).
 PROMPT = "<image>document parsing."
@@ -271,8 +275,14 @@ def main(
     logger.info(f"Initializing vLLM with model: {model}")
     logger.info("This may take a few minutes on first run...")
 
+    # The pin applies to the default model only; another --model loads its main branch.
+    revision = MODEL_REVISION if model == MODEL else None
+    logger.info(f"Model revision: {revision or 'main'}")
     llm = LLM(
         model=model,
+        revision=revision,
+        code_revision=revision,
+        tokenizer_revision=revision,
         trust_remote_code=True,
         max_model_len=max_model_len,
         gpu_memory_utilization=gpu_memory_utilization,
