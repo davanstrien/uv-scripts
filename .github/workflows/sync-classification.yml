@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
     paths: ['classification/**', '.github/workflows/sync-classification.yml']
+permissions:
+  contents: read
+
 jobs:
   sync:
     uses: ./.github/workflows/_sync-folder.yml
