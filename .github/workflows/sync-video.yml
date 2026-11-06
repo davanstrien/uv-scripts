@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
     paths: ['video/**', '.github/workflows/sync-video.yml']
+permissions:
+  contents: read
+
 jobs:
   sync:
     uses: ./.github/workflows/_sync-folder.yml

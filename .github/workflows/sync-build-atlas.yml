@@ -4,6 +4,9 @@ on:
     branches: [main]
     paths: ['build-atlas/**', '.github/workflows/sync-build-atlas.yml']
 
+permissions:
+  contents: read
+
 jobs:
   sync:
     uses: ./.github/workflows/_sync-folder.yml

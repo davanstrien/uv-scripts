@@ -26,23 +26,30 @@ on:
       HF_TOKEN:
         required: true
 
+permissions:
+  contents: read
+
 jobs:
   sync:
     runs-on: ubuntu-latest
     env:
       REPO_ID: ${{ inputs.repo_id != '' && inputs.repo_id || format('uv-scripts/{0}', inputs.folder) }}
+      FOLDER: ${{ inputs.folder }}
+      REPO_TYPE: ${{ inputs.repo_type }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       - name: Gate — folder must be a superset of the Hub repo (guards --delete="*")
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
-        run: bash ./tools/verify-superset.sh "${{ inputs.folder }}" "$REPO_ID" "${{ inputs.repo_type }}"
+        run: bash ./tools/verify-superset.sh "$FOLDER" "$REPO_ID" "$REPO_TYPE"
 
       - name: Guard — no LFS pointers (would corrupt Hub binaries)
         run: |
-          if grep -rIl '^version https://git-lfs' "${{ inputs.folder }}/"; then
-            echo "::error::LFS pointer file found in ${{ inputs.folder }}/ — would upload pointer text and corrupt the Hub asset"
+          if grep -rIl '^version https://git-lfs' "$FOLDER/"; then
+            echo "::error::LFS pointer file found in $FOLDER/ — would upload pointer text and corrupt the Hub asset"
             exit 1
           fi
 
