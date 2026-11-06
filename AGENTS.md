@@ -36,6 +36,16 @@ mirror the org's *demo* Spaces. (One Space *is*
 mirrored — the org profile card: `org-card/` → `uv-scripts/README`, a static Space, via the reusable
 workflow's optional `repo_id` / `repo_type` inputs.)
 
+Folders without a `sync-<repo>.yml` workflow are not mirrored: `tools/`, `tests/`, `skills/`,
+`maintenance/` (smoke-test records and the generated status table) and `.claude/`.
+
+## Maintaining recipes
+
+Keeping recipes working — the active/frozen tiers, freezing a superseded recipe, why recipes on pinned
+images break, smoke-test records — is in **[MAINTAINING.md](MAINTAINING.md)**. Read it before you bump an
+image, add a dependency to an image-mode recipe, or retire a recipe. The procedures are in the
+`maintain-recipes` skill (`.claude/skills/maintain-recipes/`).
+
 ## Script conventions
 
 - Self-contained **[PEP 723](https://peps.python.org/pep-0723/) / [UV script](https://docs.astral.sh/uv/guides/scripts/)** — deps inline, no `requirements.txt`, no shared importable lib:

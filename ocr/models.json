@@ -1,7 +1,7 @@
 {
   "_meta": {
     "description": "Machine-readable catalog of the OCR recipes in this directory: script -> model, params, backend, support level, the tested Jobs launch config (the script's [tool.hf-jobs] header), and what the model's own card claims about language coverage. Human-readable language notes: LANGUAGES.md. Language evidence levels, strongest first: per-language-benchmark | count-claim | named-list | multilingual-unspecified | english-only | not-stated | not-applicable. Claims come from model cards (compiled 2026-07-15) - treat as claims, not guarantees.",
-    "updated": "2026-11-05",
+    "updated": "2026-11-06",
     "run_pattern": "hf jobs uv run https://huggingface.co/datasets/uv-scripts/ocr/raw/main/<script> <input-dataset> <output-dataset>  (hf CLI >= 1.32 reads image/flavor/secrets from the script's [tool.hf-jobs] header; add --timeout for long runs. Scripts without a `jobs` entry need --flavor/-s HF_TOKEN (and any --image in their docstring).)",
     "support_levels": {
       "core": "Maintained. Smoke-tested flagless on HF Jobs on 2026-09-23/24 with the pinned launch config in `jobs`.",
@@ -325,8 +325,10 @@
       "notes": "Adds zh/ja over v1; declared, not benchmarked per language."
     },
     "support": "core",
+    "support_note": "Frozen 2026-11-06 (superseded by lighton-ocr3.py): image digest, package cutoff and model revision pinned; fixed only when it breaks. Use lighton-ocr3.py for new runs.",
+    "revision": "be7c41313c30e940fe5571de59e5fabc779e00c8",
     "jobs": {
-      "image": "vllm/vllm-openai:v0.22.1",
+      "image": "vllm/vllm-openai@sha256:953d3a06d5e64ab582985cd7401289d3abf2a2c14ef2158e9a84313daeec77d7",
       "python": "/usr/bin/python3",
       "env": {
         "PYTHONPATH": "/usr/local/lib/python3.12/dist-packages"
