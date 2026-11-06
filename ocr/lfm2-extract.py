@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.11"
 # dependencies = [
-#     "datasets>=4.0.0",
+#     "datasets>=4.0.0,<5.1",  # 5.1 needs huggingface_hub 1.x; the image copy (0.x) on PYTHONPATH wins
 #     "huggingface-hub",
 #     "transformers",
 #     "tqdm",

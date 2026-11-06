@@ -2,7 +2,7 @@
 # requires-python = ">=3.10"
 # dependencies = [
 #     "surya-ocr",
-#     "datasets>=3.1.0",
+#     "datasets>=3.1.0,<5.1",  # 5.1 needs huggingface_hub 1.x; the image copy (0.x) on PYTHONPATH wins
 #     "huggingface-hub",
 #     "pillow",
 #     "toolz",
@@ -83,7 +83,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from urllib.request import urlopen
 
 from datasets import load_dataset
-from huggingface_hub import DatasetCard, login
+from huggingface_hub import DatasetCard
 from PIL import Image
 from toolz import partition_all
 from tqdm import tqdm
@@ -529,9 +529,11 @@ def main(
     check_vllm_available()
     start_time = datetime.now(timezone.utc)
 
+    # Set the env var instead of login(): the old huggingface_hub in this image
+    # raises KeyError on a Jobs token in login(). Hub calls read HF_TOKEN.
     HF_TOKEN = hf_token or os.environ.get("HF_TOKEN")
     if HF_TOKEN:
-        login(token=HF_TOKEN)
+        os.environ["HF_TOKEN"] = HF_TOKEN
 
     # Import Surya only after env is set.
     from surya.input.load import load_pdf

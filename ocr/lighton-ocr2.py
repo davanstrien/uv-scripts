@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.11"
 # dependencies = [
-#     "datasets>=4.0.0",
+#     "datasets>=4.0.0,<5.1",  # 5.1 needs huggingface_hub 1.x; the image copy (0.x) on PYTHONPATH wins
 #     "huggingface-hub",
 #     "pillow",
 #     "tqdm",
@@ -63,7 +63,7 @@ from datetime import datetime
 
 import torch
 from datasets import load_dataset
-from huggingface_hub import DatasetCard, login
+from huggingface_hub import DatasetCard
 from PIL import Image
 from toolz import partition_all
 from tqdm.auto import tqdm
@@ -335,10 +335,11 @@ def main(
     # Track processing start time
     start_time = datetime.now()
 
-    # Login to HF if token provided
+    # Set the env var instead of login(): the old huggingface_hub in this image
+    # raises KeyError on a Jobs token in login(). Hub calls read HF_TOKEN.
     HF_TOKEN = hf_token or os.environ.get("HF_TOKEN")
     if HF_TOKEN:
-        login(token=HF_TOKEN)
+        os.environ["HF_TOKEN"] = HF_TOKEN
 
     logger.info(f"Using model: {MODEL}")
 
