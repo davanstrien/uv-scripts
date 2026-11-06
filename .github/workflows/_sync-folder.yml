@@ -32,7 +32,7 @@ jobs:
     env:
       REPO_ID: ${{ inputs.repo_id != '' && inputs.repo_id || format('uv-scripts/{0}', inputs.folder) }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Gate — folder must be a superset of the Hub repo (guards --delete="*")
         env:
@@ -46,7 +46,7 @@ jobs:
             exit 1
           fi
 
-      - uses: huggingface/hub-sync@v0.2.0
+      - uses: huggingface/hub-sync@64269e310f79686d68ea78fd189cd1dd7d5ce427 # v0.2.0
         with:
           github_repo_id: ${{ github.repository }}
           huggingface_repo_id: ${{ env.REPO_ID }}

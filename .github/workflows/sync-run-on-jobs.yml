@@ -25,8 +25,8 @@ jobs:
     env:
       REPO_ID: uv-scripts/run-on-jobs
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: '3.12'
 
@@ -40,7 +40,7 @@ jobs:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: bash ./tools/verify-superset.sh run-on-jobs "$REPO_ID" space
 
-      - uses: huggingface/hub-sync@v0.2.0
+      - uses: huggingface/hub-sync@64269e310f79686d68ea78fd189cd1dd7d5ce427 # v0.2.0
         with:
           github_repo_id: ${{ github.repository }}
           huggingface_repo_id: ${{ env.REPO_ID }}
