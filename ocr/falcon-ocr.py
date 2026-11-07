@@ -172,6 +172,7 @@ def main(
     create_pr: bool = False,
     compile: bool = True,
     cudagraph: bool = True,
+    max_seq_length: int = 8192,
     progress: bool = False,
     verbose: bool = False,
 ):
@@ -224,8 +225,13 @@ def main(
     )
 
     image_processor = ImageProcessor(patch_size=16, merge_size=1)
+    # max_seq_length counts the image tokens as well as the output. A 1,024 px page uses
+    # about 3,000 image tokens, so the engine default (4,096) leaves room for only about
+    # 1,000 output tokens and dense pages stop mid-text. 8,192 is the falcon-perception
+    # server default.
     engine = OCRInferenceEngine(
-        model, tokenizer, image_processor, capture_cudagraph=cudagraph
+        model, tokenizer, image_processor, capture_cudagraph=cudagraph,
+        max_seq_length=max_seq_length,
     )
     logger.info(f"Engine loaded. compile={compile}, cudagraph={cudagraph}")
 
@@ -275,6 +281,7 @@ def main(
         "column_name": output_column,
         "timestamp": datetime.now().isoformat(),
         "backend": "falcon-perception",
+        "max_seq_length": max_seq_length,
     }
 
     if "inference_info" in dataset.column_names:
@@ -435,6 +442,12 @@ if __name__ == "__main__":
         help="Disable CUDA graph capture",
     )
     parser.add_argument(
+        "--max-seq-length", type=int, default=8192,
+        help="Engine sequence limit, image tokens included (default: 8192, the "
+        "falcon-perception server default; must be a multiple of 128). The engine "
+        "default of 4096 cuts dense pages short.",
+    )
+    parser.add_argument(
         "--progress", action="store_true",
         help="Show per-image progress bar from the inference engine",
     )
@@ -461,6 +474,7 @@ if __name__ == "__main__":
         create_pr=args.create_pr,
         compile=not args.no_compile,
         cudagraph=not args.no_cudagraph,
+        max_seq_length=args.max_seq_length,
         progress=args.progress,
         verbose=args.verbose,
     )

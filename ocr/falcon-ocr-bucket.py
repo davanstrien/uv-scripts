@@ -155,6 +155,12 @@ def main():
              "ordering is filesystem-dependent rather than sorted.",
     )
     parser.add_argument(
+        "--max-seq-length", type=int, default=8192,
+        help="Engine sequence limit, image tokens included (default: 8192, the "
+        "falcon-perception server default; must be a multiple of 128). The engine "
+        "default of 4096 cuts dense pages short.",
+    )
+    parser.add_argument(
         "--verbose", action="store_true", help="Print resolved package versions",
     )
 
@@ -216,8 +222,13 @@ def main():
     )
 
     image_processor = ImageProcessor(patch_size=16, merge_size=1)
+    # max_seq_length counts the image tokens as well as the output. A 1,024 px page uses
+    # about 3,000 image tokens, so the engine default (4,096) leaves room for only about
+    # 1,000 output tokens and dense pages stop mid-text. 8,192 is the falcon-perception
+    # server default.
     engine = OCRInferenceEngine(
-        model, tokenizer, image_processor, capture_cudagraph=do_cudagraph
+        model, tokenizer, image_processor, capture_cudagraph=do_cudagraph,
+        max_seq_length=args.max_seq_length,
     )
     logger.info(f"Engine loaded. compile={do_compile}, cudagraph={do_cudagraph}")
 
