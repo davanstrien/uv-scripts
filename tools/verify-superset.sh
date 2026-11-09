@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
 # verify-superset.sh <folder> <hf_repo_id> [repo_type]
 #
-# Refuse (exit 1) if any file currently on the Hub repo is MISSING from the local
-# folder, because hub-sync runs `hf upload --delete="*"` and would DELETE it on sync.
+# Refuse (exit 1) if hub-sync would DELETE any file on the Hub repo. hub-sync runs
+#   hf upload <repo> <folder> --exclude=".git*" --exclude=".github*" --delete="*"
+# which deletes every Hub file (except the root .gitattributes) that this upload does
+# not write. So a Hub file is safe only if the folder holds it on disk AND the upload
+# does not exclude it. A Hub `.gitignore` or `.github/...` file is always deleted.
 #
 # Fails CLOSED on every error mode; passes for a not-yet-created (brand-new) repo.
 # Runs both locally (after `git add <folder>`) and as a CI pre-step in the sync workflow.
+# HF_ENDPOINT overrides the Hub URL (used by tests).
 set -euo pipefail
 
 folder="${1:?usage: verify-superset.sh <folder> <hf_repo_id> [repo_type]}"
@@ -14,61 +18,95 @@ rtype="${3:-dataset}"   # dataset | space | model — selects the /api/<type>s t
 HF_TOKEN="${HF_TOKEN:-$(hf auth token 2>/dev/null || true)}"
 export HF_TOKEN
 
-# List every file on the Hub repo, one path per line.
-# Exit codes: 0 = listed, 3 = repo doesn't exist (404 on the first page), 1 = cannot verify.
-# It follows the tree's pagination (`Link: <...>; rel="next"`) so large repos are listed
-# in full, retries transient failures (429, 5xx, network) with short backoff, and treats
-# any response that isn't a JSON list of {type, path} entries as "cannot verify".
-# HF_ENDPOINT overrides the Hub URL (used by tests).
-list_status=0
-hub_raw=$(python3 - "$rtype" "$repo" <<'PY'
+exec python3 - "$folder" "$repo" "$rtype" <<'PY'
 import json
 import os
 import re
+import subprocess
 import sys
 import time
 import urllib.error
 import urllib.request
+from fnmatch import fnmatchcase
 
-rtype, repo = sys.argv[1], sys.argv[2]
+folder, repo, rtype = sys.argv[1], sys.argv[2], sys.argv[3]
 endpoint = os.environ.get("HF_ENDPOINT", "https://huggingface.co").rstrip("/")
-token = os.environ.get("HF_TOKEN", "")
-headers = {"Authorization": f"Bearer {token}"} if token else {}
+token = os.environ.get("HF_TOKEN", "").strip()
+
+# What `hf upload` skips: hub-sync's --exclude patterns plus huggingface_hub's
+# DEFAULT_IGNORE_PATTERNS (v2.4.0). Matched with fnmatchcase, like huggingface_hub.
+UPLOAD_EXCLUDES = [".git*", ".github*"]
+DEFAULT_IGNORE_PATTERNS = [
+    ".git", ".git/*", "*/.git", "**/.git/**",
+    ".cache/huggingface", ".cache/huggingface/*", "*/.cache/huggingface", "**/.cache/huggingface/**",
+]
+# huggingface_hub never deletes this one file, even with --delete="*".
+NEVER_DELETED = ".gitattributes"
 
 
 def block(message):
-    print(f"❌ BLOCK — {message}; cannot verify, failing closed.", file=sys.stderr)
+    print(f"❌ BLOCK — {message}; cannot verify, failing closed.")
     sys.exit(1)
 
 
+if token and not re.fullmatch(r"[\x21-\x7e]+", token):
+    block("HF_TOKEN contains whitespace or control characters")
+headers = {"Authorization": f"Bearer {token}"} if token else {}
+
+
 def fetch(url):
-    """Return (status, body, link_header). Retries 429, 5xx and network errors."""
-    status, body, link = 0, b"", ""
+    """Return (status, body, link_header). Retries 429, 5xx and network errors 3 times."""
+    status = 0
     for attempt in (1, 2, 3):
         request = urllib.request.Request(url, headers=headers)
         try:
             with urllib.request.urlopen(request, timeout=30) as response:
                 return response.status, response.read(), response.headers.get("Link", "")
         except urllib.error.HTTPError as error:
-            status, body, link = error.code, b"", ""
+            status = error.code
             if status != 429 and not 500 <= status < 600:
-                return status, body, link
+                return status, b"", ""
             reason = f"HTTP {status}"
-        except (urllib.error.URLError, TimeoutError) as error:
-            status, reason = 0, f"network error ({error})"
+        except (urllib.error.URLError, TimeoutError, OSError) as error:
+            status, reason = 0, f"network error ({type(error).__name__})"
         print(f"… Hub API {reason} for {repo}; retry {attempt}/3 after {attempt}s…", file=sys.stderr)
         time.sleep(attempt)
-    return status, body, link
+    return status, b"", ""
 
 
+def next_page(link_header):
+    """The rel="next" URL from a Link header, or None. Blocks on a header it can't read."""
+    if not link_header:
+        return None
+    found = None
+    for part in link_header.split(","):
+        match = re.fullmatch(r'\s*<([^>]+)>\s*((?:;\s*[^;]+)*)\s*', part)
+        if not match:
+            block(f"Hub API returned a Link header that could not be parsed for {repo}")
+        params = [p.strip() for p in match.group(2).split(";") if p.strip()]
+        rels = [p.split("=", 1)[1].strip().strip('"') for p in params if p.lower().startswith("rel=")]
+        if any("next" in rel.split() for rel in rels):
+            found = match.group(1)
+    return found
+
+
+# 1. Every file on the Hub repo, across all tree pages.
 url = f"{endpoint}/api/{rtype}s/{repo}/tree/main?recursive=true"
-paths = []
+hub_files = set()
+seen_urls = set()
 page = 0
 while url:
+    if url in seen_urls:
+        block(f"Hub API pagination repeated a page for {repo}")
+    seen_urls.add(url)
     page += 1
-    status, body, link = fetch(url)
+    try:
+        status, body, link = fetch(url)
+    except Exception as error:  # noqa: BLE001 — any unexpected failure must block, not pass
+        block(f"listing {repo} failed ({type(error).__name__})")
     if status == 404 and page == 1:
-        sys.exit(3)
+        print(f"✅ OK — {repo} doesn't exist yet (brand-new repo); nothing on the Hub to preserve.")
+        sys.exit(0)
     if status != 200:
         block(f"Hub API returned HTTP {status} for {repo} (page {page})")
     try:
@@ -78,39 +116,40 @@ while url:
     if not isinstance(entries, list):
         block(f"Hub API returned {type(entries).__name__}, not a list, for {repo} (page {page})")
     for entry in entries:
-        if not isinstance(entry, dict) or "type" not in entry or "path" not in entry:
+        kind = entry.get("type") if isinstance(entry, dict) else None
+        path = entry.get("path") if isinstance(entry, dict) else None
+        if kind not in ("file", "directory") or not isinstance(path, str) or not path:
             block(f"Hub API returned an unexpected tree entry for {repo} (page {page})")
-        if entry["type"] == "file":
-            paths.append(entry["path"])
-    next_link = re.search(r'<([^>]+)>;\s*rel="next"', link)
-    url = next_link.group(1) if next_link else None
+        if kind == "file":
+            hub_files.add(path)
+    url = next_page(link)
 
-print("\n".join(paths))
+# 2. Every file this upload will write: tracked in git, present on disk, not excluded.
+try:
+    listed = subprocess.run(
+        ["git", "ls-files", "-z", "--", folder], check=True, capture_output=True
+    ).stdout.decode()
+except (subprocess.CalledProcessError, OSError, UnicodeDecodeError) as error:
+    block(f"git ls-files failed for '{folder}' ({type(error).__name__})")
+prefix = folder.rstrip("/") + "/"
+uploaded = set()
+for tracked in filter(None, listed.split("\0")):
+    if not tracked.startswith(prefix) or not os.path.isfile(tracked):
+        continue
+    relpath = tracked[len(prefix):]
+    if any(fnmatchcase(relpath, p) for p in UPLOAD_EXCLUDES + DEFAULT_IGNORE_PATTERNS):
+        continue
+    uploaded.add(relpath)
+
+# 3. Hub files the sync would delete.
+at_risk = hub_files - {NEVER_DELETED}
+if not at_risk:
+    print(f"✅ OK — {repo} has no content files to preserve (empty or .gitattributes-only).")
+    sys.exit(0)
+missing = sorted(at_risk - uploaded)
+if missing:
+    print("❌ BLOCK — these Hub files are missing locally (or excluded from the upload) and WOULD BE DELETED on sync:")
+    print("\n".join(missing))
+    sys.exit(1)
+print(f"✅ OK — '{folder}' is a superset of {repo} ({len(at_risk)} Hub files all present).")
 PY
-) || list_status=$?
-
-case "$list_status" in
-  0) : ;;
-  3) echo "✅ OK — $repo doesn't exist yet (brand-new repo); nothing on the Hub to preserve."; exit 0 ;;
-  *) echo "❌ BLOCK — could not list the files on $repo; failing closed."; exit 1 ;;
-esac
-
-# .git*/.gitattributes are excluded by the action anyway, so don't treat them as "missing".
-# grep exits 1 when nothing is left (an empty or .gitattributes-only repo); that is not an error.
-hub=$(printf '%s\n' "$hub_raw" | { grep -vE '^(\.git|$)' || true; } | sort)
-
-if [ -z "$hub" ]; then
-  echo "✅ OK — $repo has no content files to preserve (empty or .gitattributes-only)."; exit 0
-fi
-
-# Tracked files == checked-out tree (CI) or staged tree (local, after `git add`).
-local=$(git ls-files "$folder" | sed "s#^$folder/##" | sort)
-
-missing=$(comm -23 <(printf '%s\n' "$hub") <(printf '%s\n' "$local"))
-if [ -n "$missing" ]; then
-  echo "❌ BLOCK — these Hub files are missing locally and WOULD BE DELETED on sync:"
-  echo "$missing"
-  exit 1
-fi
-
-echo "✅ OK — '$folder' is a superset of $repo ($(printf '%s\n' "$hub" | grep -c .) Hub files all present)."
