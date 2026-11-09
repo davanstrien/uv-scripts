@@ -582,7 +582,7 @@
     "support_note": "Nanonets-OCR-s; use nanonets-ocr2.py."
   },
   "dots-mocr.py": {
-    "model_id": "rednote-hilab/dots.mocr",
+    "model_id": "dots-studio/dots.mocr",
     "params": "3B",
     "backend": "vllm",
     "task": "ocr | 8 prompt modes incl. SVG, layout + bbox",

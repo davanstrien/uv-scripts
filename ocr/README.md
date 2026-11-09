@@ -92,7 +92,7 @@ These are the maintained recipes. Each one has a tested `[tool.hf-jobs]` header,
 | [`hunyuan-ocr-1.5.py`](https://huggingface.co/datasets/uv-scripts/ocr/blob/main/hunyuan-ocr-1.5.py) | [HunyuanOCR-1.5](https://huggingface.co/tencent/HunyuanOCR) | 1B | 12 task types, including spotting, charts and translation | [Hunyuan Community](https://huggingface.co/tencent/HunyuanOCR/blob/main/LICENSE) (excludes EU, UK, South Korea) | `a10g-small` |
 | [`minicpm-ocr.py`](https://huggingface.co/datasets/uv-scripts/ocr/blob/main/minicpm-ocr.py) | [MiniCPM-OCR 1.0](https://huggingface.co/openbmb/MiniCPM-OCR-1.0) | 1.3B | OpenBMB's full pipeline: layout regions, per-region prompts, Markdown with HTML tables; Hub dataset or Bucket in/out; runs on a public [`cr.hf.co`](https://huggingface.co/containers/davanstrien/minicpm-ocr) image (experimental) | Apache-2.0 | `a10g-large` |
 | [`dots-ocr.py`](https://huggingface.co/datasets/uv-scripts/ocr/blob/main/dots-ocr.py) | [dots.ocr](https://huggingface.co/rednote-hilab/dots.ocr) | 1.7B | 100+ languages; layout modes | MIT | `a10g-small` |
-| [`dots-mocr.py`](https://huggingface.co/datasets/uv-scripts/ocr/blob/main/dots-mocr.py) | [dots.mocr](https://huggingface.co/rednote-hilab/dots.mocr) | 3B | Eight prompt modes, including SVG from charts | MIT | `a10g-small` |
+| [`dots-mocr.py`](https://huggingface.co/datasets/uv-scripts/ocr/blob/main/dots-mocr.py) | [dots.mocr](https://huggingface.co/dots-studio/dots.mocr) | 3B | Eight prompt modes, including SVG from charts | MIT | `a10g-small` |
 | [`deepseek-ocr2-vllm.py`](https://huggingface.co/datasets/uv-scripts/ocr/blob/main/deepseek-ocr2-vllm.py) | [DeepSeek-OCR-2](https://huggingface.co/deepseek-ai/DeepSeek-OCR-2) | 3B | Newer DeepSeek-OCR | Apache-2.0 | `a10g-small` |
 | [`unlimited-ocr2.py`](https://huggingface.co/datasets/uv-scripts/ocr/blob/main/unlimited-ocr2.py) | [Unlimited-OCR-2](https://huggingface.co/baidu/Unlimited-OCR-2) | 3.3B | Whole documents: 16 pages per request, paragraphs continue across page breaks; reads page folders or Buckets; resumable | MIT | `rtx-pro-6000` |
 | [`unlimited-ocr-vllm.py`](https://huggingface.co/datasets/uv-scripts/ocr/blob/main/unlimited-ocr-vllm.py) | [Unlimited-OCR](https://huggingface.co/baidu/Unlimited-OCR) | 3.3B | Markdown with layout boxes (`--strip-grounding` for clean text) | MIT | `a10g-small` |
@@ -176,7 +176,7 @@ Most dataset recipes also record the model and settings in an `inference_info` c
 | `lighton-ocr3.py` | `--model lightonai/LightOnOCR-3-4B\|lightonai/LightOnOCR-3-0.8B`, `--mode plain\|grounding`, `--blocks-column`, `--longest-edge` |
 | `hunyuan-ocr-1.5.py` | `--task-type` (12 types, default `doc_parse`), `--custom-prompt` |
 | `dots-ocr.py` | `--prompt-mode ocr\|layout-all\|layout-only` |
-| `dots-mocr.py` | `--prompt-mode` (8 modes). For SVG: `--model rednote-hilab/dots.mocr-svg --prompt-mode svg` |
+| `dots-mocr.py` | `--prompt-mode` (8 modes). For SVG: `--model dots-studio/dots.mocr-svg --prompt-mode svg` |
 | `deepseek-ocr-vllm.py` | `--prompt-mode document\|image\|free\|figure\|describe` |
 | `deepseek-ocr2-vllm.py` | `--prompt-mode document\|free` |
 | `unlimited-ocr-vllm.py` | `--strip-grounding`, `--grounding-column` |
