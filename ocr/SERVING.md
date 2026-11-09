@@ -87,7 +87,7 @@ card/docs (verbatim commands live in the linked sources):
 |---|---|---|
 | lightonai/LightOnOCR-1B / 2-1B | ✅ vLLM | Card ships the serve command + client; ≥0.11.1 for v1; images longest-dim 1540px |
 | nanonets/OCR-s / OCR2-3B | ✅ vLLM | Bare `vllm serve` + client in card; **pin v0.10.2 for OCR2** (see above) |
-| rednote-hilab/dots.mocr | ✅ vLLM ≥0.11 | Direct from Hub id on `vllm/vllm-openai:v0.11.0`+ |
+| dots-studio/dots.mocr | ✅ vLLM ≥0.11 | Direct from Hub id on `vllm/vllm-openai:v0.11.0`+ |
 | rednote-hilab/dots.ocr | ✅ (GitHub) | HF card shows a legacy pre-0.11 hack; GitHub README: integrated upstream since 0.11 |
 | tencent/HunyuanOCR | ✅ vLLM 0.18.1 | serve.sh in repo; nightly adds DFlash speculative decoding |
 | zai-org/GLM-OCR | ✅ vLLM + SGLang + Ollama | Only card here with an SGLang serve example; needs vLLM nightly |

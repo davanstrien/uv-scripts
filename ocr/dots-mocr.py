@@ -33,10 +33,10 @@ Features:
 - Layout-aware text extraction
 - Web screen parsing
 - Scene text spotting
-- SVG code generation (use --prompt-mode svg, or --model rednote-hilab/dots.mocr-svg for best results)
+- SVG code generation (use --prompt-mode svg, or --model dots-studio/dots.mocr-svg for best results)
 
-Model: rednote-hilab/dots.mocr
-SVG variant: rednote-hilab/dots.mocr-svg
+Model: dots-studio/dots.mocr
+SVG variant: dots-studio/dots.mocr-svg
 vLLM: Officially integrated since v0.11.0
 GitHub: https://github.com/rednote-hilab/dots.mocr
 Paper: https://arxiv.org/abs/2603.13032
@@ -114,7 +114,7 @@ PROMPT_TEMPLATES = {
     "scene-spotting": """Detect and recognize the text in the image.""",
     "grounding-ocr": """Extract text from the given bounding box on the image (format: [x1, y1, x2, y2]).\nBounding Box:\n""",
     # SVG code generation — {width} and {height} are replaced with actual image dimensions.
-    # For best results, use --model rednote-hilab/dots.mocr-svg
+    # For best results, use --model dots-studio/dots.mocr-svg
     # Uses higher temperature (0.9) and top_p (1.0) per official recommendation.
     "svg": """Please generate the SVG code based on the image. viewBox="0 0 {width} {height}" """,
     "general": """ """,
@@ -306,7 +306,7 @@ def main(
     output_dataset: str,
     image_column: str = "image",
     batch_size: int = 16,
-    model: str = "rednote-hilab/dots.mocr",
+    model: str = "dots-studio/dots.mocr",
     max_model_len: int = 24000,
     max_tokens: int = 24000,
     gpu_memory_utilization: float = 0.9,
@@ -581,7 +581,7 @@ if __name__ == "__main__":
         print("   uv run --with vllm==0.30.0 dots-mocr.py input-dataset output-dataset")
         print("\n2. SVG generation:")
         print(
-            "   uv run --with vllm==0.30.0 dots-mocr.py charts svg-output --prompt-mode svg --model rednote-hilab/dots.mocr-svg"
+            "   uv run --with vllm==0.30.0 dots-mocr.py charts svg-output --prompt-mode svg --model dots-studio/dots.mocr-svg"
         )
         print("\n3. Web screen parsing:")
         print("   uv run --with vllm==0.30.0 dots-mocr.py screenshots parsed --prompt-mode web-parsing")
@@ -614,7 +614,7 @@ Prompt Modes (official dots.mocr prompts):
 
 SVG Code Generation:
   Use --prompt-mode svg for SVG output. For best results, combine with
-  --model rednote-hilab/dots.mocr-svg (the SVG-optimized variant).
+  --model dots-studio/dots.mocr-svg (the SVG-optimized variant).
   SVG mode automatically uses temperature=0.9, top_p=1.0 unless overridden.
 
 Examples:
@@ -622,7 +622,7 @@ Examples:
   uv run --with vllm==0.30.0 dots-mocr.py my-docs analyzed-docs
 
   # SVG generation with optimized variant
-  uv run --with vllm==0.30.0 dots-mocr.py charts svg-out --prompt-mode svg --model rednote-hilab/dots.mocr-svg
+  uv run --with vllm==0.30.0 dots-mocr.py charts svg-out --prompt-mode svg --model dots-studio/dots.mocr-svg
 
   # Web screen parsing
   uv run --with vllm==0.30.0 dots-mocr.py screenshots parsed --prompt-mode web-parsing
@@ -650,8 +650,8 @@ Examples:
     )
     parser.add_argument(
         "--model",
-        default="rednote-hilab/dots.mocr",
-        help="Model to use (default: rednote-hilab/dots.mocr, or rednote-hilab/dots.mocr-svg for SVG)",
+        default="dots-studio/dots.mocr",
+        help="Model to use (default: dots-studio/dots.mocr, or dots-studio/dots.mocr-svg for SVG)",
     )
     parser.add_argument(
         "--max-model-len",
