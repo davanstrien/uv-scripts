@@ -37,7 +37,7 @@ jobs:
       FOLDER: ${{ inputs.folder }}
       REPO_TYPE: ${{ inputs.repo_type }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -53,7 +53,7 @@ jobs:
             exit 1
           fi
 
-      - uses: huggingface/hub-sync@64269e310f79686d68ea78fd189cd1dd7d5ce427 # v0.2.0
+      - uses: huggingface/hub-sync@fdffea8e04104d0bd4e3181c5feb3025f0433ff5 # v0.3.0
         with:
           github_repo_id: ${{ github.repository }}
           huggingface_repo_id: ${{ env.REPO_ID }}
