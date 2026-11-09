@@ -6,9 +6,11 @@
 # which deletes every Hub file (except the root .gitattributes) that this upload does
 # not write. So a Hub file is safe only if the folder holds it on disk AND the upload
 # does not exclude it. A Hub `.gitignore` or `.github/...` file is always deleted.
+# It compares against the files on disk, which is what `hf upload` reads: in CI that is
+# the checkout; locally, untracked files count too, so check from a clean tree.
 #
 # Fails CLOSED on every error mode; passes for a not-yet-created (brand-new) repo.
-# Runs both locally (after `git add <folder>`) and as a CI pre-step in the sync workflow.
+# Runs both locally and as a CI pre-step in the sync workflow.
 # HF_ENDPOINT overrides the Hub URL (used by tests).
 set -euo pipefail
 
@@ -22,12 +24,12 @@ exec python3 - "$folder" "$repo" "$rtype" <<'PY'
 import json
 import os
 import re
-import subprocess
 import sys
 import time
 import urllib.error
 import urllib.request
 from fnmatch import fnmatchcase
+from pathlib import Path
 
 folder, repo, rtype = sys.argv[1], sys.argv[2], sys.argv[3]
 endpoint = os.environ.get("HF_ENDPOINT", "https://huggingface.co").rstrip("/")
@@ -78,16 +80,28 @@ def next_page(link_header):
     """The rel="next" URL from a Link header, or None. Blocks on a header it can't read."""
     if not link_header:
         return None
-    found = None
+    found = []
     for part in link_header.split(","):
-        match = re.fullmatch(r'\s*<([^>]+)>\s*((?:;\s*[^;]+)*)\s*', part)
-        if not match:
+        match = re.fullmatch(r"\s*<([^>]*)>(.*)", part, flags=re.DOTALL)
+        if not match or not match.group(1):
             block(f"Hub API returned a Link header that could not be parsed for {repo}")
-        params = [p.strip() for p in match.group(2).split(";") if p.strip()]
-        rels = [p.split("=", 1)[1].strip().strip('"') for p in params if p.lower().startswith("rel=")]
-        if any("next" in rel.split() for rel in rels):
-            found = match.group(1)
-    return found
+        for param in match.group(2).split(";"):
+            if not param.strip():
+                continue
+            name, sep, value = param.partition("=")
+            if name.strip().lower() != "rel":
+                continue
+            relations = value.strip().strip('"').lower().split()
+            if not sep or not relations:
+                block(f"Hub API returned a Link header with an empty rel for {repo}")
+            if "next" in relations:
+                found.append(match.group(1))
+    if len(found) > 1:
+        block(f"Hub API returned more than one next page for {repo}")
+    # Fail closed if "next" appears anywhere outside the URLs but no next page was read.
+    if not found and "next" in re.sub(r"<[^>]*>", "", link_header).lower():
+        block(f"Hub API returned a Link header that mentions next but could not be read for {repo}")
+    return found[0] if found else None
 
 
 # 1. Every file on the Hub repo, across all tree pages.
@@ -124,22 +138,23 @@ while url:
             hub_files.add(path)
     url = next_page(link)
 
-# 2. Every file this upload will write: tracked in git, present on disk, not excluded.
+# 2. Every file this upload will write, found the way huggingface_hub v2.4.0 finds them
+#    (HfApi._prepare_upload_folder_additions): resolve the folder, sorted(glob("**/*")),
+#    keep is_file(), relative POSIX paths, then drop excluded paths. Matching normalises
+#    "\" to "/" first, as huggingface_hub's filter_repo_objects does.
+def normalise(value):
+    return value.replace("\\", "/")
+
+
+ignore = [normalise(p) for p in UPLOAD_EXCLUDES + DEFAULT_IGNORE_PATTERNS]
 try:
-    listed = subprocess.run(
-        ["git", "ls-files", "-z", "--", folder], check=True, capture_output=True
-    ).stdout.decode()
-except (subprocess.CalledProcessError, OSError, UnicodeDecodeError) as error:
-    block(f"git ls-files failed for '{folder}' ({type(error).__name__})")
-prefix = folder.rstrip("/") + "/"
-uploaded = set()
-for tracked in filter(None, listed.split("\0")):
-    if not tracked.startswith(prefix) or not os.path.isfile(tracked):
-        continue
-    relpath = tracked[len(prefix):]
-    if any(fnmatchcase(relpath, p) for p in UPLOAD_EXCLUDES + DEFAULT_IGNORE_PATTERNS):
-        continue
-    uploaded.add(relpath)
+    root = Path(folder).expanduser().resolve()
+    if not root.is_dir():
+        block(f"'{folder}' is not a directory")
+    on_disk = [p.relative_to(root).as_posix() for p in sorted(root.glob("**/*")) if p.is_file()]
+except OSError as error:
+    block(f"could not read '{folder}' ({type(error).__name__})")
+uploaded = {rel for rel in on_disk if not any(fnmatchcase(normalise(rel), p) for p in ignore)}
 
 # 3. Hub files the sync would delete.
 at_risk = hub_files - {NEVER_DELETED}
