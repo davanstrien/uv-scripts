@@ -2,7 +2,7 @@
 # verify-superset.sh <folder> <hf_repo_id> [repo_type]
 #
 # Refuse (exit 1) if hub-sync would DELETE any file on the Hub repo. hub-sync runs
-#   hf upload <repo> <folder> --exclude=".git*" --exclude=".github*" --delete="*"
+#   hf upload <repo> <folder> --exclude=<git/CI paths> --delete="*"
 # which deletes every Hub file (except the root .gitattributes) that this upload does
 # not write. So a Hub file is safe only if the folder holds it on disk AND the upload
 # does not exclude it. A Hub `.gitignore` or `.github/...` file is always deleted.
@@ -37,7 +37,10 @@ token = os.environ.get("HF_TOKEN", "").strip()
 
 # What `hf upload` skips: hub-sync's --exclude patterns plus huggingface_hub's
 # DEFAULT_IGNORE_PATTERNS (v2.4.0). Matched with fnmatchcase, like huggingface_hub.
-UPLOAD_EXCLUDES = [".git*", ".github*"]
+# The union of hub-sync v0.2.0 (".git*", ".github*") and v0.3.0 (".git*", "*/.git/",
+# "*/.github/"; huggingface_hub turns a trailing "/" into "/*"). Treating more paths as
+# excluded only makes the guard block more, so it is safe under either version.
+UPLOAD_EXCLUDES = [".git*", ".github*", "*/.git/*", "*/.github/*"]
 DEFAULT_IGNORE_PATTERNS = [
     ".git", ".git/*", "*/.git", "**/.git/**",
     ".cache/huggingface", ".cache/huggingface/*", "*/.cache/huggingface", "**/.cache/huggingface/**",
