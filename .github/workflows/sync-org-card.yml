@@ -4,6 +4,9 @@ on:
     branches: [main]
     paths: ['org-card/**', '.github/workflows/sync-org-card.yml']
 
+permissions:
+  contents: read
+
 jobs:
   sync:
     uses: ./.github/workflows/_sync-folder.yml

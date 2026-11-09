@@ -4,6 +4,9 @@ on:
     branches: [main]
     paths: ['vlm-object-detection/**', '.github/workflows/sync-vlm-object-detection.yml']
 
+permissions:
+  contents: read
+
 jobs:
   sync:
     uses: ./.github/workflows/_sync-folder.yml

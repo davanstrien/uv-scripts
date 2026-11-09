@@ -3,6 +3,9 @@ on:
   push:
     branches: [main]
     paths: ['embeddings/**', '.github/workflows/sync-embeddings.yml']
+permissions:
+  contents: read
+
 jobs:
   sync:
     uses: ./.github/workflows/_sync-folder.yml
