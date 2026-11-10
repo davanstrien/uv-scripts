@@ -20,8 +20,8 @@ EXPERIMENTAL: lighton-ocr3-saturate.py with a live view you can watch (and scree
 Same OCR, flags and output as lighton-ocr3-saturate.py; use that script for normal runs and
 read its description for the model settings, the measured speeds and the repair pass. This
 one adds `--live-port`: a page served from inside the Job that shows every finished page
-moving past at the speed the model reads them, pages per second, one finished page with its
-text, and the run's counters.
+moving past at the speed the model reads them, the pages read a second, and the text the
+model wrote for one of them.
 
   hf jobs uv run --detach --expose-public 7860 \\
       https://huggingface.co/datasets/uv-scripts/ocr/raw/main/lighton-ocr3-live.py \\
@@ -35,10 +35,13 @@ What the page shows, and how it is paced:
 - Each tile on the belt is one finished page. A page is shown only after its text came
   back, and the belt moves at the rate the pages finish, so its speed is the throughput.
   The page draws a finished page about 1.5 seconds after the model returned it.
-- "Pages per second" is the number of pages finished in the last 10 seconds, divided by 10.
-  It covers reading only, not the server start (about 4 minutes).
-- The page with text is one recent finished page, changed every few seconds. It is a
-  sample: at several pages per second most pages are never shown with their text.
+- "Pages a second" is the number of pages finished in the last 10 seconds, divided by 10.
+  It covers reading only, not the server start (about 4 minutes). After the run it is the
+  average over the whole reading time.
+- The text under the belt is one recent finished page's text, changed every few seconds.
+  It is a sample: at several pages a second most pages are never shown with their text.
+- Add ?view=single to the link for one page at a time: each finished page is laid on the
+  last at the same pace, with that page's text beside it.
 - The live view costs a 480 px JPEG per page in the preparation threads and one small
   request per open tab every half second. It never changes what is sent or written.
 - The page shows the main pass. Pages re-sent by --repair-max-tokens are not shown again.
@@ -289,6 +292,17 @@ body{margin:0;height:100vh;overflow:hidden;background:var(--ground);color:var(--
  overflow:hidden;white-space:pre-line}
 #from{margin:.3rem 0 0;color:var(--quiet);font-size:.82rem}
 @media (min-aspect-ratio:13/10){#band{grid-template-columns:minmax(0,5fr) minmax(0,6fr);gap:5vmin;align-items:end}}
+/* ?view=single: one page at a time, each laid on the last, at the same pace */
+.single #belt{display:block;padding:0}
+#pile{position:absolute;inset:3vmin 0 2.4vmin}
+#pile img{position:absolute;left:50%;top:0;height:100%;aspect-ratio:.74;object-fit:cover;object-position:top;
+ background:var(--paper);border-radius:3px;box-shadow:var(--lift)}
+.single #text{height:10.5em}
+@media (min-aspect-ratio:13/10){
+ body.single{grid-template-columns:minmax(0,9fr) minmax(0,11fr);grid-template-rows:minmax(0,1fr) auto}
+ .single #belt{grid-row:1;grid-column:1}.single #progress{grid-row:2;grid-column:1/-1}
+ .single #band{grid-row:1;grid-column:2;grid-template-columns:minmax(0,1fr);align-content:center;gap:2.2rem;padding-left:1vmin}
+ .single #text{height:12em}}
 </style>
 <section id="belt" aria-label="Pages the model has read"></section>
 <div id="progress"><div id="bar"></div></div>
@@ -303,12 +317,15 @@ const clock = s => { s = Number.isFinite(s) ? Math.max(0, Math.round(s)) : 0;
 const NL = String.fromCharCode(10);
 const LAG = 1.5;  // seconds a finished page waits before it is drawn, so the belt moves evenly
 const still = matchMedia("(prefers-reduced-motion: reduce)").matches;  // then the belt moves in steps
+const single = new URLSearchParams(location.search).get("view") === "single";
+document.body.classList.toggle("single", single);
 let since = 0, last = null, misses = 0, first = true, stopped = false;
 let rows = [], tileW = 0, pitch = 0, beltW = 0, offset = 0, drawn = 0, speed = 0;
 const waiting = [], ready = [];  // finished pages: image still loading, then loaded; oldest first
 let shown = 0, shownWords = 0, recent = [];
 
 function layout() {
+  if (single) { const pile = document.createElement("div"); pile.id = "pile"; $("belt").replaceChildren(pile); return; }
   const belt = $("belt"), vmin = Math.min(innerWidth, innerHeight), gap = vmin * 0.017;
   const h = belt.clientHeight - vmin * 0.044, n = Math.max(2, Math.min(5, Math.round(h / (vmin * 0.26))));
   const rowH = (h - gap * (n - 1)) / n;
@@ -331,6 +348,19 @@ function place(p) {
   recent.push(p); if (recent.length > 40) recent.shift();
 }
 
+// Single view: the page goes on top of the pile, with a small turn so earlier pages show at the edges.
+let credit = 0;
+function deal(p) {
+  shown += 1; shownWords += p.words;
+  if (p.missing) return;
+  const turn = still ? 0 : (Math.random() - 0.5) * 2.4, dx = (Math.random() - 0.5) * 1.4, dy = (Math.random() - 0.5) * 0.9;
+  p.el.style.transform = `translate(calc(-50% + ${dx}vmin), ${dy}vmin) rotate(${turn}deg)`;
+  const pile = $("pile"); pile.append(p.el);
+  while (pile.children.length > 10) pile.firstChild.remove();
+  recent.push(p); if (recent.length > 40) recent.shift();
+  write(p);
+}
+
 // The belt moves so that the pages waiting to be drawn clear in LAG seconds: while pages
 // finish at a steady rate that is the rate itself, and when none are left it stops.
 let before = performance.now();
@@ -338,6 +368,11 @@ function frame(now) {
   const dt = Math.min(0.1, (now - before) / 1000); before = now;
   const want = ready.length ? Math.max(1, ready.length / LAG) : 0;
   const target = rows.length ? want * pitch / rows.length : 0;
+  if (single) {  // the same pace, counted in pages instead of distance
+    speed += (want - speed) * Math.min(1, dt * 2.5); credit = Math.min(3, credit + speed * dt);
+    while (ready.length && (ready[0].missing || credit >= 1)) { if (!ready[0].missing) credit -= 1; deal(ready.shift()); }
+    words(); requestAnimationFrame(frame); return;
+  }
   speed += (target - speed) * Math.min(1, dt * 2.5);
   offset += speed * dt;
   while (ready.length && (ready[0].missing || Math.min(...rows.map(r => r.tail)) <= offset + beltW)) place(ready.shift());
@@ -391,17 +426,23 @@ function ingest(d) {
 // Pages enter the belt in the order they finished, each once its image has loaded.
 function flush() { while (waiting.length && waiting[0].loaded) ready.push(waiting.shift()); }
 
-// One recent page's text, as the model wrote it, changed every few seconds.
+// A page's text as the model wrote it, without table and heading markup.
+function write(p) {
+  const plain = (p.text || "").replace(/<[^>]+>/g, " ").replace(/^#+ /gm, "").replaceAll("**", "")
+    .replace(/ {2,}/g, " ").replace(new RegExp("( ?" + NL + " ?){2,}", "g"), NL).trim();
+  $("text").textContent = plain || "(no text on this page)";
+  $("from").textContent = single ? "The text of the page on top" : "The text of one of these pages";
+  $("sample").classList.remove("out");
+}
+
+// Belt view: one recent page's text, changed every few seconds. (Single view writes every page.)
 let sampled = null;
 function sample() {
+  if (single) return;
   const withText = recent.filter(p => (p.text || "").length > 200), p = (withText.length ? withText : recent).at(-1);
   if (p && p !== sampled) {
     sampled = p; $("sample").classList.add("out");
-    setTimeout(() => {
-      $("text").textContent = (p.text || "(no text on this page)").replace(/^#+ /gm, "").replace(new RegExp(NL + "{2,}", "g"), NL);
-      $("from").textContent = p.n ? `Text read from page ${fmt(p.n)}` : "Text read from one of these pages";
-      $("sample").classList.remove("out");
-    }, 400);
+    setTimeout(() => write(p), 400);
   }
   setTimeout(sample, 4000);
 }
