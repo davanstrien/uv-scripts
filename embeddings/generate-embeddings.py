@@ -4,6 +4,7 @@
 #     "datasets",
 #     "sentence-transformers>=5.0.0",
 #     "torch",
+#     "torchvision",  # multimodal embedders such as embeddinggemma-2 need it to load their processor
 #     "numpy",
 #     "pillow",
 #     "einops",
