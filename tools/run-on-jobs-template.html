@@ -236,7 +236,7 @@ hf jobs uv run --timeout 45m \
 </section>
 <p class="small muted needs">You need the <a href="https://huggingface.co/docs/hub/jobs-quickstart">hf CLI</a> (1.32 or newer), a login and pay-as-you-go credit. Add <code>--dry-run</code> to see the GPU and settings without starting a job, and run <code>hf jobs uv run --help</code> for all options.</p>
 <h2 id="find">Find your model</h2>
-<p class="small muted">Replace the capitalised placeholders and <code>your-username</code>. Check the script if you're unsure what a value should be.</p>
+<p class="small muted">Replace the capitalised placeholders and <code>your-username</code>. <code>--max-samples 10</code> keeps a first run small, so remove it to process everything. Check the script if you're unsure what a value should be.</p>
 <input id="q" type="search" aria-label="Search models, tasks and scripts" placeholder="Search a model, task or script" autocomplete="off">
 <nav aria-label="Filter by task">{{FILTERS}}</nav>
 <p id="none" class="muted small" hidden>No recipe matches that search. <button id="clear" class="copy">Show all models</button></p>
