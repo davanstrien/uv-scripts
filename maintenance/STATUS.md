@@ -14,7 +14,7 @@ Tiered: 1 of 51 recipes with a header.
 | `classification/train-classifier.py` | — | default | latest | never |  |
 | `classification/train-gliner2.py` | — | default | latest | never |  |
 | `classification/train-kev.py` | — | default | latest | never |  |
-| `embeddings/generate-embeddings-saturate.py` | — | `vllm/vllm-openai:v0.30.0` | latest | 2026-11-10 | [pass](https://huggingface.co/jobs/davanstrien/6af35312ab34849891ac6fcf) |
+| `embeddings/generate-embeddings-saturate.py` | — | `vllm/vllm-openai:v0.30.0` | latest | 2026-11-10 | [pass](https://huggingface.co/jobs/davanstrien/6af356829737d9a9e0912648) |
 | `ocr/deepseek-ocr-vllm.py` | — | `vllm/vllm-openai:v0.29.0` | latest | never |  |
 | `ocr/deepseek-ocr2-vllm.py` | — | `vllm/vllm-openai:v0.29.0` | latest | never |  |
 | `ocr/dots-mocr.py` | — | `vllm/vllm-openai:v0.30.0` | latest | never |  |
