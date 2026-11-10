@@ -4,11 +4,17 @@
 #     "datasets",
 #     "sentence-transformers>=5.0.0",
 #     "torch",
+#     "torchvision",  # multimodal embedders such as embeddinggemma-2 need it to load their processor
 #     "numpy",
 #     "pillow",
 #     "einops",
 #     "huggingface-hub>=1.12",
 # ]
+#
+# [tool.hf-jobs]
+# flavor = "l4x1"
+# timeout = "1h"
+# secrets = ["HF_TOKEN"]
 # ///
 """
 Generate embeddings for a Hugging Face dataset (text OR images) with sentence-transformers,
@@ -38,23 +44,26 @@ PROMPTS (retrieval correctness — read this):
 Benchmarks (20k rows, seq-cap 512): all-MiniLM-L6-v2 ~900 rows/s on an L4 (~$0.24/1M rows);
 bge-base-en-v1.5 ~120 rows/s. L4 is the cheapest flavor for these encoder models.
 
+On Jobs, the [tool.hf-jobs] header sets the l4x1 flavor, a 1h timeout and the HF_TOKEN secret
+(`hf` CLI 1.32+). --flavor and --timeout before the script override it.
+
 Examples:
     # Text (default). Document convention auto-picked.
-    hf jobs uv run --flavor l4x1 -s HF_TOKEN generate-embeddings.py \\
+    hf jobs uv run generate-embeddings.py \\
         stanfordnlp/imdb  your-name/imdb-embeddings \\
         --column text --model sentence-transformers/all-MiniLM-L6-v2
 
     # e5: docs auto-get "passage: ". (--prompt 'passage: ' would be the explicit form.)
-    hf jobs uv run --flavor l4x1 -s HF_TOKEN generate-embeddings.py \\
+    hf jobs uv run generate-embeddings.py \\
         stanfordnlp/imdb  your-name/imdb-e5 --model intfloat/multilingual-e5-large
 
     # Images (CLIP) — prompts don't apply.
-    hf jobs uv run --flavor l4x1 -s HF_TOKEN generate-embeddings.py \\
+    hf jobs uv run generate-embeddings.py \\
         your-name/photos  your-name/photos-embeddings \\
         --modality image --column image --model clip-ViT-B-32
 
     # Test on a small slice first, keep the output private
-    hf jobs uv run --flavor l4x1 -s HF_TOKEN generate-embeddings.py \\
+    hf jobs uv run generate-embeddings.py \\
         stanfordnlp/imdb  your-name/imdb-emb --max-samples 100 --private
 
 FAN-OUT (multi-job) MODE:
