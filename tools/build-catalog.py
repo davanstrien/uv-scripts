@@ -51,10 +51,25 @@ DATA_TOOLS = {
 # Recipes without a [tool.hf-jobs] header whose documented command passed a smoke Job with checked output.
 # Only these and header recipes are declared on model pages.
 SMOKE_TESTED_EXAMPLES = {
-    "embeddings/generate-embeddings.py",
     "gliner/extract-entities.py",
     "sam3/detect-objects.py",
     "sam3/segment-objects.py",
+}
+
+# Models other than a script's default that ran the recipe in a smoke Job with checked output.
+# Each gets its own entry on the page and on its model page, with `--model <id>` in the command.
+TESTED_MODELS = {
+    "embeddings/generate-embeddings.py": [
+        "BAAI/bge-small-en-v1.5",
+        "BAAI/bge-base-en-v1.5",
+        "BAAI/bge-m3",
+        "sentence-transformers/all-mpnet-base-v2",
+        "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "intfloat/multilingual-e5-small",
+        "intfloat/multilingual-e5-large",
+        "Qwen/Qwen3-Embedding-0.6B",
+        "google/embeddinggemma-2",
+    ],
 }
 
 # Left out of the Space until they run again.
@@ -195,6 +210,16 @@ def add_sample_limit(command, arguments):
     return f"{command} --max-samples {FIRST_RUN_SAMPLES}"
 
 
+def command_for_model(command, model):
+    """Return the command with --model set to this model, before any --max-samples at the end."""
+    if re.search(r"--model \S+", command):
+        return re.sub(r"--model \S+", f"--model {model}", command)
+    limit = re.search(r" --max-samples \d+$", command)
+    if limit:
+        return f"{command[:limit.start()]} --model {model}{limit.group(0)}"
+    return f"{command} --model {model}"
+
+
 def command_problems(recipes):
     """Return the commands that would not run as pasted: template text, or brackets outside quotes."""
     problems = []
@@ -284,7 +309,7 @@ def load_recipes():
             models = [model for model in models if model not in NOT_HUB_MODELS]
             if not models:
                 continue
-            recipes.append({
+            recipe = {
                 "kind": "train" if is_training else "run",
                 "task": TRAINING_TASK if is_training else task,
                 "script": script,
@@ -299,7 +324,13 @@ def load_recipes():
                 "command": command,
                 "summary": summarize(tree),
                 "declared": declared,
-            })
+            }
+            recipes.append(recipe)
+            for tested_model in TESTED_MODELS.get(script, []):
+                has_model_option = any(argument["name"] == "--model" for argument in arguments)
+                if not command or not has_model_option:
+                    sys.exit(f"TESTED_MODELS: {script} needs a command and a --model option")
+                recipes.append({**recipe, "models": [tested_model], "command": command_for_model(command, tested_model)})
     return recipes
 
 
