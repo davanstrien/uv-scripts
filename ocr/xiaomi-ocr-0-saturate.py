@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.11"
 # dependencies = [
-#     "saturate[hf]==0.3.0",
+#     "saturate[hf]==0.3.1",
 #     "pillow>=10",
 # ]
 #
@@ -79,8 +79,6 @@ import base64
 import io
 import os
 import re
-import shutil
-import subprocess
 import sys
 from dataclasses import dataclass
 
@@ -495,25 +493,6 @@ def finalize_document(text: str) -> str:
     return postprocess_otsl_tables(postprocess_math_delimiters(_clean_truncated_repeats(text)))
 
 
-def sglang_command() -> list[str]:
-    """Return the SGLang server command, using the image's Python rather than this script's venv."""
-    # The SGLang image keeps sglang in its own venv, first on PATH; `uv run` puts
-    # this script's venv in front, so look past it.
-    own_bin = os.path.realpath(os.path.join(sys.prefix, "bin"))
-    path = os.pathsep.join(
-        p for p in os.environ.get("PATH", "").split(os.pathsep) if os.path.realpath(p) != own_bin
-    )
-    python = shutil.which("python3", path=path)
-    found = python and subprocess.run([python, "-c", "import sglang"], check=False, capture_output=True).returncode == 0
-    if not found:
-        sys.exit(f"--engine sglang needs sglang: add --image {SERVING['images']['sglang']} to hf jobs uv run.")
-    return [
-        python, "-m", "sglang.launch_server", "--model-path", SERVING["model"],
-        "--context-length", str(SERVING["context"]), "--enable-metrics",
-        "--host", "127.0.0.1", "--port", "8000",
-    ]  # fmt: skip
-
-
 def main():
     ap = argparse.ArgumentParser(description="Xiaomi-OCR-0 batch OCR via saturate")
     ap.add_argument("input_dataset", help="Input dataset repo id (rows with an image column)")
@@ -593,7 +572,10 @@ def main():
         }
 
     if args.engine == "sglang":
-        engine = Engine(SERVING["model"], engine="sglang", cmd=sglang_command())
+        # saturate starts SGLang with the image's Python (the one that has sglang), not this
+        # script's venv; without the SGLang --image the server fails with "No module named sglang".
+        extra = ["--context-length", str(SERVING["context"]), "--host", "127.0.0.1"]
+        engine = Engine(SERVING["model"], engine="sglang", extra_args=extra)
     else:
         extra = ["--max-model-len", str(SERVING["context"]), *SERVING["vllm_args"]]
         engine = Engine(SERVING["model"], engine="vllm", extra_args=extra)

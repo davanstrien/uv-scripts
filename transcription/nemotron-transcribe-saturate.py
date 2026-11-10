@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.11"
 # dependencies = [
-#     "saturate[hf]==0.3.0",
+#     "saturate[hf]==0.3.1",
 #     "soundfile",
 # ]
 #
@@ -25,9 +25,10 @@ over the vLLM recipe:
   two windows' worth, so lower it for large WAV inputs.
 - **Crash-safe, resumable output**: results stream to the output as parquet
   parts; re-running the same command skips files already done (by path).
-- **Durable error rows**: each file is sent once (saturate does not retry
-  multipart uploads); a failed file is recorded as `{id, error}`, and
-  `--retry-errors` re-admits only those on a later run.
+- **Retries, then durable error rows**: a file that meets a 5xx, a 429 or a
+  dropped connection is sent again (saturate 0.3.1 retries a multipart upload held
+  in memory); one that still fails, or that the server rejects, is recorded as
+  `{id, error}`, and `--retry-errors` re-admits only those on a later run.
 - **No NeMo install**: SGLang-Omni is one pip install on the image below.
 
 What it does NOT do (SGLang-Omni's integration, per the model card): no word
