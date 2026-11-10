@@ -81,6 +81,7 @@ body .more{margin-left:16px}
 @media (prefers-reduced-motion:reduce){summary::before{transition:none}}
 .entry{font-size:15px;margin-top:12px}
 .model-link{margin:2px 12px 8px 28px}
+ul.models>li{scroll-margin-top:12px}
 </style>
 </head>
 <body>
@@ -278,6 +279,21 @@ for (const button of filters) {
     for (const other of filters) other.setAttribute('aria-pressed', other === button);
     apply();
   });
+}
+// ?model=org/name opens the page at that model. The Hub passes the query string of the Space page to this page.
+const wantedModel = (new URLSearchParams(location.search).get('model') || '').trim().toLowerCase();
+if (wantedModel) {
+  const matches = items.filter(item => item.dataset.model === wantedModel);
+  for (const item of matches) item.querySelector('details').open = true;
+  if (matches.length) {
+    matches[0].scrollIntoView();
+    // The example image above can load later and move the list, so scroll again once the page has loaded.
+    addEventListener('load', () => matches[0].scrollIntoView());
+  } else {
+    input.value = wantedModel;
+    apply();
+    document.getElementById('find').scrollIntoView();
+  }
 }
 const stepButtons = [...document.querySelectorAll('.switch button')];
 const steps = [...document.querySelectorAll('[data-step]')];

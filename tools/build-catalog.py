@@ -24,6 +24,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 OUTPUT_DIR = ROOT / "run-on-jobs"
 HUB_BASE = "https://huggingface.co/datasets/uv-scripts"
+SPACE_URL = "https://huggingface.co/spaces/uv-scripts/run-on-jobs"
 
 TASKS = {
     "ocr": "OCR",
@@ -302,9 +303,10 @@ def model_row_html(task, model, recipes):
         label = f"{len(others)} more recipe{'s' if len(others) > 1 else ''}"
         more = f'<details class="more"><summary>{label}</summary>' + "".join(recipe_html(recipe) for recipe in others) + "</details>"
     return (
-        f'<li data-task="{html.escape(task)}" data-text="{html.escape(search_text)}"><details>'
+        f'<li data-task="{html.escape(task)}" data-model="{html.escape(model.lower())}" data-text="{html.escape(search_text)}"><details>'
         f'<summary><span class="name">{html.escape(model)}</span><span class="state {row_class}">{html.escape(row_status)}</span></summary>'
-        + f'<p class="model-link small muted"><a href="https://huggingface.co/{html.escape(model)}">Open the model page</a></p>'
+        + f'<p class="model-link small muted"><a href="https://huggingface.co/{html.escape(model)}">Open the model page</a>'
+        + f' · <a href="{SPACE_URL}?model={html.escape(model)}">Link to this model</a></p>'
         + recipe_html(best) + more + "</details></li>"
     )
 
@@ -371,6 +373,7 @@ Each recipe is one script, run from its URL with `hf jobs uv run`. There is noth
 ## Find a recipe
 
 - `hf download uv-scripts/run-on-jobs recipes.json --repo-type space`, then look for the model in `recipes[].models`.
+- To send a person to one model, link to `https://huggingface.co/spaces/uv-scripts/run-on-jobs?model=<org>/<name>`. The page opens at that model.
 - `kind`: `run` applies a model to data; `train` fine-tunes one.
 - `source`: `header` carries its launch settings; `documented` is an example from the script's docs; `flags-needed` has no command, so read the script first.
 - Read a script's docstring and options: `curl -s <url> | head -100`. Running it locally may fail on GPU-only dependencies.
