@@ -7,6 +7,8 @@
 # ]
 # ///
 """
+Superseded by generate-embeddings-saturate.py, which runs a vLLM server on a pinned image.
+
 High-throughput embedding generation with vLLM pooling mode — the "scale" variant of
 generate-embeddings.py, for large *decoder* embedding models (e.g. Qwen3-Embedding). On
 Qwen3-Embedding-0.6B this was ~2x the sentence-transformers throughput on the same GPU.

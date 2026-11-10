@@ -13,13 +13,14 @@ Generate embeddings for a Hugging Face dataset — text or images — with one c
 cloud GPU, no infra. The output lands back on the Hub as a new dataset (or, with the Lance
 variant, as a **searchable vector index you can query over `hf://` without downloading**).
 
-There is one simple default and two variants; they are separate single-file scripts because
+There is one simple default and a few variants; they are separate single-file scripts because
 their dependencies (sentence-transformers vs vLLM vs Lance) are too different to share one env.
 
 | Script | Use it for | Engine |
 |---|---|---|
 | `generate-embeddings.py` | The default. Text or images. Simple, fast, runs anywhere. | sentence-transformers |
-| `generate-embeddings-vllm.py` | Max throughput on large *decoder* embedding models (Qwen3-Embedding). | vLLM pooling |
+| `generate-embeddings-saturate.py` | **Large text runs.** A vLLM server in the Job, driven by [saturate](https://github.com/davanstrien/saturate). One row out per row in, resumable. | vLLM server + saturate |
+| `generate-embeddings-vllm.py` | The older vLLM path (offline engine, unpinned `vllm`). Use `generate-embeddings-saturate.py` instead. | vLLM pooling |
 | `embed-to-lance.py` | Get a **searchable vector index as a Hub dataset** (the "vector DB" path). | sentence-transformers + Lance |
 | `launch-embedding-fleet.py` | **Fan one run out across N parallel Jobs** (+ `consolidate-shards.py`). | run_uv_job + Buckets |
 
@@ -38,6 +39,28 @@ hf jobs uv run --flavor l4x1 -s HF_TOKEN \
 ```
 
 Always try `--max-samples 100 --private` first.
+
+## Large runs: `generate-embeddings-saturate.py`
+
+```bash
+hf jobs uv run \
+  https://huggingface.co/datasets/uv-scripts/embeddings/raw/main/generate-embeddings-saturate.py \
+  stanfordnlp/imdb your-name/imdb-embeddings --column text --max-samples 100
+```
+
+The script's header sets the `vllm/vllm-openai:v0.30.0` image, `a10g-small` and the `HF_TOKEN`
+secret, so the command needs no job flags. Measured on one A10G with 20,000 IMDb reviews of up
+to 300 words, one run each, embedding step only:
+
+| Model | `generate-embeddings.py` | `generate-embeddings-saturate.py` |
+|---|---|---|
+| Qwen/Qwen3-Embedding-0.6B | 96 rows/s | 187 rows/s |
+| BAAI/bge-m3 | 71 rows/s | 276 rows/s |
+
+The server is ready 100 to 120 seconds after it starts, so `generate-embeddings.py` is quicker
+for a few hundred rows. Texts are cut at the model's own maximum length unless you pass
+`--max-seq-len`. Prompts follow the same rule as below: `--prompt`, then the model's registered
+document prompt, then the known-family table.
 
 ## Fan-out: N Jobs in parallel
 
