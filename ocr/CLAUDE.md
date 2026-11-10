@@ -88,6 +88,7 @@ Legend: ✅ production-ready · ⚠️ works only with a required pinned image �
 | `lighton-ocr2.py` | ✅ | vLLM | a100-large / l4x1 | resize 1540px; `--max-model-len` 16384 |
 | `lighton-ocr3-bucket.py` | ✅ | vLLM `:v0.30.0` | a10g-small | `hf://buckets/...` or dir → `.md` (+ `.json` blocks in grounding); bucket I/O via `bucketbag` v0.3.1 (no mount); `.jp2` via imagecodecs; resume-by-skip; failed pages write nothing |
 | `lighton-ocr3.py` | ✅ | vLLM `:v0.30.0` | a10g-small | 4B/0.8B Qwen3.5; resize 2048px; `--mode grounding` → `layout_blocks`; pinned upstream `lightonocr` client dep — see gotcha |
+| `lighton-ocr3-live.py` | 🧪 | saturate + vLLM `:v0.30.0` | rtx-pro-6000 | experimental: `lighton-ocr3-saturate.py` + `--live-port` page (finished pages at the run's pace; `?view=single`) |
 | `paddleocr-vl-1.5.py` | ✅ | transformers | l4x1 | not vLLM (server-only upstream); single-image |
 | `paddleocr-vl-1.6.py` | ✅ | vLLM | l4x1 | smart-resize ~1M px; SOTA OmniDocBench |
 | `paddleocr-vl.py` | ✅ | vLLM | l4x1 | |

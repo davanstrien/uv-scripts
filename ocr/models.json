@@ -415,6 +415,30 @@
       ]
     }
   },
+  "lighton-ocr3-live.py": {
+    "model_id": "lightonai/LightOnOCR-3-0.8B",
+    "params": "0.8B (or 4B via --model)",
+    "backend": "saturate (in-job vllm serve + saturate pump)",
+    "image": "vllm/vllm-openai:v0.30.0",
+    "task": "ocr with a live view of the run",
+    "output": "markdown; --mode grounding adds labelled layout blocks with 0-1000 boxes (layout_blocks JSON column)",
+    "license": "apache-2.0",
+    "notes": "lighton-ocr3-saturate.py plus --live-port: a page served from the Job that shows each finished page moving past at the rate the pages finish, the pages read a second and one page's text; ?view=single shows one page at a time with its text. For watching or screen-recording a run. Measured 2026-11-10 with these settings and the live view open, pages fed from multi-page TIFFs by a one-off source: 14,483 typed pages (about 780 output tokens a page), 7.7 pages/s on rtx-pro-6000, 0 errors.",
+    "languages": {
+      "evidence": "not-stated",
+      "notes": "LightOnOCR-3 cards give no language list (LightOnOCR-2 named 11)."
+    },
+    "support": "experimental",
+    "support_note": "Use lighton-ocr3-saturate.py for normal runs; this adds a live view for demos.",
+    "jobs": {
+      "image": "vllm/vllm-openai:v0.30.0",
+      "flavor": "rtx-pro-6000",
+      "timeout": "4h",
+      "secrets": [
+        "HF_TOKEN"
+      ]
+    }
+  },
   "lighton-ocr2-server.py": {
     "model_id": "lightonai/LightOnOCR-2-1B",
     "params": "1B",
