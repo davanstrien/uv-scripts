@@ -46,15 +46,19 @@ LONG TEXTS: each text is cut at the model's own maximum length, which the server
 is lowered to it. generate-embeddings.py cuts at 512 tokens by default. The cut is logged and
 written to the dataset card.
 
-OUTPUT: one row per input row, with `id`, the text column, the embedding column, `model`,
+OUTPUT: one record per input row, with `id`, the text column, the embedding column, `model`,
 `prompt_tokens` and `error`. A row that failed has a message in `error` and no embedding.
 Run the same command again to resume: rows already written are skipped. Add --retry-errors to
-try the failed rows again.
+try the failed rows again. A retry adds a second record for the row and keeps the old error
+record, so after a --retry-errors run drop the records that have an `error`, or read the
+output with `saturate.read_output`, which keeps one record per id (a success over an earlier
+error).
 """
 import argparse
 import json
 import os
 import re
+import shlex
 import sys
 import time
 import urllib.request
@@ -196,6 +200,39 @@ def model_max_tokens(endpoint, model_id):
     sys.exit(f"The server does not list {model_id}. It serves: {[entry['id'] for entry in served]}")
 
 
+def embedding_dimension(endpoint, model_id):
+    """Return the length of the model's vectors, from one request to the server."""
+    request = urllib.request.Request(
+        f"{endpoint}/embeddings",
+        data=json.dumps({"model": model_id, "input": "dimension check"}).encode(),
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(request, timeout=600) as response:
+        return len(json.load(response)["data"][0]["embedding"])
+
+
+def reproduce_options(args):
+    """Return the options that give this dataset again, as a shell-quoted string."""
+    options = ["--column", args.column, "--model", args.model]
+    if args.output_column != "embeddings":
+        options += ["--output-column", args.output_column]
+    if args.config:
+        options += ["--config", args.config]
+    if args.split != "train":
+        options += ["--split", args.split]
+    if args.id_column:
+        options += ["--id-column", args.id_column]
+    if args.max_samples:
+        options += ["--max-samples", str(args.max_samples)]
+    if args.max_seq_len:
+        options += ["--max-seq-len", str(args.max_seq_len)]
+    if args.prompt is not None:
+        options += ["--prompt", args.prompt]
+    if args.query_mode:
+        options += ["--query-mode"]
+    return " ".join(shlex.quote(option) for option in options)
+
+
 def write_card(args, prefix, prefix_source, dimension, max_tokens, stats):
     """Write the dataset card, with the canonical uv-scripts reproduction section."""
     from huggingface_hub import HfApi
@@ -209,7 +246,8 @@ def write_card(args, prefix, prefix_source, dimension, max_tokens, stats):
     jobs_tag = "\n- hf-jobs" if on_jobs else ""
     side = "query" if args.query_mode else "document"
     prefix_line = f"`{prefix}` ({prefix_source})" if prefix else "(none)"
-    cut_option = f" --max-seq-len {args.max_seq_len}" if args.max_seq_len else ""
+    # A resumed run processes only the rows that were missing, so the card gives both counts.
+    earlier = f", {stats.rows_done_prior} already written by an earlier run" if stats.rows_done_prior else ""
     card = (
         f"---\ntags:\n- embeddings\n- uv-script\n- generated{jobs_tag}\n---\n\n"
         f"# {args.output_dataset}\n\n"
@@ -219,12 +257,13 @@ def write_card(args, prefix, prefix_source, dimension, max_tokens, stats):
         f"- Column: `{args.output_column}`, normalized\n"
         f"- Prompt prepended ({side} side): {prefix_line}\n"
         f"- Texts cut at {max_tokens} tokens\n"
-        f"- Rows: {stats.rows_processed} embedded, {stats.rows_failed} failed (see the `error` column)\n\n"
+        f"- Rows in the last run: {stats.rows_processed} embedded, {stats.rows_failed} failed{earlier}. "
+        f"A failed row has a message in `error`.\n\n"
         f"## Reproduction\n\n"
         f"{origin} with the [`generate-embeddings-saturate.py`]({SCRIPT_URL}) recipe "
         f"from [uv-scripts](https://huggingface.co/uv-scripts). Run it yourself:\n\n"
         f"```bash\nhf jobs uv run {SCRIPT_URL} \\\n"
-        f"    {args.input_dataset} <output-dataset> --column {args.column} --model {args.model}{cut_option}\n```\n"
+        f"    {args.input_dataset} <output-dataset> {reproduce_options(args)}\n```\n"
     )
     HfApi().upload_file(
         path_or_fileobj=card.encode(), path_in_repo="README.md",
@@ -259,10 +298,20 @@ def main():
     prefix, prefix_source = choose_prefix(args)
     print(f"Prompt prefix: {prefix!r} ({prefix_source})", file=sys.stderr)
 
+    if args.id_column is None:
+        ids = "index"
+    elif args.id_column in ("index", "content"):
+        # saturate reads these two names as id strategies, so a column with one of them
+        # needs a callable. It returns the raw value, so saturate still refuses a null id.
+        def ids(example):
+            return example[args.id_column]
+    else:
+        ids = args.id_column
+
     HfApi().create_repo(args.output_dataset, repo_type="dataset", private=args.private, exist_ok=True)
     rows = dataset_rows(
         args.input_dataset, config=args.config, split=args.split,
-        columns=[args.column], ids=args.id_column or "index", limit=args.max_samples,
+        columns=[args.column], ids=ids, limit=args.max_samples,
     )
 
     cut = {"max_tokens": None}  # set once the server reports the model's maximum
@@ -279,14 +328,10 @@ def main():
         ("id", pa.string()), ("error", pa.string()), (args.column, pa.string()),
         (args.output_column, pa.list_(pa.float32())), ("model", pa.string()), ("prompt_tokens", pa.int64()),
     ])  # fmt: skip
-    seen = {"dimension": None}
-
     def parse(row, body):
-        vector = body["data"][0]["embedding"]
-        seen["dimension"] = len(vector)
         return {
             args.column: row[args.column],
-            args.output_column: vector,
+            args.output_column: body["data"][0]["embedding"],
             "model": args.model,
             "prompt_tokens": (body.get("usage") or {}).get("prompt_tokens"),
         }
@@ -300,6 +345,7 @@ def main():
         model_maximum = model_max_tokens(endpoint, args.model)
         cut["max_tokens"] = min(args.max_seq_len or model_maximum, model_maximum)
         print(f"Texts are cut at {cut['max_tokens']} tokens (the model's maximum is {model_maximum})", file=sys.stderr)
+        dimension = embedding_dimension(endpoint, args.model)
         started = time.monotonic()
         stats = pump(
             rows, to_request, parse, endpoint, f"hf://datasets/{args.output_dataset}/data",
@@ -307,11 +353,11 @@ def main():
         )
         elapsed = time.monotonic() - started
 
-    write_card(args, prefix, prefix_source, seen["dimension"], cut["max_tokens"], stats)
+    write_card(args, prefix, prefix_source, dimension, cut["max_tokens"], stats)
     print(
         f"https://huggingface.co/datasets/{args.output_dataset} "
         f"({stats.rows_processed} ok, {stats.rows_failed} error rows, "
-        f"{stats.rows_processed / max(elapsed, 1e-6):.0f} rows/s, dim {seen['dimension']})",
+        f"{stats.rows_processed / max(elapsed, 1e-6):.0f} rows/s, dim {dimension})",
         file=sys.stderr,
     )
     print("GENERATE_EMBEDDINGS_SATURATE " + stats.to_json(), flush=True)
