@@ -261,73 +261,59 @@ def count_pages(dataset: str, config, split: str, limit):
 LIVE_PAGE = """<!doctype html><meta charset="utf-8"><title>LightOnOCR-3 live</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-:root{--bg:#f4f2ee;--fg:#1c1c1e;--muted:#66645f;--card:#fff;--line:#dfdcd5;--accent:#d9622b;--ok:#2f7d5b}
-@media (prefers-color-scheme:dark){:root{--bg:#101113;--fg:#ececef;--muted:#9096a0;--card:#191b1f;--line:#2b2e34;--accent:#ff8a3d;--ok:#5cc29a}}
+/* A copy stand: a neutral ground, and the paper is the only colour on it. */
+:root{--ground:#2b2f34;--ink:#f4f2ed;--quiet:#a4aab1;--rule:rgba(244,242,237,.22);--paper:#fbfaf7;
+ --lift:0 0 0 1px rgba(0,0,0,.10),0 .7vmin 2vmin rgba(0,0,0,.34)}
+@media (prefers-color-scheme:light){:root{--ground:#c9cdd1;--ink:#15171a;--quiet:#4a4f56;--rule:rgba(21,23,26,.22);
+ --lift:0 0 0 1px rgba(0,0,0,.07),0 .5vmin 1.6vmin rgba(0,0,0,.20)}}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.45 system-ui,sans-serif;height:100vh;
- display:grid;grid-template-rows:auto minmax(0,1fr) auto;overflow:hidden}
-header{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;padding:22px 32px 16px;min-width:0}
-h1{font-size:30px;line-height:1.15;margin:0;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-#sub{font-size:18px;color:var(--muted);margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-#sub.done{color:var(--ok);font-weight:600}#sub.stop{color:var(--accent);font-weight:600}
-#sub.busy::before{content:"● ";color:var(--accent);animation:blink 1s steps(1) infinite}
-@keyframes blink{50%{opacity:0}}
-#titles{min-width:0}
-#rateBox{text-align:right;flex:none}
-#rate{font-size:88px;font-weight:700;line-height:.95;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
-.label{font-size:14px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted)}
-#belt{position:relative;display:flex;flex-direction:column;gap:12px;min-height:0;overflow:hidden;
- border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:12px 0;
- -webkit-mask-image:linear-gradient(90deg,transparent,#000 5%,#000 96%,transparent);
- mask-image:linear-gradient(90deg,transparent,#000 5%,#000 96%,transparent)}
-.row{position:relative;flex:1;min-height:0;overflow:hidden}
+html{font-size:clamp(15px,2.1vmin,24px)}
+body{margin:0;height:100vh;overflow:hidden;background:var(--ground);color:var(--ink);
+ font-family:"Avenir Next","Helvetica Neue",system-ui,sans-serif;line-height:1.35;
+ display:grid;grid-template-rows:minmax(0,1fr) auto}
+#belt{position:relative;display:flex;flex-direction:column;gap:1.7vmin;padding:2.2vmin 0;min-height:0;overflow:hidden}
+.row{position:relative;flex:1;min-height:0}
 .track{position:absolute;inset:0;will-change:transform}
-.track img{position:absolute;top:0;height:100%;object-fit:cover;object-position:top;background:var(--card);
- border:1px solid var(--line);box-shadow:0 1px 3px rgba(0,0,0,.12)}
-#wait{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:22px;color:var(--muted)}
-footer{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:32px;padding:18px 32px 22px;min-width:0}
-#spot{display:grid;grid-template-columns:auto minmax(0,1fr);gap:20px;height:200px;min-width:0}
-#spotImg{height:200px;width:144px;object-fit:cover;object-position:top;border:1px solid var(--line);background:var(--card)}
-#spotText{overflow:hidden;white-space:pre-wrap;font:18px/1.5 Georgia,serif;max-width:70ch;height:176px;
- -webkit-mask-image:linear-gradient(#000 70%,transparent);mask-image:linear-gradient(#000 70%,transparent)}
-.fade{animation:fade .45s ease-out}@keyframes fade{from{opacity:0}}
-#stats{display:grid;grid-template-columns:auto auto;gap:6px 36px;align-content:start}
-.mid{font-size:30px;font-weight:650;font-variant-numeric:tabular-nums;line-height:1.15}
-#wide{grid-column:1/-1}
-.bar{height:8px;background:var(--line);border-radius:4px;margin-top:6px}.bar div{height:8px;background:var(--accent);border-radius:4px;width:0}
-@media (max-width:900px){header{padding:16px 18px 12px}h1{font-size:22px}#sub{font-size:15px}#rate{font-size:60px}
- footer{grid-template-columns:minmax(0,1fr);gap:16px;padding:14px 18px 18px}#spot{height:150px}#spotImg{height:150px;width:108px}
- #spotText{height:132px;font-size:16px}#stats{grid-template-columns:repeat(3,auto);order:-1}.mid{font-size:24px}}
+.track img{position:absolute;top:0;height:100%;object-fit:cover;object-position:top;background:var(--paper);
+ border-radius:2px;box-shadow:var(--lift)}
+#progress{height:2px;background:var(--rule)}
+#progress div{height:2px;width:0;background:var(--ink)}
+#band{display:grid;grid-template-columns:minmax(0,1fr);gap:1.1rem;padding:1.5rem 4vmin 1.9rem}
+#rate{font-size:2.55rem;font-weight:600;line-height:1.08;letter-spacing:-.012em;margin:0 0 .45rem;
+ font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#run,#count{margin:0}
+#count{color:var(--quiet);font-variant-numeric:tabular-nums}
+#sample{margin:0;min-width:0;transition:opacity .4s}
+#sample.out{opacity:0}
+#text{margin:0;font-family:"Iowan Old Style",Charter,Georgia,serif;font-size:1.02rem;line-height:1.5;height:4.5em;
+ overflow:hidden;white-space:pre-line}
+#from{margin:.3rem 0 0;color:var(--quiet);font-size:.82rem}
+@media (min-aspect-ratio:13/10){#band{grid-template-columns:minmax(0,5fr) minmax(0,6fr);gap:5vmin;align-items:end}}
 </style>
-<header>
- <div id="titles"><h1 id="model">LightOnOCR-3</h1><div id="sub" class="busy">Starting</div></div>
- <div id="rateBox"><div id="rate">–</div><div class="label">pages per second</div></div>
-</header>
-<section id="belt"><div id="wait"></div></section>
-<footer>
- <div id="spot"><img id="spotImg" alt="" hidden><div><div class="label" id="spotMeta"></div><div id="spotText"></div></div></div>
- <div id="stats">
-  <div id="wide"><div class="label">Pages read</div><div class="mid"><span id="done">0</span><span class="label" id="of"></span></div>
-   <div class="bar"><div id="bar"></div></div></div>
-  <div><div class="label">Words</div><div class="mid" id="words">0</div></div>
-  <div><div class="label">Reading for</div><div class="mid" id="elapsed">0:00</div></div>
- </div>
-</footer>
+<section id="belt" aria-label="Pages the model has read"></section>
+<div id="progress"><div id="bar"></div></div>
+<section id="band">
+ <div><p id="rate">Starting</p><p id="run"></p><p id="count"></p></div>
+ <figure id="sample" class="out"><p id="text"></p><figcaption id="from"></figcaption></figure>
+</section>
 <script>
 const $ = id => document.getElementById(id), fmt = n => Math.round(n).toLocaleString("en-US");
 const clock = s => { s = Number.isFinite(s) ? Math.max(0, Math.round(s)) : 0;
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
+const NL = String.fromCharCode(10);
 const LAG = 1.5;  // seconds a finished page waits before it is drawn, so the belt moves evenly
-let since = 0, last = null, misses = 0, first = true;
-let rows = [], tileW = 0, pitch = 0, beltW = 0, offset = 0, speed = 0;
-const ready = [];  // finished pages whose image has loaded, oldest first
+const still = matchMedia("(prefers-reduced-motion: reduce)").matches;  // then the belt moves in steps
+let since = 0, last = null, misses = 0, first = true, stopped = false;
+let rows = [], tileW = 0, pitch = 0, beltW = 0, offset = 0, drawn = 0, speed = 0;
+const waiting = [], ready = [];  // finished pages: image still loading, then loaded; oldest first
 let shown = 0, shownWords = 0, recent = [];
 
 function layout() {
-  const belt = $("belt"), h = belt.clientHeight - 24, n = h > 560 ? 3 : h > 300 ? 2 : 1, gap = 12;
+  const belt = $("belt"), vmin = Math.min(innerWidth, innerHeight), gap = vmin * 0.017;
+  const h = belt.clientHeight - vmin * 0.044, n = Math.max(2, Math.min(5, Math.round(h / (vmin * 0.26))));
   const rowH = (h - gap * (n - 1)) / n;
-  tileW = Math.round(rowH * 0.7); pitch = tileW + gap; beltW = belt.clientWidth; offset = 0;
-  belt.querySelectorAll(".row").forEach(r => r.remove());
+  tileW = Math.round(rowH * 0.74); pitch = tileW + gap; beltW = belt.clientWidth; offset = drawn = 0;
+  belt.replaceChildren();
   rows = Array.from({length: n}, () => {
     const row = document.createElement("div"), track = document.createElement("div");
     row.className = "row"; track.className = "track"; row.append(track); belt.append(row);
@@ -355,35 +341,37 @@ function frame(now) {
   speed += (target - speed) * Math.min(1, dt * 2.5);
   offset += speed * dt;
   while (ready.length && (ready[0].missing || Math.min(...rows.map(r => r.tail)) <= offset + beltW)) place(ready.shift());
+  if (!still || offset - drawn >= pitch) drawn = offset;
   for (const r of rows) {
-    r.track.style.transform = `translateX(${-offset}px)`;
-    while (r.tiles.length && r.tiles[0].x + pitch < offset) r.tiles.shift().el.remove();
+    r.track.style.transform = `translateX(${-drawn}px)`;
+    while (r.tiles.length && r.tiles[0].x + pitch < drawn) r.tiles.shift().el.remove();
   }
-  counters();
+  words();
   requestAnimationFrame(frame);
 }
 
-function counters() {
-  if (!last) return;
-  const done = last.finished && !ready.length ? last.pages_done : shown;
-  $("done").textContent = fmt(done);
-  $("words").textContent = fmt(last.finished && !ready.length ? last.words : shownWords);
-  if (last.pages_total) { $("of").textContent = ` of ${fmt(last.pages_total)}`;
-    $("bar").style.width = Math.min(100, 100 * done / last.pages_total) + "%"; }
+// The three lines under the belt, as sentences.
+function words() {
+  const s = last; if (!s) return;
+  const all = s.finished && !ready.length && !waiting.length, done = all ? s.pages_done : shown;
+  const of = s.pages_total ? ` of ${fmt(s.pages_total)}` : "";
+  if (s.pages_total) $("bar").style.width = Math.min(100, 100 * done / s.pages_total) + "%";
+  $("run").textContent = s.model.split("/").pop() + (s.gpu_name ? ` on one ${s.gpu_name}, ` : " on ") + "Hugging Face Jobs";
+  if (!s.reading) {
+    $("rate").textContent = s.phase;
+    $("count").textContent = `Started ${clock(s.uptime_s)} ago` + (s.pages_total ? `, ${fmt(s.pages_total)} pages to read` : "");
+  } else {
+    const rate = s.finished ? s.pages_done / Math.max(1, s.reading_s) : s.rate_pps;
+    $("rate").textContent = rate ? `${rate.toFixed(1)} pages a second` : "Reading the first pages";
+    $("count").textContent = stopped ? "The Job stopped. Check the Job logs."
+      : all ? `All ${fmt(done)} pages read in ${clock(s.reading_s)}`
+      : `${fmt(done)}${of} pages read in ${clock(s.reading_s)}`;
+  }
 }
 
 function ingest(d) {
   const s = d.stats; last = s;
-  $("model").textContent = s.model.split("/").pop();
   document.title = s.model.split("/").pop() + " live";
-  const where = (s.gpu_name ? `one ${s.gpu_name} GPU on ` : "") + "Hugging Face Jobs";
-  const sub = $("sub");
-  if (s.finished) { sub.className = "done"; sub.textContent = `Finished · ${fmt(s.pages_done)} pages in ${clock(s.reading_s)} · ${where}`; }
-  else if (s.reading) { sub.className = ""; sub.textContent = where; }
-  else { sub.className = "busy"; sub.textContent = `${s.phase} · ${clock(s.uptime_s)}`; }
-  $("wait").textContent = s.reading ? "" : `${s.phase} …`;
-  $("rate").textContent = s.finished ? (s.pages_done / Math.max(1, s.reading_s)).toFixed(1) : s.rate_pps ? s.rate_pps.toFixed(1) : "–";
-  $("elapsed").textContent = clock(s.reading_s);
   // A late open or a reload starts from the newest pages, not the whole history.
   let pages = d.pages;
   if (first) { pages = pages.slice(-12); first = false;
@@ -401,19 +389,21 @@ function ingest(d) {
 }
 
 // Pages enter the belt in the order they finished, each once its image has loaded.
-const waiting = [];
 function flush() { while (waiting.length && waiting[0].loaded) ready.push(waiting.shift()); }
 
-function spotlight() {
+// One recent page's text, as the model wrote it, changed every few seconds.
+let sampled = null;
+function sample() {
   const withText = recent.filter(p => (p.text || "").length > 200), p = (withText.length ? withText : recent).at(-1);
-  if (p && p.img !== $("spotImg").dataset.img) {
-    const img = $("spotImg"), el = $("spotText");
-    img.hidden = false; img.src = "img/" + p.img; img.dataset.img = p.img;
-    $("spotMeta").textContent = "One of the pages just read" + (p.n ? ` · row ${fmt(p.n)}` : "");
-    el.textContent = (p.text || "(no text on this page)").replace(/^#+ /gm, "");
-    for (const x of [img, el]) { x.classList.remove("fade"); void x.offsetWidth; x.classList.add("fade"); }
+  if (p && p !== sampled) {
+    sampled = p; $("sample").classList.add("out");
+    setTimeout(() => {
+      $("text").textContent = (p.text || "(no text on this page)").replace(/^#+ /gm, "").replace(new RegExp(NL + "{2,}", "g"), NL);
+      $("from").textContent = p.n ? `Text read from page ${fmt(p.n)}` : "Text read from one of these pages";
+      $("sample").classList.remove("out");
+    }, 400);
   }
-  setTimeout(spotlight, 3000);
+  setTimeout(sample, 4000);
 }
 
 async function poll() {
@@ -421,12 +411,12 @@ async function poll() {
     ingest(await (await fetch("feed.json?since=" + since)).json()); misses = 0;
   } catch (e) {
     misses += 1;
-    if (misses >= 6 && last && !last.finished) { $("sub").className = "stop"; $("sub").textContent = "Job stopped · check the Job logs"; }
+    if (misses >= 6 && last && !last.finished) stopped = true;
   }
   setTimeout(poll, 500);
 }
 layout(); addEventListener("resize", layout);
-poll(); spotlight(); requestAnimationFrame(frame);
+poll(); sample(); requestAnimationFrame(frame);
 </script>"""
 
 
