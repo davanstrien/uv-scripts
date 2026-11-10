@@ -29,7 +29,7 @@ Tiered: 1 of 53 recipes with a header.
 | `ocr/lift-extract.py` | — | default | latest | never |  |
 | `ocr/lighton-ocr2-saturate.py` | — | `vllm/vllm-openai:v0.22.1` | latest | never |  |
 | `ocr/lighton-ocr3-bucket.py` | — | `vllm/vllm-openai:v0.30.0` | latest | never |  |
-| `ocr/lighton-ocr3-live.py` | — | `vllm/vllm-openai:v0.30.0` | latest | never |  |
+| `ocr/lighton-ocr3-live.py` | — | `vllm/vllm-openai:v0.30.0` | latest | 2026-11-10 | [pass](https://huggingface.co/jobs/davanstrien/6af35d729737d9a9e0913810) |
 | `ocr/lighton-ocr3-saturate.py` | — | `vllm/vllm-openai:v0.30.0` | latest | never |  |
 | `ocr/lighton-ocr3.py` | — | `vllm/vllm-openai:v0.30.0` | latest | never |  |
 | `ocr/minicpm-ocr.py` | — | `cr.hf.co/davanstrien/minicpm-ocr:1.0-vllm-5d35ce3` | latest | never |  |
