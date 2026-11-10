@@ -68,6 +68,9 @@ NOT_DECLARED = {
 # Recipe metadata that names a family rather than a Hub repo.
 NOT_HUB_MODELS = {"PaddlePaddle/PP-OCRv6"}
 
+# Added to a command when the script has --max-samples and its documented example does not set one.
+FIRST_RUN_SAMPLES = 10
+
 OCR_SUPPORT_LEVELS = {"core", "experimental"}
 SKIP_SCRIPT = re.compile(r"(^_|^test_|conftest|setup|benchmark|judge|compare)", re.IGNORECASE)
 ALTERNATIVE_SCRIPT = re.compile(r"saturate|live|server|fleet|fewshot", re.IGNORECASE)
@@ -130,10 +133,28 @@ def find_models(constants, arguments):
     return [model for model in unique if model.split("/")[0].lower() not in PLACEHOLDER_OWNERS]
 
 
-def first_documented_command(text, script_name, url):
+def lines_without_examples(tree):
+    """Return the line numbers where an `hf jobs uv run` is not a documented example.
+
+    An f-string is a template the script fills in when it runs, such as the card it writes for its output.
+    A one-line string holds only part of a command, such as one line of a printed example.
+    """
+    skipped = set()
+    for node in ast.walk(tree):
+        is_f_string = isinstance(node, ast.JoinedStr)
+        is_one_line_string = isinstance(node, ast.Constant) and isinstance(node.value, str) and node.lineno == node.end_lineno
+        if is_f_string or is_one_line_string:
+            skipped.update(range(node.lineno, node.end_lineno + 1))
+    return skipped
+
+
+def first_documented_command(text, tree, script_name, url):
     """Return the first documented example that launches this script, as (job_flags, script_arguments)."""
+    skipped_lines = lines_without_examples(tree)
     for match in re.finditer(r"hf jobs uv run(?:[^\n]*\\\n)*[^\n]*", text):
         if script_name not in match.group(0):
+            continue
+        if text.count("\n", 0, match.start()) + 1 in skipped_lines:
             continue
         lines = [re.sub(r"^\s*(#\s*)?", "", line).rstrip(" \\") for line in match.group(0).split("\n")]
         command = " \\\n    ".join(line for line in lines if line)
@@ -155,9 +176,36 @@ def format_command(job_flags, url, script_arguments):
 
 
 def normalize_placeholders(command):
-    command = re.sub(r"\b(your-name|yourname|my-username|username|user)(?=/)", "your-username", command)
-    command = re.sub(r"(?<![-\w])input-dataset", "INPUT_DATASET", command)
-    return re.sub(r"(?<![-\w])output-dataset", "OUTPUT_DATASET", command)
+    """Rewrite the stand-ins that script docs use, so the page has two: `your-username` and capitalised names."""
+    command = re.sub(r"<(user|you|username|your-username)>(?=/)", "your-username", command)
+    command = re.sub(r"(?<![-\w])(your-name|yourname|my-username|username|user)(?=/)", "your-username", command)
+    command = re.sub(r"(?<![-\w])(your-input-dataset|input-dataset|my-dataset)(?![-\w])", "INPUT_DATASET", command)
+    command = re.sub(r"(?<![-\w])(your-output-dataset|output-dataset|my-output)(?![-\w])", "OUTPUT_DATASET", command)
+    command = re.sub(r"(?<![-\w/.:])input output(?![-\w/])", "INPUT_DATASET OUTPUT_DATASET", command)
+    command = re.sub(r"your-username/(INPUT_DATASET|OUTPUT_DATASET)", r"\1", command)
+    # A shell reads <NAME> as a redirect, so a pasted command would fail before it reached the script.
+    return re.sub(r"<([A-Z][A-Z_]*)>", r"\1", command)
+
+
+def add_sample_limit(command, arguments):
+    """End the command with a small --max-samples when the script has one, so a first run is short and cheap."""
+    has_option = any(argument["name"] == "--max-samples" for argument in arguments)
+    if not has_option or "--max-samples" in command:
+        return command
+    return f"{command} --max-samples {FIRST_RUN_SAMPLES}"
+
+
+def command_problems(recipes):
+    """Return the commands that would not run as pasted: template text, or brackets outside quotes."""
+    problems = []
+    for recipe in recipes:
+        if not recipe["command"]:
+            continue
+        unquoted = re.sub(r"'[^']*'|\"[^\"]*\"", "", recipe["command"])
+        found = sorted(set(re.findall(r"[{}<>]", unquoted)))
+        if found:
+            problems.append(f"{recipe['script']} ({' '.join(found)})")
+    return problems
 
 
 def header_command(url, arguments, documented):
@@ -219,13 +267,15 @@ def load_recipes():
 
             url = f"{HUB_BASE}/{folder}/raw/main/{path.name}"
             jobs_header = read_header(text)
-            documented = first_documented_command(text, path.name, url)
+            documented = first_documented_command(text, tree, path.name, url)
             if jobs_header:
                 command, source = header_command(url, arguments, documented), "header"
             elif documented:
                 command, source = format_command(documented[0], url, documented[1]), "documented"
             else:
                 command, source = None, "flags-needed"
+            if command:
+                command = add_sample_limit(command, arguments)
 
             script = f"{folder}/{path.name}"
             is_training = path.name.startswith(("train-", "finetune"))
@@ -392,7 +442,7 @@ Recipes that read files use mounts. A local folder also works as a source:
 
 - Preview for free with `--dry-run`, and check the flavor: without a header, a GPU recipe can resolve to `cpu-basic`.
 - Flags before the URL configure the job and override the header, such as `--flavor` and `--timeout`. Flags after it go to the script. If a script flag has the same name as a job flag, put `--` before the URL.
-- Start with a small `--max-samples` if the script has it, and add `--private` if the output shouldn't be public.
+- Commands set `--max-samples 10` where the script has it. Remove it for a full run, and add `--private` if the output shouldn't be public.
 
 ## Check it
 
@@ -438,6 +488,10 @@ def main():
 
     recipes = load_recipes()
     print(f"{len(recipes)} recipes, {len(declared_models(recipes))} declared models")
+    problems = command_problems(recipes)
+    if problems:
+        print("Commands that would not run as pasted:", ", ".join(problems))
+        return 1
     if args.verify_models:
         missing = verify_models(recipes)
         if missing:
