@@ -468,7 +468,7 @@ def read_metadata_file(source, source_file: SourceFile) -> list[dict]:
     name = PurePosixPath(source_file.rel_path).name
     try:
         return read_rows(source.read_text(source_file), name)
-    except (UnicodeDecodeError, ValueError, csv.Error) as error:
+    except (UnicodeDecodeError, ValueError, csv.Error, OSError) as error:
         raise UserError(
             f"Cannot read {source_file.rel_path}: {error}",
             "Save the file as UTF-8. A .csv needs a header row; a .jsonl needs one JSON object per line.",
@@ -481,7 +481,10 @@ def read_rows(text: str, filename: str) -> list[dict]:
     if filename.endswith(".jsonl"):
         for line in text.splitlines():
             if line.strip():
-                rows.append(json.loads(line))
+                row = json.loads(line)
+                if not isinstance(row, dict):
+                    raise ValueError(f"each line must be a JSON object, got: {line.strip()[:60]}")
+                rows.append(row)
     else:
         rows = list(csv.DictReader(io.StringIO(text)))
     cleaned = []
@@ -1294,7 +1297,7 @@ def command_publish(args, reporter: Reporter) -> dict:
                 states.pop(image.id, None)
                 try:
                     dest.remove(state_path(image.id))
-                except OSError as remove_error:
+                except Exception as remove_error:  # noqa: BLE001 - the Hub client raises many types
                     reporter.warn(f"could not remove the state file of {image.source}: {remove_error}")
                 continue
             states[state["id"]] = state
@@ -1573,8 +1576,14 @@ def command_check(args, reporter: Reporter) -> dict:
 
     # Each test is one request, and a request to a bucket takes about half a second.
     # Running them side by side turns minutes into seconds. `problems.append` is thread-safe.
+    def check_canvas_safely(canvas: dict) -> None:
+        try:
+            check_canvas(canvas)
+        except UserError as error:
+            problems.append(f"{canvas.get('id', '?')}: could not finish the check: {error.message}")
+
     with ThreadPoolExecutor(max_workers=max(1, args.workers)) as pool:
-        list(pool.map(check_canvas, sample))
+        list(pool.map(check_canvas_safely, sample))
     problems.sort()
     reporter.info(f"Checked files for {len(sample)} of {len(canvases)} canvas(es)")
 

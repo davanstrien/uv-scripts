@@ -402,6 +402,7 @@ def test_bucket_destination_listing_does_not_match_a_neighbour():
     api = FakeBucketApi(["pub/images/page1/info.json", "pub/images/page10/info.json", "published/images/page1/x"])
     dest = recipe.BucketDest(api, "o/b", "pub")
     assert [e.path for e in dest._list("images/page1/")] == ["pub/images/page1/info.json"]
+    assert [e.path for e in dest._list("images/page1")] == ["pub/images/page1/info.json"]  # no trailing slash
     assert dest.list_names("images") == ["images/page1/info.json", "images/page10/info.json"]
 
 
@@ -410,3 +411,83 @@ def test_bucket_prefixes_that_only_share_text_do_not_overlap():
     recipe.check_no_overlap(source, recipe.Location(kind="bucket", bucket="o/b", prefix="published"))
     with pytest.raises(recipe.UserError):
         recipe.check_no_overlap(source, recipe.Location(kind="bucket", bucket="o/b", prefix="pub/out"))
+
+
+def test_jsonl_line_that_is_not_an_object_is_a_usage_error(source, tmp_path, capsys):
+    (source / "metadata.csv").unlink()
+    (source / "metadata.jsonl").write_text("[]\n")
+    assert run("publish", source, tmp_path / "published", "--base-url", BASE) == 2
+    assert "JSON object" in capsys.readouterr().err
+
+
+def test_first_run_where_every_image_fails_writes_nothing(tmp_path, capsys):
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "a.jpg").write_bytes(b"not an image")
+    dest = tmp_path / "published"
+    assert run("publish", source, dest, "--base-url", BASE) == 1
+    assert not (dest / "collection.json").exists()
+    assert "FAILED" in capsys.readouterr().out
+
+
+def test_check_keeps_other_problems_when_one_image_cannot_be_checked(source, tmp_path, monkeypatch, capsys):
+    dest = tmp_path / "published"
+    run("publish", source, dest, "--base-url", BASE)
+    (dest / "images" / "rotated" / "full" / "max" / "0" / "default.jpg").unlink()
+    real_exists = recipe.LocalReader.exists
+
+    def flaky(self, path):
+        if path.startswith("images/small/"):
+            raise recipe.UserError("Network error while reading " + path)
+        return real_exists(self, path)
+
+    monkeypatch.setattr(recipe.LocalReader, "exists", flaky)
+    capsys.readouterr()
+    assert run("check", dest, "--json") == 1
+    problems = " ".join(json.loads(capsys.readouterr().out)["problems"])
+    assert "canvas/small: could not finish the check" in problems
+    assert "canvas/rotated: full image cannot be fetched" in problems
+
+
+def test_sparse_metadata_gives_nulls_and_odd_column_names_are_kept(tmp_path):
+    source = tmp_path / "source"
+    source.mkdir()
+    for name in ("a", "b", "c"):
+        picture(200, 100).jpegsave(str(source / f"{name}.jpg"))
+    (source / "metadata.csv").write_text("file_name,width,Date,date\na.jpg,wide,1900,\nb.jpg,,,1901\n")
+    dest = tmp_path / "published"
+    assert run("publish", source, dest, "--base-url", BASE) == 0
+    rows = {r["image_id"]: r for r in pq.read_table(io.BytesIO((dest / "index.parquet").read_bytes())).to_pylist()}
+    assert rows["a"]["width"] == 200 and rows["a"]["meta_width"] == "wide"
+    assert (rows["a"]["meta_Date"], rows["a"]["meta_date"]) == ("1900", None)
+    assert (rows["b"]["meta_Date"], rows["b"]["meta_date"]) == (None, "1901")
+    assert rows["c"]["meta_width"] is None and rows["c"]["meta_date"] is None
+
+
+def test_check_reports_a_missing_derivative(source, tmp_path, capsys):
+    dest = tmp_path / "published"
+    run("publish", source, dest, "--base-url", BASE)
+    (dest / "images" / "book-a__page2" / "full" / "1024,751" / "0" / "default.jpg").unlink()
+    capsys.readouterr()
+    assert run("check", dest, "--json") == 1
+    assert "derivative image cannot be fetched" in " ".join(json.loads(capsys.readouterr().out)["problems"])
+
+
+def test_state_file_is_removed_before_the_image_folder_is_cleared(source, tmp_path, monkeypatch):
+    dest = tmp_path / "published"
+    run("publish", source, dest, "--base-url", BASE)
+    state_dir = dest / "_publish" / "state"
+    assert len(list(state_dir.iterdir())) == 5
+
+    def killed(self, dest_prefix):
+        raise SystemExit("the process stops while it replaces an image")
+
+    monkeypatch.setattr(recipe.LocalDest, "clear", killed)
+    with pytest.raises(SystemExit):
+        run("publish", source, dest, "--base-url", BASE, "--force", "--workers", "1")
+    # Every image whose folder was about to be cleared has lost its state file,
+    # so the next run cannot treat a half-written folder as complete.
+    assert list(state_dir.iterdir()) == []
+    monkeypatch.undo()
+    assert run("publish", source, dest, "--base-url", BASE) == 0
+    assert run("check", dest) == 0

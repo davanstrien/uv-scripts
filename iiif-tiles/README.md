@@ -136,7 +136,7 @@ uv run iiif.py manifest hf://buckets/myorg/my-collection --title "A better title
 uv run iiif.py check hf://buckets/myorg/my-collection
 ```
 
-`check` reads the collection the way a viewer does. It reads every manifest and compares the canvas ids with the index. For a sample of 25 images (`--sample 0` for all) it also confirms that each id matches its URL and that the full image, thumbnail, 1024 px image and the first and last tile can be fetched. The exit code is 1 when it finds a problem. It makes 16 requests at a time (`--workers`) and tries a failed request again; 164 images with `--sample 0` took about 20 seconds.
+`check` reads the collection the way a viewer does. It reads every manifest and compares the canvas ids with the index. For a sample of 25 images (`--sample 0` for all) it also confirms that each id matches its URL and that the full image, thumbnail, 1024 px image and the first and last tile can be fetched. The exit code is 1 when it finds a problem. It checks 16 images at a time (`--workers`) and tries a request again after a network error, a rate limit or a server error; 164 images with `--sample 0` took about 20 seconds.
 
 ## For scripts and agents
 
@@ -184,10 +184,10 @@ An image id is made from the source path: `letter-1/page1.jpg` becomes `letter-1
 
 - **Rotation.** A photo with an EXIF rotation tag is stored upright. Width and height are the upright values.
 - **Colour.** Every file is saved as 8-bit sRGB (or greyscale for a greyscale image). An embedded colour profile such as Adobe RGB is applied in the conversion. CMYK and 16-bit images are converted, and transparency is flattened onto white; the run prints a warning for each of these.
-- **Multi-page TIFF.** Only the first page is published. The run prints a warning. A pyramidal TIFF is read as one image.
+- **Multi-page TIFF.** Only the first page is published. The run prints a warning. A pyramidal TIFF is read as one image. The script tells the two apart by size: if the second page is half the size of the first, the file is read as a pyramid and there is no warning.
 - **The destination belongs to the tool.** Do not keep your own files under `images/`, `manifests/` or `_publish/`: a run can delete them.
 - **Source and destination must not overlap.** The destination cannot be inside the source, or the reverse.
-- **Removed images.** An image that you delete from the source leaves the manifests on the next run. Its image files stay in the bucket, and the run reports the count.
+- **Removed images.** An image that you delete from the source leaves the manifests on the next run. Its image files stay in the bucket, and the run reports the count. A source with no images at all stops the run and changes nothing.
 - **Failed images.** An image that cannot be read is left out, the run exits with code 1, and the other images are published. Fix the file and run the same command again.
 - **Python.** The script needs Python 3.10 to 3.13 (the image library has no build for newer versions yet). `uv` selects one for you.
 - **Viewer.** The Space uses [Triiiceratops](https://github.com/d-flood/triiiceratops), pinned to one version. Other IIIF viewers can open the Collection or manifest URL.
