@@ -406,8 +406,10 @@ def model_row_html(task, model, recipes, hub, extra):
     ranked = sorted(recipes, key=rank)
     best = ranked[0]
     info = hub.get(model, {})
-    # The collapsed row shows facts that help pick a model: age, size and GPU. A missing command is the only status shown.
-    facts = [size_label(info.get("parameters")), best["flavor"] or ""]
+    # The collapsed row shows the model's age and size; the GPU and its price are in the opened row.
+    # A missing command is the only status shown.
+    size = size_label(info.get("parameters"))
+    facts = [f"{size} params" if size else ""]
     if best["source"] == "flags-needed":
         facts.append(ROW_STATUS["flags-needed"])
     row_status = " · ".join(fact for fact in facts if fact)
