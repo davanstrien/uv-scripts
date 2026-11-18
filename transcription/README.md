@@ -63,7 +63,7 @@ hf jobs uv run --flavor l4x1 -s HF_TOKEN --timeout 30m \
 
 **Harder audio.** Mount `/apollo11` instead of `/podcast`: two clips of 1969 mission tapes with radio noise and crosstalk. The [demo Bucket's README](https://huggingface.co/buckets/uv-scripts/transcription-demo) gives the sources and licences (NASA, public domain).
 
-**Why no flags.** The Nemotron scripts carry a [`[tool.hf-jobs]` header](https://huggingface.co/docs/hub/jobs-configuration#define-the-launch-config-in-the-script) that sets the GPU, image and secrets. The other scripts have no header yet and take flags, as in the MOSS command. `hf jobs uv run --dry-run <script>` shows the resolved settings.
+**Why no flags.** The Nemotron and Rumble scripts carry a [`[tool.hf-jobs]` header](https://huggingface.co/docs/hub/jobs-configuration#define-the-launch-config-in-the-script) that sets the GPU, image and secrets. The other scripts have no header yet and take flags, as in the MOSS command. `hf jobs uv run --dry-run <script>` shows the resolved settings.
 
 </details>
 
@@ -95,8 +95,9 @@ hf jobs uv run \
 | Who said what, in English or Chinese | `moss-transcribe-diarize.py` (`-server.py` for many files) | Slow on long files; server version needs `a100-large` |
 | Word timestamps and speaker tags from one model, in 40 languages (speaker tags in 13) | `nemotron-transcribe.py` | ~8 min fixed setup before the first file |
 | Nemotron text for a large batch, resumable | `nemotron-transcribe-saturate.py` | Plain text only |
+| Punctuated text in 45 languages, cheaply (5 h of audio in 40 s on an L4) | `rumble-transcribe.py` | Plain text only; drops laughter and fillers by default |
 
-Only the two Nemotron scripts set their own GPU and image. The others need flags, for example Cohere on an L4:
+Only the Nemotron and Rumble scripts set their own GPU and image. The others need flags, for example Cohere on an L4:
 
 <details>
 <summary>Cohere Transcribe command</summary>
@@ -191,6 +192,21 @@ The folder scripts take `/input /output` and `--max-files N` for a test run (the
 | `--long-form` | `sequential` | `sequential` (Whisper's own long-form decoding with timestamps + temperature fallback; skipped no windows in our tests) or `chunked` (transformers pipeline, 30 s windows with 5 s overlap; ~2.5x faster, drops text at bad merges) |
 | `--batch-size` | 16 | Files per generate call (sequential) or 30 s windows per forward pass (chunked) |
 | `--decode-workers` | CPU count | Threads for mp3/wav decoding, overlapped with model load |
+| `--max-files` | all | Limit files to process (for testing) |
+
+</details>
+
+<details>
+<summary><code>rumble-transcribe.py</code></summary>
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--language` | detect | English name of the language (`English`, `Dutch`); omit to detect it per chunk (recorded in `summary.jsonl`) |
+| `--words-for-digits` | off | Write numbers as words instead of digits |
+| `--keep-fillers` | off | Keep fillers such as "um" and "uh" |
+| `--no-verbatim` | off | Collapse repeated words |
+| `--chunk-seconds` | 30 | Maximum chunk length; each cut is at the quietest 20 ms in the last `--search-seconds` (default 5) before the limit |
+| `--batch-files` | 32 | Files loaded per vLLM call; finished files are skipped on a rerun (`--overwrite` to redo) |
 | `--max-files` | all | Limit files to process (for testing) |
 
 </details>
