@@ -133,6 +133,20 @@ def bucket_id(uri):
     return "/".join(uri.removeprefix("hf://buckets/").split("/")[:2])
 
 
+def glob_root(pattern):
+    """The fixed directory a glob starts from: every path segment before the first one
+    with a wildcard (*, ? or [). For a pattern with no wildcard, its parent directory."""
+    scheme, separator, rest = pattern.partition("://")
+    if not separator:
+        scheme, rest = "", pattern
+    fixed = []
+    for segment in rest.split("/")[:-1]:
+        if any(character in segment for character in "*?["):
+            break
+        fixed.append(segment)
+    return f"{scheme}{separator}" + "/".join(fixed)
+
+
 def text_file_rows(args, shard):
     """One row per .txt/.md file in a bucket glob, with the file's path as its id.
 
@@ -142,7 +156,7 @@ def text_file_rows(args, shard):
 
     if args.id_column:
         print("--id-column is ignored for text files: the id is the file path", file=sys.stderr)
-    root = args.input_dataset.split("*")[0].rsplit("/", 1)[0]
+    root = glob_root(args.input_dataset)
     for row_id, row in bucket_rows(args.input_dataset, root=root, limit=args.max_samples, shard=shard):
         yield row_id, {args.column: row["bytes"].decode("utf-8", errors="replace")}
 
@@ -418,8 +432,16 @@ def main():
     shard = parse_shard(args.shard)
     bucket_output = args.output_dataset.startswith("hf://buckets/")
     bucket_input = args.input_dataset.startswith("hf://buckets/")
+    args.keep = list(dict.fromkeys(args.keep))  # a column named twice is kept once
+    fixed = ["id", "error", "model", "prompt_tokens", args.output_column]
+    if not args.no_text:
+        fixed.append(args.column)
     if args.output_column in {"id", "error", "model", "prompt_tokens", args.column, *args.keep}:
         sys.exit(f"--output-column {args.output_column!r} clashes with another output column")
+    clashes = [column for column in args.keep if column in fixed]
+    if clashes:
+        sys.exit(f"--keep {' '.join(clashes)}: already an output column "
+                 f"(the output has {', '.join(fixed)})")
 
     import pyarrow as pa
     from huggingface_hub import HfApi
