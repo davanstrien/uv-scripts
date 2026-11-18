@@ -474,6 +474,7 @@ Each recipe is one script, run from its URL with `hf jobs uv run`. There is noth
 - `hf download uv-scripts/run-on-jobs recipes.json --repo-type space`, then look for the model in `recipes[].models`.
 - To send a person to one model, link to `https://huggingface.co/spaces/uv-scripts/run-on-jobs?model=<org>/<name>`. The page opens at that model.
 - `kind`: `run` applies a model to data; `train` fine-tunes one.
+- `model_created`: the date each model was created on the Hub (YYYY-MM-DD), to find the newest. This is when the repo was created, which can be some weeks before the public release.
 - `source`: `header` carries its launch settings; `documented` is an example from the script's docs; `flags-needed` has no command, so read the script first.
 - Read a script's docstring and options: `curl -s <url> | head -100`. Running it locally may fail on GPU-only dependencies.
 - Each task's README explains its recipes, for example https://huggingface.co/datasets/uv-scripts/ocr. OCR also has `models.json`, with language coverage and support levels.
@@ -502,7 +503,10 @@ Recipes that read files use mounts. A local folder also works as a source:
 
 def generate(recipes, created):
     catalog = {
-        "recipes": sorted(recipes, key=lambda recipe: recipe["script"]),
+        "recipes": [
+            {**recipe, "model_created": {model: created.get(model) for model in recipe["models"]}}
+            for recipe in sorted(recipes, key=lambda recipe: recipe["script"])
+        ],
         "data_tools": [{"repo": f"uv-scripts/{folder}", "description": label} for folder, label in DATA_TOOLS.items()],
     }
     return {
