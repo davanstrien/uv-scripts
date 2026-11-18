@@ -33,6 +33,7 @@ import re
 import shutil
 import sys
 import tempfile
+import threading
 import traceback
 import unicodedata
 import urllib.parse
@@ -194,28 +195,66 @@ class LocalSource:
         return Path(source_file.handle)
 
 
+_FILESYSTEM_LOCK = threading.Lock()
+
+
+def bucket_filesystem():
+    from huggingface_hub import HfFileSystem
+
+    return HfFileSystem()
+
+
+def bucket_files(fs, bucket: str, path: str) -> list[dict]:
+    """Files at `path` in a bucket: that one file, or every file inside that folder.
+
+    `HfFileSystem` gives real folder behaviour: "scans" does not match "scans-old/", and
+    "page1" does not match "page10". Each result has `path` (relative to the bucket),
+    `size` and `marker` (a value that changes when the content changes).
+    """
+    root = f"buckets/{bucket}/{path.strip('/')}".rstrip("/")
+    with _FILESYSTEM_LOCK:  # the filesystem keeps a listing cache that is not made for threads
+        fs.invalidate_cache()  # this script also writes through the bucket API
+        try:
+            found = fs.find(root, detail=True)
+        except FileNotFoundError:
+            return []
+    strip = len(f"buckets/{bucket}/")
+    files = []
+    for name, info in found.items():
+        if info.get("type") == "file":
+            marker = info.get("xet_hash") or info.get("mtime") or ""
+            files.append({"path": name[strip:], "size": info.get("size", 0), "marker": str(marker)})
+    files.sort(key=lambda entry: entry["path"])
+    return files
+
+
+def bucket_folders(fs, bucket: str, path: str) -> set[str]:
+    """Names of the folders directly inside `path` in a bucket."""
+    root = f"buckets/{bucket}/{path.strip('/')}".rstrip("/")
+    with _FILESYSTEM_LOCK:
+        fs.invalidate_cache()
+        try:
+            entries = fs.ls(root, detail=True)
+        except FileNotFoundError:
+            return set()
+    return {entry["name"].rsplit("/", 1)[1] for entry in entries if entry.get("type") == "directory"}
+
+
 class BucketSource:
-    def __init__(self, api, bucket: str, prefix: str):
+    def __init__(self, api, bucket: str, prefix: str, fs=None):
         self.api = api
+        self.fs = fs or bucket_filesystem()
         self.bucket = bucket
         self.prefix = prefix
 
     def list_files(self) -> list[SourceFile]:
         files = []
-        # The Hub matches a prefix as text, so "scans" also matches "scans-old/". The trailing
-        # slash and the check below keep the listing inside the folder.
-        folder = f"{self.prefix}/" if self.prefix else ""
-        for entry in self.api.list_bucket_tree(self.bucket, prefix=folder or None, recursive=True):
-            if getattr(entry, "type", "file") != "file" or not hasattr(entry, "size"):
-                continue
-            if not entry.path.startswith(folder):
-                continue
-            rel = entry.path[len(folder) :]
+        strip = len(self.prefix) + 1 if self.prefix else 0
+        for entry in bucket_files(self.fs, self.bucket, self.prefix):
+            rel = entry["path"][strip:]
             if not rel or any(part.startswith((".", "_publish")) for part in rel.split("/")):
                 continue
-            marker = getattr(entry, "xet_hash", None) or getattr(entry, "mtime", None) or ""
-            files.append(SourceFile(rel, entry.size, f"{entry.size}-{marker}", entry))
-        files.sort(key=lambda f: f.rel_path)
+            files.append(SourceFile(rel, entry["size"], f"{entry['size']}-{entry['marker']}", entry["path"]))
         return files
 
     def read_text(self, source_file: SourceFile) -> str:
@@ -277,8 +316,9 @@ class LocalDest:
 
 
 class BucketDest:
-    def __init__(self, api, bucket: str, prefix: str):
+    def __init__(self, api, bucket: str, prefix: str, fs=None):
         self.api = api
+        self.fs = fs or bucket_filesystem()
         self.bucket = bucket
         self.prefix = prefix
 
@@ -288,22 +328,20 @@ class BucketDest:
     def _full(self, dest_path: str) -> str:
         return f"{self.prefix}/{dest_path}" if self.prefix else dest_path
 
-    def _list(self, dest_prefix: str) -> list:
-        """Files at `dest_prefix`: that exact file, or every file inside that folder.
+    def _relative(self, bucket_path: str) -> str:
+        return bucket_path[len(self.prefix) + 1 :] if self.prefix else bucket_path
 
-        The Hub matches a prefix as text, so the result is filtered here as well. A delete
-        can then never reach a neighbour such as "page10" when the prefix is "page1".
-        """
-        wanted = self._full(dest_prefix)
-        inside = wanted.rstrip("/") + "/"
-        entries = self.api.list_bucket_tree(self.bucket, prefix=wanted, recursive=True)
-        files = [e for e in entries if getattr(e, "type", "file") == "file" and hasattr(e, "size")]
-        return [e for e in files if e.path == wanted or e.path.startswith(inside)]
+    def _list(self, dest_path: str) -> list[str]:
+        """Bucket paths of the files at `dest_path`: that file, or every file in that folder."""
+        return [entry["path"] for entry in bucket_files(self.fs, self.bucket, self._full(dest_path))]
 
     def list_names(self, dest_prefix: str) -> list[str]:
         """Paths of the files inside `dest_prefix`, relative to the destination."""
-        strip = len(self.prefix) + 1 if self.prefix else 0
-        return [entry.path[strip:] for entry in self._list(dest_prefix + "/")]
+        return [self._relative(path) for path in self._list(dest_prefix)]
+
+    def list_dirs(self, dest_prefix: str) -> set[str]:
+        """Names of the folders directly inside `dest_prefix`."""
+        return bucket_folders(self.fs, self.bucket, self._full(dest_prefix))
 
     def put_tree(self, local_dir: Path, dest_prefix: str) -> None:
         pairs = []
@@ -320,43 +358,33 @@ class BucketDest:
 
     def read_bytes(self, dest_path: str) -> bytes | None:
         wanted = self._full(dest_path)
-        entries = [entry for entry in self._list(dest_path) if entry.path == wanted]
-        return self._download(entries).get(dest_path)
+        return self._download([path for path in self._list(dest_path) if path == wanted]).get(dest_path)
 
     def read_all(self, dest_prefix: str) -> dict[str, bytes]:
-        return self._download(self._list(dest_prefix + "/"))
+        return self._download(self._list(dest_prefix))
 
-    def _download(self, entries: list) -> dict[str, bytes]:
-        if not entries:
+    def _download(self, bucket_paths: list[str]) -> dict[str, bytes]:
+        """Read many small files in one batch call. One request per file is far slower."""
+        if not bucket_paths:
             return {}
-        strip = len(self.prefix) + 1 if self.prefix else 0
         result = {}
         with tempfile.TemporaryDirectory() as tmp:
-            pairs = [(entry, str(Path(tmp) / f"{number}.bin")) for number, entry in enumerate(entries)]
+            pairs = [(path, str(Path(tmp) / f"{number}.bin")) for number, path in enumerate(bucket_paths)]
             self.api.download_bucket_files(self.bucket, files=pairs)
-            for entry, local in pairs:
+            for path, local in pairs:
                 if Path(local).is_file():
-                    result[entry.path[strip:]] = Path(local).read_bytes()
+                    result[self._relative(path)] = Path(local).read_bytes()
         return result
 
     def clear(self, dest_prefix: str) -> None:
-        paths = [entry.path for entry in self._list(dest_prefix + "/")]
+        paths = self._list(dest_prefix)
         for start in range(0, len(paths), UPLOAD_CHUNK):
             self.api.batch_bucket_files(self.bucket, delete=paths[start : start + UPLOAD_CHUNK])
 
     def remove(self, dest_path: str) -> None:
         wanted = self._full(dest_path)
-        if any(entry.path == wanted for entry in self._list(dest_path)):
+        if wanted in self._list(dest_path):
             self.api.batch_bucket_files(self.bucket, delete=[wanted])
-
-    def list_dirs(self, dest_prefix: str) -> set[str]:
-        """Names of the folders directly inside `dest_prefix`."""
-        parent = self._full(dest_prefix) + "/"
-        names = set()
-        for entry in self.api.list_bucket_tree(self.bucket, prefix=parent, recursive=False):
-            if entry.path.startswith(parent) and entry.path != parent:
-                names.add(entry.path[len(parent) :].strip("/").split("/")[0])
-        return names
 
 
 def hub_api():

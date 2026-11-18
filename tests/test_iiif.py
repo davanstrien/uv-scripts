@@ -376,34 +376,57 @@ def test_https_rights_uri_is_stored_in_the_http_form(source, tmp_path):
     assert read_json(dest / "collection.json")["rights"] == "http://creativecommons.org/publicdomain/zero/1.0/"
 
 
-class FakeBucketApi:
-    """Lists paths the way the Hub does: the prefix is matched as text."""
+class FakeBucketFs:
+    """A stand-in for HfFileSystem on one bucket, with the same folder behaviour."""
 
-    def __init__(self, paths):
-        self.paths = paths
+    def __init__(self, bucket, paths):
+        self.root = f"buckets/{bucket}"
+        self.paths = [f"{self.root}/{path}" for path in paths]
 
-    def list_bucket_tree(self, bucket, prefix=None, recursive=None):
-        from types import SimpleNamespace
+    def invalidate_cache(self):
+        pass
 
-        return [
-            SimpleNamespace(path=path, size=10, type="file", xet_hash="h")
+    def find(self, root, detail=True):
+        return {
+            path: {"name": path, "type": "file", "size": 10, "xet_hash": "h"}
             for path in self.paths
-            if path.startswith(prefix or "")
-        ]
+            if path == root or path.startswith(root + "/")
+        }
+
+    def ls(self, root, detail=True):
+        children = {path[len(root) + 1 :].split("/")[0] for path in self.paths if path.startswith(root + "/")}
+        if not children:
+            raise FileNotFoundError(root)
+        folders = {c for c in children if any(p.startswith(f"{root}/{c}/") for p in self.paths)}
+        return [{"name": f"{root}/{c}", "type": "directory" if c in folders else "file"} for c in sorted(children)]
 
 
-def test_bucket_source_prefix_does_not_match_a_sibling_folder():
-    api = FakeBucketApi(["scans/a.jpg", "scans/book/b.jpg", "scans-old/z.jpg", "scansx.jpg"])
-    listed = [f.rel_path for f in recipe.BucketSource(api, "o/b", "scans").list_files()]
+def test_bucket_source_lists_only_its_own_folder():
+    fs = FakeBucketFs(
+        "o/b", ["scans/a.jpg", "scans/book/b.jpg", "scans/_publish/x.json", "scans-old/z.jpg", "scansx.jpg"]
+    )
+    listed = [f.rel_path for f in recipe.BucketSource(None, "o/b", "scans", fs=fs).list_files()]
     assert listed == ["a.jpg", "book/b.jpg"]
+    whole_bucket = [f.rel_path for f in recipe.BucketSource(None, "o/b", "", fs=fs).list_files()]
+    assert "scans-old/z.jpg" in whole_bucket and "scans/_publish/x.json" not in whole_bucket
 
 
-def test_bucket_destination_listing_does_not_match_a_neighbour():
-    api = FakeBucketApi(["pub/images/page1/info.json", "pub/images/page10/info.json", "published/images/page1/x"])
-    dest = recipe.BucketDest(api, "o/b", "pub")
-    assert [e.path for e in dest._list("images/page1/")] == ["pub/images/page1/info.json"]
-    assert [e.path for e in dest._list("images/page1")] == ["pub/images/page1/info.json"]  # no trailing slash
+def test_bucket_destination_paths_are_relative_to_its_prefix():
+    files = [
+        "pub/images/page1/info.json",
+        "pub/images/page10/info.json",
+        "pub/collection.json",
+        "published/images/page1/x",
+    ]
+    dest = recipe.BucketDest(None, "o/b", "pub", fs=FakeBucketFs("o/b", files))
+    assert dest._list("images/page1") == ["pub/images/page1/info.json"]
+    assert dest._list("collection.json") == ["pub/collection.json"]
     assert dest.list_names("images") == ["images/page1/info.json", "images/page10/info.json"]
+    assert dest.list_dirs("images") == {"page1", "page10"}
+    assert dest.list_dirs("nothing-here") == set()
+    root = recipe.BucketDest(None, "o/b", "", fs=FakeBucketFs("o/b", files))
+    assert root.list_dirs("") == {"pub", "published"}
+    assert root.list_names("pub/images/page1") == ["pub/images/page1/info.json"]
 
 
 def test_bucket_prefixes_that_only_share_text_do_not_overlap():
