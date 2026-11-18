@@ -19,6 +19,13 @@ One command gives you:
 - `index.parquet`, one row per image, for programs,
 - optionally a Space with a viewer to share.
 
+## Demo
+
+[Five botany books from the Wellcome Collection](https://huggingface.co/spaces/davanstrien/iiif-botany-demo): 164 public-domain page scans in five books, published with one command on Hugging Face Jobs.
+
+- Collection: `https://huggingface.co/buckets/davanstrien/iiif-botany-demo/resolve/collection.json`
+- Index: `https://huggingface.co/buckets/davanstrien/iiif-botany-demo/resolve/index.parquet`
+
 ## Quick start
 
 ```bash
