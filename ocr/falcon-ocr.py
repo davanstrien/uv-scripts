@@ -47,10 +47,9 @@ own recipe, `falcon-ocr-1.5.py`. `--revision` overrides the pin (`--revision mai
 tracks whatever the repo root holds); the resolved commit is always recorded in
 `inference_info` and on the dataset card.
 
-Launch config: the `[tool.hf-jobs]` header carries the default flavor (a10g-small), a 1h timeout and the
-HF_TOKEN secret, so `hf jobs uv run falcon-ocr.py IN OUT` needs no flags on hf >= 1.32
-(read client-side by the CLI; older CLIs and plain `uv run` ignore it). Explicit flags
-still win.
+Launch config: the `[tool.hf-jobs]` header sets the flavor (a10g-small), a 1h timeout and
+the HF_TOKEN secret. The hf CLI reads it from version 1.32; older CLIs and plain `uv run`
+ignore it. Explicit flags win.
 
 Examples:
     # Basic text OCR

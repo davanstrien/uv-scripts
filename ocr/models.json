@@ -1,7 +1,7 @@
 {
   "_meta": {
     "description": "Machine-readable catalog of the OCR recipes in this directory: script -> model, params, backend, support level, the tested Jobs launch config (the script's [tool.hf-jobs] header), and what the model's own card claims about language coverage. Human-readable language notes: LANGUAGES.md. Language evidence levels, strongest first: per-language-benchmark | count-claim | named-list | multilingual-unspecified | english-only | not-stated | not-applicable. Claims come from model cards (compiled 2026-07-15) - treat as claims, not guarantees.",
-    "updated": "2026-11-06",
+    "updated": "2026-11-18",
     "run_pattern": "hf jobs uv run https://huggingface.co/datasets/uv-scripts/ocr/raw/main/<script> <input-dataset> <output-dataset>  (hf CLI >= 1.32 reads image/flavor/secrets from the script's [tool.hf-jobs] header; add --timeout for long runs. Scripts without a `jobs` entry need --flavor/-s HF_TOKEN (and any --image in their docstring).)",
     "support_levels": {
       "core": "Maintained. Smoke-tested flagless on HF Jobs on 2026-09-23/24 with the pinned launch config in `jobs`.",
@@ -62,8 +62,37 @@
     "languages": {
       "evidence": "not-stated"
     },
-    "support": "legacy",
-    "support_note": "Falcon-OCR v1; v1.5 work is in PR #110."
+    "support": "core",
+    "support_note": "Falcon-OCR v1. Frozen 2026-11-18 (superseded by falcon-ocr-1.5.py): package cutoff and model revision pinned; fixed only when it breaks. Upstream replaced the repo root with v1.5 on 2026-09-11, so this recipe pins the last v1 commit. Use falcon-ocr-1.5.py for new runs.",
+    "revision": "42ec56b72a23984ac059e7c8a6d397a8529423fe",
+    "jobs": {
+      "flavor": "a10g-small",
+      "timeout": "1h",
+      "secrets": [
+        "HF_TOKEN"
+      ]
+    }
+  },
+  "falcon-ocr-1.5.py": {
+    "model_id": "tiiuae/Falcon-OCR",
+    "params": "0.3B",
+    "backend": "falcon-perception",
+    "task": "ocr",
+    "output": "markdown",
+    "license": "apache-2.0",
+    "languages": {
+      "evidence": "not-stated"
+    },
+    "support": "core",
+    "support_note": "Falcon-OCR v1.5, pinned to the release head (fe757d59; the first v1.5 commit d259a7fb has older code files). --revision overrides the pin.",
+    "revision": "fe757d59ecd79d4d68760162306a70a015761ad9",
+    "jobs": {
+      "flavor": "a10g-small",
+      "timeout": "1h",
+      "secrets": [
+        "HF_TOKEN"
+      ]
+    }
   },
   "smoldocling-ocr.py": {
     "model_id": "ds4sd/SmolDocling-256M-preview",
@@ -1068,8 +1097,11 @@
   "falcon-ocr-bucket.py": {
     "variant_of": "falcon-ocr.py",
     "notes": "Reads images/PDFs from a mounted bucket, writes one .md per page.",
-    "support": "legacy",
-    "support_note": "Falcon-OCR v1; v1.5 work is in PR #110. --max-samples counts files, not pages."
+    "support": "core",
+    "support_note": "Falcon-OCR v1 by default (pinned like falcon-ocr.py); --revision fe757d59ecd79d4d68760162306a70a015761ad9 runs v1.5. --max-samples counts files, not pages.",
+    "jobs": {
+      "flavor": "a10g-small"
+    }
   },
   "surya-ocr-bucket.py": {
     "variant_of": "surya-ocr.py",

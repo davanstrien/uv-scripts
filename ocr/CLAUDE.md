@@ -112,7 +112,9 @@ Legend: ✅ production-ready · ⚠️ works only with a required pinned image �
 | `nuextract3.py`, `lfm2-extract.py`, `lfm2-vl-extract.py` | ✅ | vLLM | l4x1 | structured extraction |
 | `hunyuan-ocr.py` | ✅ | vLLM | l4x1 | **1.0, revision-pinned** (root repo became 1.5 in-place); `transformers<5.13` cap — see gotcha |
 | `hunyuan-ocr-1.5.py` | ✅ | vLLM | l4x1 | tracks repo root (=1.5); task-locked prompts; `transformers<5.13` cap — see gotcha |
-| `rolm-ocr.py`, `smoldocling-ocr.py`, `numarkdown-ocr.py`, `qianfan-ocr.py`, `firered-ocr.py`, `abot-ocr.py`, `falcon-ocr.py`, `olmocr2-vllm.py`, `dots-mocr.py` | ✅ | vLLM | varies | see `README.md` for flags |
+| `rolm-ocr.py`, `smoldocling-ocr.py`, `numarkdown-ocr.py`, `qianfan-ocr.py`, `firered-ocr.py`, `abot-ocr.py`, `olmocr2-vllm.py`, `dots-mocr.py` | ✅ | vLLM | varies | see `README.md` for flags |
+| `falcon-ocr.py`, `falcon-ocr-bucket.py` | ✅ | falcon-perception | a10g-small | **v1, revision-pinned** (root repo became v1.5 in place); `falcon-ocr.py` frozen — see gotcha |
+| `falcon-ocr-1.5.py` | ✅ | falcon-perception | a10g-small | v1.5 release head, revision-pinned; active — see gotcha |
 | `pp-ocrv6.py`, `pp-doclayout.py` | ✅ | PaddleOCR / PaddleX | l4x1 | classical det+rec; dataset **or** bucket I/O |
 
 **License note:** Surya and `lift` ship code as Apache-2.0 but **weights under a modified OpenRAIL-M**
@@ -292,6 +294,21 @@ ships in a stable wheel. 1.5 prompts are task-locked (12 types, Chinese wording,
 client's `hunyuan_tasks.py`) and sampling is card-locked (temp 0.0, rep-penalty 1.08) — don't
 "improve" either; upstream observed hand-tweaked prompts silently degrade quality.
 
+### `falcon-ocr.py` / `falcon-ocr-1.5.py` / `falcon-ocr-bucket.py` — upstream replaced the repo root in place
+On 2026-09-11 TII pushed Falcon OCR **v1.5 onto `main` of `tiiuae/Falcon-OCR`** in three same-day
+commits (new `model.safetensors`, then small code edits; no tag, no branch). Until 2026-11-18
+`falcon-ocr.py` had no pin, so its runs in that window loaded v1.5 while the card said Falcon-OCR. Same
+fix as HunyuanOCR: **one script per version identity, each pinned by commit.** `falcon-ocr.py` (and the
+bucket variant) pins the last v1 commit `42ec56b7…`; `falcon-ocr-1.5.py` pins the v1.5 *release head*
+`fe757d59…`, not `d259a7fb` (the first v1.5 commit, whose code files were replaced the same day). Never
+loosen either pin to `main`; `--revision` exists for the caller. The dataset recipes resolve the
+revision to a commit up front (`HfApi().model_info(...).sha`), load that commit, and write `revision` +
+`model_commit` into `inference_info` and the card. Same engine, flags and code in both; only the pin
+and labels differ. `ocr-bench` mirrors the split with `falcon-ocr` / `falcon-ocr-1.5` slugs.
+
+Engine gotcha (both versions): the `OCRInferenceEngine` default `max_seq_length=4096` counts image
+tokens, so dense pages can truncate without an error. Not changed yet.
+
 ### `glm-ocr.py`
 Chatty on blank pages / can emit degenerate repeats — that's **model quality, not a crash**; don't
 re-debug it as a recipe bug. (The actual historical crash was the `pyarrow<18` cap — see Conventions.)
@@ -394,6 +411,12 @@ ARM wheels) — if a nightly-recipe install fails on resolution, wait and retry 
 ---
 
 ## Change log
+
+- **2026-11-18** — Falcon OCR split by version identity (PR #110): `falcon-ocr.py` and
+  `falcon-ocr-bucket.py` pin the last v1 commit; new `falcon-ocr-1.5.py` pins the v1.5 release head. All
+  three take `--revision`; the dataset recipes record the resolved commit. Headers: `a10g-small`, `1h`,
+  `HF_TOKEN`. `falcon-ocr.py` frozen (superseded by `falcon-ocr-1.5.py`), `falcon-ocr-1.5.py` active.
+  SMOKE_PLACEHOLDER
 
 - **2026-11-05** — added `hpd-parsing-saturate.py` (experimental) for `PaddlePaddle/HPD-Parsing` (1B,
   Apache-2.0): the July server recipe's serve command and block parser, driven by saturate `==0.3.0`
