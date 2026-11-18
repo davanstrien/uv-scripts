@@ -39,7 +39,7 @@ Two modes:
 The pushed model loads with ``timm.create_model("hf-hub:<repo>", pretrained=True)``
 and carries the label names in its config.
 
-Default backbone: ``convnext_tiny.in12k_ft_in1k`` - one of the most downloaded timm
+Default backbone: ``timm/convnext_tiny.in12k_ft_in1k`` - one of the most downloaded timm
 checkpoints (28M params, ImageNet-12k pretrain, Apache-2.0), cheap on an A10G.
 DINOv3 ViT-S probes better but its licence would carry over to every pushed model.
 
@@ -104,7 +104,7 @@ TRAIN_PY_URL = f"https://raw.githubusercontent.com/huggingface/pytorch-image-mod
 SCRIPT_URL = (
     "https://huggingface.co/datasets/uv-scripts/classification/raw/main/train-timm.py"
 )
-DEFAULT_MODEL = "convnext_tiny.in12k_ft_in1k"
+DEFAULT_MODEL = "timm/convnext_tiny.in12k_ft_in1k"
 VAL_SPLIT_CANDIDATES = ["validation", "valid", "val", "test"]
 LABEL_COLUMN_PREFERENCE = [
     "label",
@@ -147,7 +147,10 @@ def parse_args(argv):
     parser.add_argument(
         "--model",
         default=DEFAULT_MODEL,
-        help=f"timm model name (default: {DEFAULT_MODEL})",
+        help=(
+            f"timm model: a Hub id such as {DEFAULT_MODEL} (the default), or a bare timm "
+            "name such as resnet50.a1_in1k"
+        ),
     )
 
     data = parser.add_argument_group("data")
@@ -231,7 +234,18 @@ def parse_args(argv):
         action="store_true",
         help="Run without a GPU (tiny local debugging only)",
     )
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    args.model = timm_model_name(args.model)
+    return args
+
+
+def timm_model_name(model):
+    """The name timm.create_model and train.py take: timm/<name> becomes <name>, other Hub ids hf-hub:<id>."""
+    if model.startswith("timm/"):
+        return model[len("timm/") :]
+    if "/" in model and not model.startswith("hf-hub:"):
+        return f"hf-hub:{model}"
+    return model
 
 
 # ----------------------------------------------------------------------------- environment
@@ -867,7 +881,10 @@ def run_probe(args, plan, train_ds, device, num_workers):
 
 
 def base_model_license(model_name):
-    hub_id = f"timm/{model_name}"
+    if model_name.startswith("hf-hub:"):
+        hub_id = model_name[len("hf-hub:") :]
+    else:
+        hub_id = f"timm/{model_name}"
     try:
         info = HfApi().model_info(hub_id)
         card = info.card_data.to_dict() if info.card_data else {}

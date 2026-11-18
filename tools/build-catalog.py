@@ -74,6 +74,12 @@ TESTED_MODELS = {
         "Qwen/Qwen3-Embedding-0.6B",
         "google/embeddinggemma-2",
     ],
+    "classification/train-timm.py": [
+        "timm/resnet50.a1_in1k",
+        "timm/efficientnet_b0.ra_in1k",
+        "timm/vit_small_patch16_224.augreg_in21k_ft_in1k",
+        "timm/mobilenetv4_conv_small.e2400_r224_in1k",
+    ],
 }
 
 # Left out of the Space until they run again.

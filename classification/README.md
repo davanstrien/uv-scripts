@@ -48,6 +48,8 @@ Pick by how many labels you have:
 | a few hundred to a few thousand | `train-gliner2.py`, which also shows you what zero-shot already gets | small GPU (`t4-small`) |
 | a few thousand or more | `train-classifier.py` | GPU |
 
+For images, use `train-timm.py`: a linear probe first, then a fine-tune (GPU).
+
 The rungs chain: bootstrap labels with `classify-gliner2.py` or `classify-dataset.py`, review them,
 then train a small dedicated model on what you kept. Each rung is one command, so you can move up
 as you collect more labels.
@@ -352,104 +354,58 @@ Then copy the folder to your bucket: `hf buckets sync ./newsgroups hf://buckets/
 
 ## Image classification with timm (`train-timm.py`)
 
-> Experimental: works on HF Jobs for single-label and multi-label datasets, but the options may change.
+For images: train a [timm](https://github.com/huggingface/pytorch-image-models) classifier on a Hub
+image dataset and push it to the Hub. A `ClassLabel` column gives a single-label model and a
+`List(ClassLabel)` column a multi-label one; the script reads the columns, label names and
+validation split from the dataset. Experimental: it works on HF Jobs, but the options may change.
 
-Train a [timm](https://github.com/huggingface/pytorch-image-models) image classifier on a Hub image
-dataset and push it to the Hub. The script reads the dataset features to choose the task:
-
-| Label column type | Task |
-| --- | --- |
-| `ClassLabel` | single-label (cross-entropy; top-1 and top-5) |
-| `List(ClassLabel)` | multi-label (BCE; mAP, micro and macro F1) |
-
-It also picks the image column, the label column, the label names and the validation split
-(`validation`, `valid`, `val` or `test`). If there is no validation split, it carves a seeded 10%
-split from `train`.
-
-### Quick start
-
-The `[tool.hf-jobs]` header sets `a10g-small`, a 2-hour timeout and `HF_TOKEN` (`hf` CLI 1.32+).
+Start with a linear probe (frozen backbone, trained head). Fine-tune when the probe is not good
+enough. The `[tool.hf-jobs]` header sets `a10g-small`, a 2-hour timeout and `HF_TOKEN`:
 
 ```bash
-# Linear probe: frozen backbone, a fast first baseline
+# Linear probe, multi-label
 hf jobs uv run \
   https://huggingface.co/datasets/uv-scripts/classification/raw/main/train-timm.py \
-  timm/bee-dataset your-username/bee-probe --mode probe
+  timm/bee-dataset username/bee-probe --mode probe
 
-# Full fine-tune
+# Full fine-tune, single-label
 hf jobs uv run \
   https://huggingface.co/datasets/uv-scripts/classification/raw/main/train-timm.py \
-  AI-Lab-Makerere/beans your-username/beans-convnext --epochs 10
+  AI-Lab-Makerere/beans username/beans-convnext --epochs 10
 ```
 
-Load the result:
+The result loads with `timm.create_model("hf-hub:username/beans-convnext", pretrained=True)`, and
+`model.pretrained_cfg["label_names"]` gives the class names.
 
-```python
-import timm
+### Measured
 
-model = timm.create_model("hf-hub:your-username/beans-convnext", pretrained=True).eval()
-print(model.pretrained_cfg["label_names"])
-```
+Default backbone [`convnext_tiny.in12k_ft_in1k`](https://huggingface.co/timm/convnext_tiny.in12k_ft_in1k),
+evaluated on each dataset's validation split. Time is the whole Job after setup: data, training,
+evaluation, push and reload check.
 
-### Modes
+| Dataset | Task | Mode | Flavor | Time | Result |
+|---|---|---|---|---|---|
+| [`AI-Lab-Makerere/beans`](https://huggingface.co/datasets/AI-Lab-Makerere/beans) | single-label, 3 classes | fine-tune, 2 epochs | `a10g-small` | 0.7 min | top-1 95.5% |
+| [`timm/bee-dataset`](https://huggingface.co/datasets/timm/bee-dataset) | multi-label, 4 labels | probe | `a10g-small` | 0.4 min | mAP 99.0, macro F1 95.6 |
+MULTI_GPU_ROW
 
-- `--mode finetune` (default) runs timm's own `train.py`, fetched at the tag of the installed timm
-  release. Defaults: AdamW, lr 5e-5 with one warmup epoch and a cosine schedule per update, weight
-  decay 0.05, 10 epochs, batch size 64 per GPU, AMP, the model's pretrained input size. The best
-  checkpoint on the validation metric is pushed. Everything after a literal `--` goes to `train.py`
-  unchanged, for example `-- --loss asl --mixup 0.2`.
-- `--mode probe` extracts pooled features once with the frozen backbone and trains a linear head on
-  one GPU. It pushes the backbone plus the head as a normal timm model.
-
-### Several GPUs
-
-On a flavor with several GPUs, such as `l4x4` or `a10g-largex2`, fine-tune mode runs `train.py` on
-all of them with `torch.distributed.run`. `--batch-size` is per GPU, so the learning rate is
-multiplied by the number of GPUs. The script does not train across several Jobs.
-
-```bash
-hf jobs uv run --flavor l4x4 \
-  https://huggingface.co/datasets/uv-scripts/classification/raw/main/train-timm.py \
-  AI-Lab-Makerere/beans your-username/beans-convnext --epochs 10
-```
-
-### Options
-
-| Option | Default | Notes |
-| --- | --- | --- |
-| `--model` | `convnext_tiny.in12k_ft_in1k` | any timm model name |
-| `--mode` | `finetune` | or `probe` |
-| `--epochs` | 10 (finetune), 100 (probe head) | |
-| `--batch-size` | 64 | per GPU |
-| `--lr` | 5e-5 (finetune), 1e-3 (probe) | multiplied by the GPU count in fine-tune mode |
-| `--img-size` | model default | |
-| `--image-column`, `--label-column` | auto | |
-| `--train-split`, `--val-split` | `train`, auto | |
-| `--val-size` | 0.1 | used only when carving |
-| `--max-train-samples`, `--max-val-samples` | all | for quick tests |
-| `--threshold` | 0.5 | multi-label decision threshold |
-| `--private` | off | create the output repo as private |
-
-### What gets pushed
-
-- `model.safetensors` and `config.json` with `label_names`, `num_classes` and `task`. For
-  multi-label models, also `multilabel_thresholds`: per-label thresholds tuned for F1 on the
-  validation split.
-- A model card with the labels, the validation metrics and the command to reproduce the run.
-
-After the push, the script reloads the model with `timm.create_model("hf-hub:...")` and checks
-that its predictions match the trained model.
+**These are easy datasets.** They show that the recipe runs end to end, not how well it does on
+your images. Compare the probe and a fine-tune on your own data before you trust either.
 
 ### Good to know
 
-- A GPU is required. `--allow-cpu` exists only for tiny local debugging.
-- timm's `ReaderHfds` cannot read split slices (`train[:90%]`), so a carved validation split is
-  written to a local parquet copy first.
-- The default warmup in `train.py` is 5 epochs and is not shortened for short runs; the script
-  passes one warmup epoch and `--sched-on-updates`. With lr 2e-4, 2 epochs and no warmup, beans
-  fell to chance.
-- `map` is timm's `MultiLabelClassificationEvaluator` mAP and can differ from scikit-learn's
-  per-class average precision. timm's `sample_f1` scores images with no labels as 0.
+- **Several GPUs in one Job.** On a flavor such as `l4x4`, fine-tune mode trains on all its GPUs.
+  `--batch-size` is per GPU, and the learning rate is multiplied by the GPU count. It does not
+  train across several Jobs.
+- **timm options pass through.** Everything after a literal `--` goes to timm `train.py`, for
+  example `-- --loss asl --mixup 0.2` for a multi-label run.
+- **No validation split?** The script carves a seeded 10% split from `train` and says so on the card.
+- **Multi-label thresholds.** The pushed `config.json` holds per-label thresholds tuned on the
+  validation split, as `multilabel_thresholds`.
+- **The base model's licence carries over.** The default backbone is Apache-2.0; check the
+  licence of any `--model` you swap in.
+
+All options, the defaults the script picks, and timm details: [TIMM-NOTES.md](TIMM-NOTES.md).
 
 ## Zero-shot classification (`classify-dataset.py`)
 
