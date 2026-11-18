@@ -7,10 +7,14 @@
 The sync workflow runs this on merge, so run-on-jobs/ is not committed.
 
 Scripts are only parsed, never imported or run. Standard library only.
+
+Within each task, models are listed newest first, by the date the model was created on the Hub. Without
+network access the dates are missing, and the models are listed alphabetically.
 """
 
 import argparse
 import ast
+import concurrent.futures
 import html
 import json
 import re
@@ -372,7 +376,19 @@ def recipe_html(recipe):
     )
 
 
-def model_row_html(task, model, recipes):
+MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+
+def date_html(created):
+    """Month and year the model was created on the Hub, such as "Nov 2026"."""
+    if not created:
+        return ""
+    year, month = created[:4], int(created[5:7])
+    label = f"{MONTHS[month - 1]} {year}"
+    return f'<span class="date muted" title="Created on the Hub on {created}">{label}</span>'
+
+
+def model_row_html(task, model, recipes, created):
     ranked = sorted(recipes, key=rank)
     best = ranked[0]
     row_status = ROW_STATUS[best["source"]] + (f" · {best['flavor']}" if best["flavor"] else "")
@@ -385,14 +401,14 @@ def model_row_html(task, model, recipes):
         more = f'<details class="more"><summary>{label}</summary>' + "".join(recipe_html(recipe) for recipe in others) + "</details>"
     return (
         f'<li data-task="{html.escape(task)}" data-model="{html.escape(model.lower())}" data-text="{html.escape(search_text)}"><details>'
-        f'<summary><span class="name">{html.escape(model)}</span><span class="state {row_class}">{html.escape(row_status)}</span></summary>'
+        f'<summary><span class="name">{html.escape(model)}</span>{date_html(created)}<span class="state {row_class}">{html.escape(row_status)}</span></summary>'
         + f'<p class="model-link small muted"><a href="https://huggingface.co/{html.escape(model)}">Open the model page</a>'
         + f' · <a href="{SPACE_URL}?model={html.escape(model)}">Link to this model</a></p>'
         + recipe_html(best) + more + "</details></li>"
     )
 
 
-def render_index(recipes):
+def render_index(recipes, created):
     template = (ROOT / "tools" / "run-on-jobs-template.html").read_text()
     entries = {}
     for recipe in recipes:
@@ -403,10 +419,12 @@ def render_index(recipes):
     used_tasks = []
     for task in TASK_ORDER:
         models = sorted((model for entry_task, model in entries if entry_task == task), key=str.lower)
+        # Newest first. The sort is stable, so models with the same date (or no date) stay alphabetical.
+        models = sorted(models, key=lambda model: created.get(model) or "", reverse=True)
         if not models:
             continue
         used_tasks.append(task)
-        rows = "".join(model_row_html(task, model, entries[(task, model)]) for model in models)
+        rows = "".join(model_row_html(task, model, entries[(task, model)], created.get(model)) for model in models)
         groups.append(f'<section data-group><h2>{html.escape(task)}</h2><ul class="models">{rows}</ul></section>')
 
     filters = '<button data-task="All" aria-pressed="true">All</button>' + "".join(
@@ -482,27 +500,48 @@ Recipes that read files use mounts. A local folder also works as a source:
 """
 
 
-def generate():
-    recipes = load_recipes()
+def generate(recipes, created):
     catalog = {
         "recipes": sorted(recipes, key=lambda recipe: recipe["script"]),
         "data_tools": [{"repo": f"uv-scripts/{folder}", "description": label} for folder, label in DATA_TOOLS.items()],
     }
     return {
-        "index.html": render_index(recipes),
+        "index.html": render_index(recipes, created),
         "README.md": render_readme(recipes),
         "AGENTS.md": render_agents(),
         "recipes.json": json.dumps(catalog, indent=1, ensure_ascii=False) + "\n",
     }
 
 
-def verify_models(recipes):
+def all_models(recipes):
+    return sorted({model for recipe in recipes for model in recipe["models"]}, key=str.lower)
+
+
+def fetch_model(model):
+    """Return (created date or None, error or None) for one model."""
+    try:
+        with urllib.request.urlopen(f"https://huggingface.co/api/models/{model}", timeout=30) as response:
+            info = json.load(response)
+    except urllib.error.HTTPError as error:
+        return None, f"HTTP {error.code}"
+    except (urllib.error.URLError, TimeoutError) as error:
+        return None, f"no response: {error}"
+    return info.get("createdAt", "")[:10] or None, None
+
+
+def fetch_models(recipes):
+    """Look up every model on the Hub. Returns {model: (created date or None, error or None)}."""
+    models = [model for model in all_models(recipes) if model not in NOT_HUB_MODELS]
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+        return dict(zip(models, pool.map(fetch_model, models)))
+
+
+def verify_models(recipes, hub_info):
     missing = []
     for model in declared_models(recipes):
-        try:
-            urllib.request.urlopen(f"https://huggingface.co/api/models/{model}", timeout=30)
-        except urllib.error.HTTPError as error:
-            missing.append(f"{model} (HTTP {error.code})")
+        _, error = hub_info.get(model, (None, "not looked up"))
+        if error:
+            missing.append(f"{model} ({error})")
     return missing
 
 
@@ -514,17 +553,19 @@ def main():
     if OUTPUT_DIR.exists():
         shutil.rmtree(OUTPUT_DIR)
     shutil.copytree(ROOT / "tools" / "run-on-jobs-assets", OUTPUT_DIR / "assets")
-    for name, content in generate().items():
+    recipes = load_recipes()
+    hub_info = fetch_models(recipes)
+    created = {model: date for model, (date, _) in hub_info.items() if date}
+    for name, content in generate(recipes, created).items():
         (OUTPUT_DIR / name).write_text(content)
 
-    recipes = load_recipes()
-    print(f"{len(recipes)} recipes, {len(declared_models(recipes))} declared models")
+    print(f"{len(recipes)} recipes, {len(declared_models(recipes))} declared models, {len(created)} with a Hub date")
     problems = command_problems(recipes)
     if problems:
         print("Commands that would not run as pasted:", ", ".join(problems))
         return 1
     if args.verify_models:
-        missing = verify_models(recipes)
+        missing = verify_models(recipes, hub_info)
         if missing:
             print("Declared models not found:", ", ".join(missing))
             return 1
