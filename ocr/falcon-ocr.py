@@ -33,7 +33,6 @@ Features:
 - Compact: Only 0.3B parameters
 - Fast: Optimized inference with CUDA graphs
 - Multi-format: Plain text, LaTeX formulas, HTML tables
-- Layout-aware: Optional 2-stage pipeline (layout detection + per-region OCR)
 
 Model: tiiuae/Falcon-OCR (pinned to the last v1 revision)
 Frozen recipe: for Falcon OCR v1.5, use falcon-ocr-1.5.py.
@@ -73,6 +72,7 @@ import io
 import json
 import logging
 import os
+import re
 import sys
 import time
 from datetime import datetime
@@ -97,6 +97,20 @@ MODEL_LABEL = "Falcon-OCR"
 TASK_MODES = {
     "plain": "Full-page text extraction",
 }
+
+
+def resolve_commit(revision: str) -> str:
+    """Return the full commit sha for a branch, tag or commit of MODEL_ID."""
+    if re.fullmatch(r"[0-9a-f]{40}", revision):
+        return revision
+    return HfApi().model_info(MODEL_ID, revision=revision).sha
+
+
+def label_for_commit(model_commit: str) -> str:
+    """The version label applies only to this recipe's pinned commit; anything else is named by commit."""
+    if model_commit == DEFAULT_REVISION:
+        return MODEL_LABEL
+    return f"Falcon-OCR@{model_commit[:8]}"
 
 
 def check_cuda_availability():
@@ -150,23 +164,30 @@ def create_dataset_card(
     image_column: str = "image",
     split: str = "train",
     revision: str = "main",
-    model_commit: str | None = None,
+    model_commit: str = "",
 ) -> str:
     task_description = TASK_MODES[task_mode]
-    commit_note = f" (resolved to `{model_commit}`)" if model_commit else ""
+    commit_note = f" (resolved to `{model_commit}`)"
+    if model_commit == DEFAULT_REVISION:
+        card_name, version_tag, version_note = 'Falcon OCR v1', 'falcon-ocr-v1', ''
+    else:
+        card_name = f"Falcon OCR at {model_commit[:8]}"
+        version_tag = "falcon-ocr-other-revision"
+        version_note = f" (revision `{revision}`, not the pinned Falcon OCR v1 commit this recipe is named for)"
     return f"""---
 tags:
 - ocr
 - document-processing
 - falcon-ocr
+- {version_tag}
 - {task_mode}
 - uv-script
 - generated
 ---
 
-# Document Processing using Falcon OCR ({task_mode} mode)
+# Document Processing using {card_name} ({task_mode} mode)
 
-This dataset contains OCR results from images in [{source_dataset}](https://huggingface.co/datasets/{source_dataset}) using [Falcon OCR](https://huggingface.co/tiiuae/Falcon-OCR), a 0.3B early-fusion vision-language model.
+This dataset contains OCR results from images in [{source_dataset}](https://huggingface.co/datasets/{source_dataset}) using [{card_name}](https://huggingface.co/tiiuae/Falcon-OCR), a 0.3B early-fusion vision-language model{version_note}.
 
 ## Processing Details
 
@@ -255,12 +276,11 @@ def main(
 
     # Resolve the revision to a commit sha up front so the run is reproducible even
     # when `main` moves again (it did on 2026-09-11: v1 -> v1.5, same repo).
-    try:
-        model_commit = HfApi().model_info(MODEL_ID, revision=revision).sha
-    except Exception as e:  # offline / transient API error: run anyway, less provenance
-        logger.warning(f"Could not resolve revision {revision!r} to a commit: {e}")
-        model_commit = None
-    logger.info(f"Model revision: {revision} -> {model_commit or 'unresolved'}")
+    # A failure here stops the run: loading a moving branch without a recorded commit is
+    # the problem this recipe exists to prevent.
+    model_commit = resolve_commit(revision)
+    model_label = label_for_commit(model_commit)
+    logger.info(f"Model revision: {revision} -> {model_commit} ({model_label})")
 
     # Load model using falcon-perception
     logger.info(f"Loading model: {MODEL_ID} via falcon-perception engine")
@@ -270,7 +290,7 @@ def main(
 
     model, tokenizer, model_args = load_and_prepare_model(
         hf_model_id=MODEL_ID,
-        hf_revision=model_commit or revision,  # load the commit that inference_info records
+        hf_revision=model_commit,  # load the commit that inference_info records
         device="cuda",
         dtype="bfloat16",
         compile=compile,
@@ -322,7 +342,7 @@ def main(
     # Track inference info
     inference_entry = {
         "model_id": MODEL_ID,
-        "model_name": MODEL_LABEL,
+        "model_name": model_label,
         "model_size": "0.3B",
         "revision": revision,
         "model_commit": model_commit,
@@ -428,7 +448,6 @@ if __name__ == "__main__":
             print(f"  {mode:10} - {description}")
         print("\nExamples:")
         print("  uv run falcon-ocr.py input-dataset output-dataset")
-        print("  uv run falcon-ocr.py dense-docs output --task-mode layout")
         print("\nFor full help: uv run falcon-ocr.py --help")
         sys.exit(0)
 
@@ -446,7 +465,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--task-mode", choices=list(TASK_MODES.keys()), default="plain",
-        help="Task type: plain (default), layout",
+        help="Task type: plain (the only mode)",
     )
     parser.add_argument("--hf-token", help="Hugging Face API token")
     parser.add_argument(
