@@ -53,6 +53,23 @@ try the failed rows again. A retry adds a second record for the row and keeps th
 record, so after a --retry-errors run drop the records that have an `error`, or read the
 output with `saturate.read_output`, which keeps one record per id (a success over an earlier
 error).
+
+BUCKETS: the input can be a glob of files in a Storage Bucket instead of a dataset id, for
+example hf://buckets/you/corpus/data/*.parquet (also .jsonl, .json, .csv, and .txt or .md,
+where each file is one row). The output can be a bucket path, for example
+hf://buckets/you/embeddings/run1: the parts land there and no dataset card is written.
+
+KEEP COLUMNS: --keep language date copies those source columns into the output, so the
+vectors join back to their metadata. Kept values are written as strings (lists and dicts as
+JSON). --id-column sets the row id; use a column with stable unique values for large runs.
+
+FAN-OUT: --shard 2/4 makes this Job process the rows whose id hashes to shard 2 of 4. Start
+4 Jobs with --shard 0/4 ... 3/4 and the same output; together they cover the input once.
+Each Job still reads the whole input and keeps its share. Use a bucket output for fan-out:
+each flush to a dataset repo is a commit. With a dataset output, only shard 0 writes the
+card, and its counts cover shard 0 only.
+
+--skip-empty leaves out rows whose text is empty or only whitespace (they get no record).
 """
 import argparse
 import json
@@ -90,6 +107,53 @@ def known_family_prefixes(model_id):
     if "bge" in m and "-en" in m:  # English bge retrieval: query instruction, docs raw
         return ("Represent this sentence for searching relevant passages: ", "")
     return None
+
+
+# File extension -> `datasets` builder, for bucket inputs.
+BUCKET_FORMATS = {".parquet": "parquet", ".jsonl": "json", ".json": "json", ".csv": "csv",
+                  ".txt": "text", ".md": "text"}
+
+
+def parse_shard(text):
+    """'2/4' -> (2, 4). The rank counts from 0."""
+    try:
+        rank_text, world_text = text.split("/")
+        rank, world = int(rank_text), int(world_text)
+    except ValueError:
+        sys.exit(f"--shard takes RANK/WORLD, for example 0/4; got {text!r}")
+    if world < 1 or not 0 <= rank < world:
+        sys.exit(f"--shard {text}: the rank must be from 0 to {world - 1}")
+    return rank, world
+
+
+def bucket_id(uri):
+    """'hf://buckets/ns/name/any/prefix' -> 'ns/name'."""
+    return "/".join(uri.removeprefix("hf://buckets/").split("/")[:2])
+
+
+def keep_value(value):
+    """Kept columns are written as strings; lists and dicts as JSON."""
+    if value is None or isinstance(value, str):
+        return value
+    return json.dumps(value, ensure_ascii=False, default=str)
+
+
+def report_memory(every_s=60):
+    """Print this process's resident memory every minute, to stderr (Linux only)."""
+    import threading
+
+    def loop():
+        while True:
+            try:
+                with open("/proc/self/status") as status:
+                    for line in status:
+                        if line.startswith("VmRSS"):
+                            print(f"[rss] {int(line.split()[1]) // 1024} MB", file=sys.stderr, flush=True)
+            except OSError:
+                return
+            time.sleep(every_s)
+
+    threading.Thread(target=loop, daemon=True).start()
 
 
 def jobs_flavor() -> str:
@@ -230,6 +294,10 @@ def reproduce_options(args):
         options += ["--prompt", args.prompt]
     if args.query_mode:
         options += ["--query-mode"]
+    if args.keep:
+        options += ["--keep", *args.keep]
+    if args.skip_empty:
+        options += ["--skip-empty"]
     return " ".join(shlex.quote(option) for option in options)
 
 
@@ -248,6 +316,8 @@ def write_card(args, prefix, prefix_source, dimension, max_tokens, stats):
     prefix_line = f"`{prefix}` ({prefix_source})" if prefix else "(none)"
     # A resumed run processes only the rows that were missing, so the card gives both counts.
     earlier = f", {stats.rows_done_prior} already written by an earlier run" if stats.rows_done_prior else ""
+    rank, world = parse_shard(args.shard)
+    shard_note = f" (shard {rank} of {world} only; the other shards wrote the rest)" if world > 1 else ""
     card = (
         f"---\ntags:\n- embeddings\n- uv-script\n- generated{jobs_tag}\n---\n\n"
         f"# {args.output_dataset}\n\n"
@@ -257,7 +327,7 @@ def write_card(args, prefix, prefix_source, dimension, max_tokens, stats):
         f"- Column: `{args.output_column}`, normalized\n"
         f"- Prompt prepended ({side} side): {prefix_line}\n"
         f"- Texts cut at {max_tokens} tokens\n"
-        f"- Rows in the last run: {stats.rows_processed} embedded, {stats.rows_failed} failed{earlier}. "
+        f"- Rows in the last run{shard_note}: {stats.rows_processed} embedded, {stats.rows_failed} failed{earlier}. "
         f"A failed row has a message in `error`.\n\n"
         f"## Reproduction\n\n"
         f"{origin} with the [`generate-embeddings-saturate.py`]({SCRIPT_URL}) recipe "
@@ -273,8 +343,10 @@ def write_card(args, prefix, prefix_source, dimension, max_tokens, stats):
 
 def main():
     parser = argparse.ArgumentParser(description="Embed a text column with a vLLM server via saturate")
-    parser.add_argument("input_dataset", help="Input dataset ID on the Hugging Face Hub")
-    parser.add_argument("output_dataset", help="Output dataset ID (created if missing)")
+    parser.add_argument("input_dataset",
+                        help="Input dataset ID, or a bucket glob such as hf://buckets/you/b/data/*.parquet")
+    parser.add_argument("output_dataset",
+                        help="Output dataset ID (created if missing), or a bucket path hf://buckets/you/b/run1")
     parser.add_argument("--model", default="Qwen/Qwen3-Embedding-0.6B", help="An embedding model that vLLM serves")
     parser.add_argument("--column", default="text", help="Text column to embed")
     parser.add_argument("--output-column", default="embeddings")
@@ -289,7 +361,17 @@ def main():
     parser.add_argument("--query-mode", action="store_true", help="Embed the texts as queries, not documents")
     parser.add_argument("--private", action="store_true", help="Make the output dataset private")
     parser.add_argument("--retry-errors", action="store_true", help="Try again the rows whose only record is an error")
+    parser.add_argument("--keep", nargs="+", default=[], metavar="COLUMN",
+                        help="Source columns to copy into the output (written as strings)")
+    parser.add_argument("--skip-empty", action="store_true", help="Leave out rows whose text is empty")
+    parser.add_argument("--shard", default="0/1", metavar="RANK/WORLD",
+                        help="Process only shard RANK of WORLD (fan-out over several Jobs), e.g. 0/4")
     args = parser.parse_args()
+    shard = parse_shard(args.shard)
+    bucket_output = args.output_dataset.startswith("hf://buckets/")
+    bucket_input = args.input_dataset.startswith("hf://buckets/")
+    if args.output_column in {"id", "error", "model", "prompt_tokens", args.column, *args.keep}:
+        sys.exit(f"--output-column {args.output_column!r} clashes with another output column")
 
     import pyarrow as pa
     from huggingface_hub import HfApi
@@ -308,11 +390,33 @@ def main():
     else:
         ids = args.id_column
 
-    HfApi().create_repo(args.output_dataset, repo_type="dataset", private=args.private, exist_ok=True)
-    rows = dataset_rows(
-        args.input_dataset, config=args.config, split=args.split,
-        columns=[args.column], ids=ids, limit=args.max_samples,
-    )
+    if bucket_output:
+        HfApi().create_bucket(bucket_id(args.output_dataset), private=args.private, exist_ok=True)
+        output_uri = args.output_dataset
+    else:
+        HfApi().create_repo(args.output_dataset, repo_type="dataset", private=args.private, exist_ok=True)
+        output_uri = f"hf://datasets/{args.output_dataset}/data"
+
+    columns = [args.column, *args.keep]
+    if bucket_input:
+        from datasets import load_dataset
+
+        suffix = os.path.splitext(args.input_dataset)[1].lower()
+        if suffix not in BUCKET_FORMATS:
+            sys.exit(f"A bucket input is a glob ending in one of {sorted(BUCKET_FORMATS)}, "
+                     f"for example hf://buckets/you/b/data/*.parquet; got {args.input_dataset!r}")
+        builder = BUCKET_FORMATS[suffix]
+        extra = {"sample_by": "document"} if builder == "text" else {}
+        loaded = load_dataset(builder, data_files=args.input_dataset, split="train", streaming=True, **extra)
+        rows = dataset_rows(loaded, split="train", columns=columns, ids=ids, limit=args.max_samples, shard=shard)
+    else:
+        rows = dataset_rows(
+            args.input_dataset, config=args.config, split=args.split,
+            columns=columns, ids=ids, limit=args.max_samples, shard=shard,
+        )
+    if args.skip_empty:
+        rows = ((row_id, row) for row_id, row in rows if (row[args.column] or "").strip())
+    report_memory()
 
     cut = {"max_tokens": None}  # set once the server reports the model's maximum
 
@@ -327,13 +431,14 @@ def main():
     schema = pa.schema([
         ("id", pa.string()), ("error", pa.string()), (args.column, pa.string()),
         (args.output_column, pa.list_(pa.float32())), ("model", pa.string()), ("prompt_tokens", pa.int64()),
-    ])  # fmt: skip
+    ] + [(column, pa.string()) for column in args.keep])  # fmt: skip
     def parse(row, body):
         return {
             args.column: row[args.column],
             args.output_column: body["data"][0]["embedding"],
             "model": args.model,
             "prompt_tokens": (body.get("usage") or {}).get("prompt_tokens"),
+            **{column: keep_value(row.get(column)) for column in args.keep},
         }
 
     # The readiness check sends one embedding request, so the server is known to embed before the run starts.
@@ -348,19 +453,26 @@ def main():
         dimension = embedding_dimension(endpoint, args.model)
         started = time.monotonic()
         stats = pump(
-            rows, to_request, parse, endpoint, f"hf://datasets/{args.output_dataset}/data",
-            route="/embeddings", retry_errors=args.retry_errors, schema=schema,
+            rows, to_request, parse, endpoint, output_uri,
+            route="/embeddings", retry_errors=args.retry_errors, schema=schema, shard=shard,
         )
         elapsed = time.monotonic() - started
 
-    write_card(args, prefix, prefix_source, dimension, cut["max_tokens"], stats)
+    if not bucket_output and shard[0] == 0:
+        write_card(args, prefix, prefix_source, dimension, cut["max_tokens"], stats)
+    where = (f"https://huggingface.co/buckets/{bucket_id(args.output_dataset)}" if bucket_output
+             else f"https://huggingface.co/datasets/{args.output_dataset}")
     print(
-        f"https://huggingface.co/datasets/{args.output_dataset} "
+        f"{where} shard {shard[0]}/{shard[1]} "
         f"({stats.rows_processed} ok, {stats.rows_failed} error rows, "
         f"{stats.rows_processed / max(elapsed, 1e-6):.0f} rows/s, dim {dimension})",
         file=sys.stderr,
     )
     print("GENERATE_EMBEDDINGS_SATURATE " + stats.to_json(), flush=True)
+    sys.stderr.flush()
+    # saturate README: a process can hang or abort at interpreter exit after a Hub Parquet
+    # stream stopped early (--max-samples); everything is written, so leave now.
+    os._exit(0)
 
 
 if __name__ == "__main__":
