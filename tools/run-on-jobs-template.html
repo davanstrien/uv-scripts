@@ -80,6 +80,9 @@ body .more{margin-left:16px}
 
 @media (prefers-reduced-motion:reduce){summary::before{transition:none}}
 .entry{font-size:15px;margin-top:12px}
+.agent-note{border-left:3px solid var(--link);padding:2px 0 2px 12px;margin:14px 0}
+.agent-note p{margin:0 0 4px}
+.agent-note pre{white-space:pre-wrap;overflow-wrap:anywhere}
 .model-link{margin:2px 12px 8px 28px}
 ul.models>li{scroll-margin-top:12px}
 </style>
@@ -90,6 +93,7 @@ ul.models>li{scroll-margin-top:12px}
 <p>Run a model over your whole dataset, or fine-tune it on your own examples. Each command starts a job on Hugging Face Jobs and saves the results to the Hub. There is nothing to clone.</p>
 <p class="small muted">Each recipe is a <a href="https://huggingface.co/docs/hub/jobs-configuration#uv-jobs">uv script</a>: one Python file that lists its own dependencies, so it runs straight from its URL.</p>
 <p class="entry"><a href="#find" target="_self">Find your model</a> · New to Jobs? Try an example below, or read the <a href="https://huggingface.co/docs/hub/jobs-quickstart">quickstart</a> · <a href="https://huggingface.co/uv-scripts">Follow uv-scripts</a> for new recipes</p>
+<div class="agent-note"><p class="small"><strong>Using a coding agent?</strong> Paste this into it. <a href="AGENTS.md">AGENTS.md</a> tells it how to pick a recipe from <a href="recipes.json">recipes.json</a>, preview the cost and check the output.</p><div class="cmd"><pre>Read https://huggingface.co/spaces/uv-scripts/run-on-jobs/raw/main/AGENTS.md, then help me run a model on my data with Hugging Face Jobs.</pre><button class="copy">Copy</button></div></div>
 <section class="steps">
 <div class="switch"><button data-show="OCR">OCR</button><button data-show="Transcription">Transcription</button><button data-show="Embeddings">Embeddings</button><button data-show="Fine-tuning">Fine-tuning</button></div>
 <div data-step="OCR"><p>Read seven scanned NASA pages with GLM-OCR and save the text to a new public dataset on your account. Add <code>--private</code> to keep it private.</p><div class="cmd"><pre>hf jobs uv run \
