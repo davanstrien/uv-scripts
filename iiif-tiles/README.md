@@ -27,7 +27,7 @@ uv run https://huggingface.co/datasets/uv-scripts/iiif-tiles/raw/main/iiif.py \
     --title "My collection" --space myorg/my-collection
 ```
 
-The command prints the Collection URL, the index URL, a Mirador link and the Space link. The script creates the bucket if it does not exist. The bucket must be public, because viewers read it without a token.
+The command prints the IIIF entry URL (the Collection, or the manifest when there is one item), the index URL and the Space link. The script creates the bucket if it does not exist. Viewers read the bucket without a token, so it must be public; the script stops on a private bucket unless you pass `--allow-private`.
 
 Run it again after you add images or change metadata. Images that did not change are skipped.
 
@@ -42,7 +42,7 @@ hf jobs uv run --flavor cpu-upgrade --timeout 2h --secrets HF_TOKEN \
     --title "My collection"
 ```
 
-`--secrets HF_TOKEN` forwards your token so the Job can write to the bucket. A stopped Job loses no work: run the same command again and it continues.
+`--secrets HF_TOKEN` forwards your token so the Job can write to the bucket. If a Job stops, run the same command again: it skips every image that was finished and continues with the rest.
 
 Images in other cloud storage: copy them into a Hugging Face bucket first (`hf buckets sync ./folder hf://buckets/myorg/source-images`), then publish from that bucket.
 
@@ -101,17 +101,17 @@ duckdb.sql(f"SELECT label, derivative_url FROM '{index}' WHERE meta_date = '1936
 | Column | Content |
 |---|---|
 | `image_id`, `item_id`, `position`, `label`, `item_label` | Identity and order |
-| `width`, `height` | Size in pixels, after rotation |
+| `width`, `height`, `tiled` | Size in pixels, after rotation, and whether the image has tiles |
 | `canvas_id` | IIIF canvas id. Use it with `#xywh=x,y,w,h` to point at a region |
 | `manifest_url`, `image_service` | IIIF entry points |
 | `image_url` | Full-size JPEG |
-| `derivative_url`, `derivative_width`, `derivative_height` | JPEG with a long edge of 1024 px: a good input size for most models |
-| `thumbnail_url` | JPEG with a long edge of 400 px |
+| `derivative_url`, `derivative_width`, `derivative_height` | JPEG with a long edge of 1024 px: a good input size for most models. Images are never enlarged, so a smaller image is given at full size |
+| `thumbnail_url` | JPEG with a long edge of 400 px, or the full image if it is smaller |
 | `source_path`, `rights`, `attribution`, `meta_*` | From your source and metadata files |
 
 For bulk work, sync the bucket (`hf buckets sync hf://buckets/myorg/my-collection ./local`) instead of fetching files one by one. Static files cannot crop a region on request: download `derivative_url` or `image_url` and crop locally.
 
-Columns are only ever added to the index, so code that reads it keeps working.
+The fixed columns above are never removed or renamed. The `meta_*` columns follow your metadata files.
 
 ## Change labels or metadata later
 
@@ -129,14 +129,14 @@ uv run iiif.py manifest hf://buckets/myorg/my-collection --title "A better title
 uv run iiif.py check hf://buckets/myorg/my-collection
 ```
 
-`check` reads the collection the way a viewer does. It confirms that every id matches its URL, that images, thumbnails and tiles can be fetched, and that the index agrees with the manifests. The exit code is 1 when it finds a problem.
+`check` reads the collection the way a viewer does. It reads every manifest and compares the canvas ids with the index. For a sample of 25 images (`--sample 0` for all) it also confirms that each id matches its URL and that the full image, thumbnail, 1024 px image and the first and last tile can be fetched. The exit code is 1 when it finds a problem.
 
 ## For scripts and agents
 
 - `--json` prints one JSON result on stdout. Progress goes to stderr.
 - The script never asks a question.
-- Exit codes: 0 = success, 1 = some images failed or `check` found problems, 2 = the command cannot run. An error names the next step.
-- Output URLs depend only on the bucket name and the source paths.
+- Exit codes: 0 = success, 1 = some images failed, `check` found problems, or an unexpected error; 2 = the command cannot run as given. Most errors name the next step.
+- URLs are predictable: they are built from the destination, the image id and the image size.
 
 ## Options
 
@@ -149,7 +149,7 @@ uv run iiif.py check hf://buckets/myorg/my-collection
 | `--language` | `none` | Language code of your labels and metadata, for example `en` |
 | `--space` | none | Create or update a static Space with a viewer (`--space-private` to keep it private) |
 | `--tile-size` | 512 | Tile size in pixels |
-| `--tile-threshold` | 2048 | Images with a longer edge than this get tiles. Smaller images are one file |
+| `--tile-threshold` | 2048 | Images with a longer edge than this get tiles. Smaller images get no tiles |
 | `--quality` | 85 | JPEG quality |
 | `--workers` | 4 | Images processed at the same time |
 | `--force` | off | Process every image again |
@@ -169,18 +169,19 @@ index.parquet                    one row per image
 _publish/                        this tool's records; viewers do not read them
 ```
 
-An image id is made from the source path: `letter-1/page1.jpg` becomes `letter-1__page1`. Ids use lowercase ASCII letters, digits and `-`. Two files that would get the same id stop the run with an error.
+An image id is made from the source path: `letter-1/page1.jpg` becomes `letter-1__page1`. Each folder and file name becomes lowercase ASCII letters, digits and `-`, and `__` joins them. Two files that would get the same id stop the run with an error.
 
-**These URLs are permanent once you share them.** They contain the bucket name and the image id. If you rename the bucket, a folder or a file, the URLs change. After a bucket rename, run `manifest` once to rewrite the ids.
+**These URLs are permanent once you share them.** They contain the bucket name and the image id. If you rename the bucket, a folder or a file, the URLs usually change. After a bucket rename, run `manifest` once to rewrite the ids.
 
 ## Things to know
 
 - **Rotation.** A photo with an EXIF rotation tag is stored upright. Width and height are the upright values.
-- **Colour.** CMYK and 16-bit images are converted to 8-bit sRGB, and transparency is flattened onto white. The run prints a warning for each such image.
+- **Colour.** CMYK and 16-bit images are converted to 8-bit (sRGB, or greyscale for a greyscale image), and transparency is flattened onto white. The run prints a warning for each such image.
 - **Multi-page TIFF.** Only the first page is published. The run prints a warning.
+- **Source and destination must not overlap.** The destination cannot be inside the source, or the reverse.
 - **Removed images.** An image that you delete from the source leaves the manifests on the next run. Its files stay in the bucket, and the run reports the count.
 - **Python.** The script needs Python 3.10 to 3.13 (the image library has no build for newer versions yet). `uv` selects one for you.
-- **Viewer.** The Space uses [Triiiceratops](https://github.com/d-flood/triiiceratops), pinned to one version, and links to Mirador. Any IIIF viewer can open the Collection URL.
+- **Viewer.** The Space uses [Triiiceratops](https://github.com/d-flood/triiiceratops), pinned to one version. Other IIIF viewers can open the Collection or manifest URL.
 - **Level 0.** All files are made in advance. That gives deep zoom and browsing. It does not give crops, rotation or other sizes on request; those need an image server.
 
 ## Local test

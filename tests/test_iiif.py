@@ -96,7 +96,11 @@ def test_publish_writes_a_consistent_collection(source, tmp_path):
 
     collection = read_json(dest / "collection.json")
     assert collection["id"] == f"{BASE}/collection.json"
-    assert [item["id"].rsplit("/", 1)[1] for item in collection["items"]] == ["_root.json", "book-a.json", "book-b.json"]
+    assert [item["id"].rsplit("/", 1)[1] for item in collection["items"]] == [
+        "_root.json",
+        "book-a.json",
+        "book-b.json",
+    ]
 
     book_a = read_json(dest / "manifests" / "book-a.json")
     assert book_a["label"] == {"none": ["The first book"]}
@@ -200,3 +204,79 @@ def test_local_destination_needs_a_base_url(source, tmp_path, capsys):
 def test_other_cloud_storage_is_refused_with_a_next_step(tmp_path, capsys):
     assert run("publish", "s3://bucket/scans", tmp_path / "published", "--base-url", BASE) == 2
     assert "Hugging Face bucket" in capsys.readouterr().err
+
+
+def test_metadata_file_in_a_subfolder_uses_paths_relative_to_it(source, tmp_path):
+    (source / "book-b" / "metadata.csv").write_text("file_name,label\npage2.jpg,Second book page\n")
+    dest = tmp_path / "published"
+    run("publish", source, dest, "--base-url", BASE)
+    book_b = read_json(dest / "manifests" / "book-b.json")
+    assert book_b["items"][0]["label"] == {"none": ["Second book page"]}
+
+
+def test_two_folders_with_the_same_id_stop_the_run(source, tmp_path, capsys):
+    (source / "BOOK-B").mkdir(exist_ok=True)
+    (source / "Book B").mkdir()
+    picture(100, 100).jpegsave(str(source / "Book B" / "other.jpg"))
+    assert run("publish", source, tmp_path / "published", "--base-url", BASE) == 2
+    assert "same item id" in capsys.readouterr().err
+
+
+def test_default_rights_reach_the_index_and_can_be_cleared(source, tmp_path):
+    dest = tmp_path / "published"
+    run("publish", source, dest, "--base-url", BASE, "--rights", PUBLIC_DOMAIN)
+    rows = pq.read_table(io.BytesIO((dest / "index.parquet").read_bytes())).to_pylist()
+    assert all(row["rights"] == PUBLIC_DOMAIN for row in rows)
+    assert read_json(dest / "collection.json")["rights"] == PUBLIC_DOMAIN
+
+    run("manifest", dest, "--rights", "")
+    assert "rights" not in read_json(dest / "collection.json")
+
+
+def test_destination_inside_the_source_is_refused(source, capsys):
+    assert run("publish", source, source / "out", "--base-url", BASE) == 2
+    assert "overlap" in capsys.readouterr().err
+
+
+def test_check_reports_a_wrong_index_url_and_a_missing_last_tile(source, tmp_path, capsys):
+    dest = tmp_path / "published"
+    run("publish", source, dest, "--base-url", BASE)
+    (dest / "images" / "book-a__page2" / "2560,2048,440,152" / "440,152" / "0" / "default.jpg").unlink()
+    table = pq.read_table(io.BytesIO((dest / "index.parquet").read_bytes()))
+    rows = table.to_pylist()
+    rows[0]["image_url"] = "http://localhost:8000/images/wrong/full/max/0/default.jpg"
+    import pyarrow as pa
+
+    pq.write_table(pa.Table.from_pylist(rows), str(dest / "index.parquet"))
+    capsys.readouterr()
+    assert run("check", dest, "--json") == 1
+    problems = " ".join(json.loads(capsys.readouterr().out)["problems"])
+    assert "last tile" in problems and "index image_url" in problems
+
+
+def test_leftover_files_from_a_stopped_run_are_cleared(source, tmp_path):
+    dest = tmp_path / "published"
+    stale = dest / "images" / "small" / "0,0,256,256" / "256,256" / "0" / "default.jpg"
+    stale.parent.mkdir(parents=True)
+    stale.write_bytes(b"left over from a run with other settings")
+    run("publish", source, dest, "--base-url", BASE)
+    assert not stale.exists()
+    assert run("check", dest) == 0
+
+
+def test_image_that_cannot_be_read_fails_alone(source, tmp_path, capsys):
+    (source / "broken.jpg").write_bytes(b"this is not a JPEG")
+    dest = tmp_path / "published"
+    assert run("publish", source, dest, "--base-url", BASE, "--json") == 1
+    result = json.loads(capsys.readouterr().out)
+    assert [failure["source"] for failure in result["failed"]] == ["broken.jpg"]
+    assert result["images"] == 5
+    assert run("check", dest) == 0
+
+
+def test_space_readme_title_is_valid_yaml_for_awkward_titles():
+    title = 'A "quoted" title with a backslash \\ and\na new line'
+    line = recipe.space_readme(title, "https://example.org/collection.json", "collection", "https://example.org")
+    front_matter = line.split("---")[1]
+    title_line = next(row for row in front_matter.splitlines() if row.startswith("title: "))
+    assert json.loads(title_line[len("title: ") :]) == 'A "quoted" title with a backslash \\ and a new line'

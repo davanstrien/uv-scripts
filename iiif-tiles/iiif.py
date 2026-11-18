@@ -33,6 +33,7 @@ import re
 import shutil
 import sys
 import tempfile
+import traceback
 import unicodedata
 import urllib.error
 import urllib.parse
@@ -257,6 +258,14 @@ class LocalDest:
     def clear(self, dest_prefix: str) -> None:
         shutil.rmtree(self.root / dest_prefix, ignore_errors=True)
 
+    def remove(self, dest_path: str) -> None:
+        (self.root / dest_path).unlink(missing_ok=True)
+
+    def list_dirs(self, dest_prefix: str) -> set[str]:
+        """Names of the folders directly inside `dest_prefix`."""
+        folder = self.root / dest_prefix
+        return {child.name for child in folder.iterdir() if child.is_dir()} if folder.is_dir() else set()
+
 
 class BucketDest:
     def __init__(self, api, bucket: str, prefix: str):
@@ -288,11 +297,14 @@ class BucketDest:
             self.api.batch_bucket_files(self.bucket, add=pairs[start : start + UPLOAD_CHUNK])
 
     def read_bytes(self, dest_path: str) -> bytes | None:
-        found = self.read_all(dest_path)
-        return found.get(dest_path)
+        wanted = self._full(dest_path)
+        entries = [entry for entry in self._list(dest_path) if entry.path == wanted]
+        return self._download(entries).get(dest_path)
 
     def read_all(self, dest_prefix: str) -> dict[str, bytes]:
-        entries = self._list(dest_prefix)
+        return self._download(self._list(dest_prefix + "/"))
+
+    def _download(self, entries: list) -> dict[str, bytes]:
         if not entries:
             return {}
         strip = len(self.prefix) + 1 if self.prefix else 0
@@ -309,6 +321,20 @@ class BucketDest:
         paths = [entry.path for entry in self._list(dest_prefix + "/")]
         for start in range(0, len(paths), UPLOAD_CHUNK):
             self.api.batch_bucket_files(self.bucket, delete=paths[start : start + UPLOAD_CHUNK])
+
+    def remove(self, dest_path: str) -> None:
+        wanted = self._full(dest_path)
+        if any(entry.path == wanted for entry in self._list(dest_path)):
+            self.api.batch_bucket_files(self.bucket, delete=[wanted])
+
+    def list_dirs(self, dest_prefix: str) -> set[str]:
+        """Names of the folders directly inside `dest_prefix`."""
+        parent = self._full(dest_prefix) + "/"
+        names = set()
+        for entry in self.api.list_bucket_tree(self.bucket, prefix=parent, recursive=False):
+            if entry.path.startswith(parent) and entry.path != parent:
+                names.add(entry.path[len(parent) :].strip("/").split("/")[0])
+        return names
 
 
 def hub_api():
@@ -345,6 +371,26 @@ def open_dest(location: Location, create: bool, allow_private: bool):
             f"Run: hf buckets settings {location.bucket} --public   (or pass --allow-private)",
         )
     return BucketDest(api, location.bucket, location.prefix)
+
+
+def check_no_overlap(source: Location, dest: Location) -> None:
+    """Refuse a destination inside the source (or the reverse): the next run would
+    read the published JPEGs as new source images."""
+    if source.kind != dest.kind:
+        return
+    if source.kind == "local":
+        first, second = Path(source.path).resolve(), Path(dest.path).resolve()
+        overlap = first == second or first in second.parents or second in first.parents
+    else:
+        first, second = source.prefix.strip("/"), dest.prefix.strip("/")
+        nested = first == second or not first or not second
+        nested = nested or first.startswith(second + "/") or second.startswith(first + "/")
+        overlap = source.bucket == dest.bucket and nested
+    if overlap:
+        raise UserError(
+            "The source and the destination overlap.",
+            "Use a destination outside the source: a different folder, bucket, or bucket prefix.",
+        )
 
 
 def default_base_url(location: Location, base_url: str | None) -> str:
@@ -815,7 +861,7 @@ def collection_json(base_url: str, items: list[PlannedItem], states: dict, confi
     return collection
 
 
-def index_parquet(base_url: str, items: list[PlannedItem], states: dict) -> bytes:
+def index_parquet(base_url: str, items: list[PlannedItem], states: dict, config: dict) -> bytes:
     """One row per image. This table is the interface for programs: only add columns."""
     import pyarrow as pa
     import pyarrow.parquet as pq
@@ -849,8 +895,8 @@ def index_parquet(base_url: str, items: list[PlannedItem], states: dict) -> byte
                 "derivative_width": state["derivative"][0],
                 "derivative_height": state["derivative"][1],
                 "thumbnail_url": urls["thumbnail"],
-                "rights": image.rights or item.rights,
-                "attribution": image.attribution or item.attribution,
+                "rights": image.rights or item.rights or config["rights"],
+                "attribution": image.attribution or item.attribution or config["attribution"],
             }
             for column in meta_columns:
                 row[f"meta_{column}"] = image.metadata.get(column)
@@ -930,7 +976,7 @@ def write_outputs(dest, base_url: str, items: list[PlannedItem], states: dict, c
     for item in published:
         files.append((to_json_bytes(manifest_json(base_url, item, states, config)), f"manifests/{item.id}.json"))
     files.append((to_json_bytes(collection_json(base_url, published, states, config)), "collection.json"))
-    files.append((index_parquet(base_url, published, states), "index.parquet"))
+    files.append((index_parquet(base_url, published, states, config), "index.parquet"))
     config = dict(config, base_url=base_url)
     files.append((to_json_bytes(catalog_document(published, config)), CATALOG_PATH))
     reporter.info(f"Writing {len(files)} description files (info.json, manifests, collection, index)")
@@ -967,9 +1013,8 @@ VIEWER_HTML = """<!doctype html>
 <body>
 <header>
   <h1>__TITLE__</h1>
-  <a href="__MIRADOR_URL__">Open in Mirador</a>
-  <a href="__ENTRY_URL__">IIIF __ENTRY_KIND__</a>
-  <a href="__INDEX_URL__">Index (Parquet)</a>
+  <a href="__ENTRY_URL__" target="_blank" rel="noopener">IIIF __ENTRY_KIND__</a>
+  <a href="__INDEX_URL__" target="_blank" rel="noopener">Index (Parquet)</a>
 </header>
 <triiiceratops-viewer manifest-id="__ENTRY_URL__" config='{"gallery": {"open": true}}'></triiiceratops-viewer>
 </body>
@@ -988,8 +1033,20 @@ def entry_point(base_url: str, catalog: dict) -> tuple[str, str]:
     return f"{base_url}/collection.json", "collection"
 
 
-def mirador_url(entry_url: str) -> str:
-    return "https://projectmirador.org/embed/?iiif-content=" + urllib.parse.quote(entry_url, safe="")
+def space_readme(title: str, entry_url: str, entry_kind: str, base_url: str) -> str:
+    # A JSON string is a valid YAML double-quoted scalar, so quotes and backslashes are safe.
+    yaml_title = json.dumps(" ".join(title.split())[:60], ensure_ascii=False)
+    return (
+        "---\n"
+        f"title: {yaml_title}\n"
+        "emoji: 🖼️\ncolorFrom: gray\ncolorTo: indigo\nsdk: static\npinned: false\n"
+        "tags:\n  - iiif\n  - uv-script\n"
+        "---\n\n"
+        f"IIIF viewer for **{' '.join(title.split())}**.\n\n"
+        f"- IIIF {entry_kind}: {entry_url}\n"
+        f"- Image index (Parquet): {base_url}/index.parquet\n\n"
+        "Made with [uv-scripts/iiif-tiles](https://huggingface.co/datasets/uv-scripts/iiif-tiles).\n"
+    )
 
 
 def publish_space(space_id: str, base_url: str, catalog: dict, private: bool) -> str:
@@ -999,25 +1056,13 @@ def publish_space(space_id: str, base_url: str, catalog: dict, private: bool) ->
     replacements = {
         "__TITLE__": html_escape(title),
         "__VIEWER_VERSION__": VIEWER_VERSION,
-        "__MIRADOR_URL__": html_escape(mirador_url(entry_url)),
         "__ENTRY_URL__": html_escape(entry_url),
         "__ENTRY_KIND__": entry_kind,
         "__INDEX_URL__": html_escape(f"{base_url}/index.parquet"),
     }
     for marker, value in replacements.items():
         html = html.replace(marker, value)
-    safe_title = title.replace('"', "'")[:60]
-    readme = (
-        "---\n"
-        f'title: "{safe_title}"\n'
-        "emoji: 🖼️\ncolorFrom: gray\ncolorTo: indigo\nsdk: static\npinned: false\n"
-        "tags:\n  - iiif\n  - uv-script\n"
-        "---\n\n"
-        f"IIIF viewer for **{title}**.\n\n"
-        f"- IIIF {entry_kind}: {entry_url}\n"
-        f"- Image index (Parquet): {base_url}/index.parquet\n\n"
-        "Made with [uv-scripts/iiif-tiles](https://huggingface.co/datasets/uv-scripts/iiif-tiles).\n"
-    )
+    readme = space_readme(title, entry_url, entry_kind, base_url)
     api = hub_api()
     api.create_repo(space_id, repo_type="space", space_sdk="static", private=private, exist_ok=True)
     for name, text in (("index.html", html), ("README.md", readme)):
@@ -1056,13 +1101,13 @@ def summary_links(base_url: str, catalog: dict) -> dict:
         "entry_kind": entry_kind,
         "collection_url": f"{base_url}/collection.json",
         "index_url": f"{base_url}/index.parquet",
-        "mirador_url": mirador_url(entry_url),
     }
 
 
 def command_publish(args, reporter: Reporter) -> dict:
     source_location = parse_location(args.source, "source")
     dest_location = parse_location(args.dest, "destination")
+    check_no_overlap(source_location, dest_location)
     base_url = default_base_url(dest_location, args.base_url)
     settings = Settings(args.tile_size, args.tile_threshold, args.quality)
 
@@ -1076,6 +1121,9 @@ def command_publish(args, reporter: Reporter) -> dict:
     reporter.info(f"Found {total} image(s) in {len(items)} item(s)")
 
     states = load_states(dest)
+    # A folder without a state file is left over from a run that was stopped. It is cleared
+    # before the image is written again, so files from other settings cannot remain.
+    existing_folders = dest.list_dirs("images")
     todo = []
     for item in items:
         for image in item.images:
@@ -1088,7 +1136,7 @@ def command_publish(args, reporter: Reporter) -> dict:
                 and state.get("settings") == settings.key()
             )
             if not current:
-                todo.append((image, state is not None))
+                todo.append((image, state is not None or image.id in existing_folders))
     reporter.info(f"{total - len(todo)} image(s) are up to date, {len(todo)} to process")
 
     failures = []
@@ -1111,6 +1159,9 @@ def command_publish(args, reporter: Reporter) -> dict:
             state.update(facts)
             (work_dir / "out" / "info.json").write_bytes(to_json_bytes(info_json(base_url, state)))
             if replace:
+                # Remove the state file first: without it, a failure below cannot leave
+                # manifests that point at files which are gone.
+                dest.remove(state_path(image.id))
                 dest.clear(f"images/{image.id}")
             dest.put_tree(work_dir / "out", f"images/{image.id}")
             # The state file is written last. Its presence means the image is complete.
@@ -1128,6 +1179,7 @@ def command_publish(args, reporter: Reporter) -> dict:
             except Exception as error:  # noqa: BLE001 - one bad image must not stop the run
                 failures.append({"source": image.source, "error": f"{type(error).__name__}: {error}"})
                 reporter.warn(f"[{done}/{len(todo)}] FAILED {image.source}: {error}")
+                states.pop(image.id, None)  # its files may be incomplete; the next run retries it
                 continue
             states[state["id"]] = state
             kind = "tiled" if state["tiled"] else "single image"
@@ -1137,8 +1189,6 @@ def command_publish(args, reporter: Reporter) -> dict:
             for note in state["notes"]:
                 reporter.warn(f"{image.source}: {note}")
 
-    counts = write_outputs(dest, base_url, items, states, config, reporter)
-    catalog = load_catalog(dest)
     result = {
         "ok": not failures,
         "destination": dest.describe(),
@@ -1147,6 +1197,12 @@ def command_publish(args, reporter: Reporter) -> dict:
         "skipped": total - len(todo),
         "failed": failures,
     }
+    if failures and not any(image.id in states for item in items for image in item.images):
+        # Every image failed. Nothing can be published, and that is a failed run, not a usage error.
+        result.update({"items": 0, "images": 0, "not_tiled": [], "orphans": []})
+        return result
+    counts = write_outputs(dest, base_url, items, states, config, reporter)
+    catalog = load_catalog(dest)
     result.update(counts)
     result.update(summary_links(base_url, catalog))
     if args.space:
@@ -1293,9 +1349,31 @@ def command_check(args, reporter: Reporter) -> dict:
             canvases.extend(manifest.get("items", []))
     reporter.info(f"Checked {manifests_checked} manifest(s) with {len(canvases)} canvas(es)")
 
+    index_by_canvas = {}
+    index_rows = None
+    index_bytes = reader.get("index.parquet")
+    if index_bytes is None:
+        problems.append("index.parquet cannot be fetched")
+    else:
+        import pyarrow.parquet as pq
+
+        columns = ["canvas_id", "image_url", "thumbnail_url", "derivative_url"]
+        rows = pq.read_table(io.BytesIO(index_bytes), columns=columns).to_pylist()
+        index_rows = len(rows)
+        index_by_canvas = {row["canvas_id"]: row for row in rows}
+        manifest_ids = {canvas.get("id") for canvas in canvases}
+        if set(index_by_canvas) != manifest_ids or index_rows != len(canvases):
+            only_index = len(set(index_by_canvas) - manifest_ids)
+            only_manifest = len(manifest_ids - set(index_by_canvas))
+            problems.append(
+                f"index.parquet and the manifests disagree: {only_index} canvas id(s) only in the index, "
+                f"{only_manifest} only in the manifests"
+            )
+
     sample = spread_sample(canvases, args.sample)
     for canvas in sample:
         name = canvas.get("id", "?")
+        row = index_by_canvas.get(name)
         if not canvas.get("thumbnail"):
             problems.append(f"{name}: canvas has no thumbnail")
         else:
@@ -1311,6 +1389,14 @@ def command_check(args, reporter: Reporter) -> dict:
         path = relative(body["id"], f"{name}: image")
         if path is not None and not reader.exists(path):
             problems.append(f"{name}: full image cannot be fetched: {path}")
+        if row is not None:
+            if row["image_url"] != body["id"]:
+                problems.append(f"{name}: index image_url is {row['image_url']}, the manifest says {body['id']}")
+            if canvas.get("thumbnail") and row["thumbnail_url"] != canvas["thumbnail"][0]["id"]:
+                problems.append(f"{name}: index thumbnail_url differs from the canvas thumbnail")
+            path = relative(row["derivative_url"], f"{name}: index derivative_url")
+            if path is not None and not reader.exists(path):
+                problems.append(f"{name}: derivative image cannot be fetched: {path}")
         service_path = relative(service_id, f"{name}: image service")
         if service_path is None:
             continue
@@ -1334,26 +1420,16 @@ def command_check(args, reporter: Reporter) -> dict:
                 tile_path = f"{service_path}/full/max/0/default.jpg"  # canonical form of the whole image
             if not reader.exists(tile_path):
                 problems.append(f"{name}: first tile cannot be fetched: {tile_path}")
+            if (tile_w, tile_h) != (info["width"], info["height"]):
+                # The last full-resolution tile: the bottom right corner of the image.
+                size = tiles["width"]
+                left = ((info["width"] - 1) // size) * size
+                top = ((info["height"] - 1) // size) * size
+                last_w, last_h = info["width"] - left, info["height"] - top
+                tile_path = f"{service_path}/{left},{top},{last_w},{last_h}/{last_w},{last_h}/0/default.jpg"
+                if not reader.exists(tile_path):
+                    problems.append(f"{name}: last tile cannot be fetched: {tile_path}")
     reporter.info(f"Checked files for {len(sample)} of {len(canvases)} canvas(es)")
-
-    index_rows = None
-    index_bytes = reader.get("index.parquet")
-    if index_bytes is None:
-        problems.append("index.parquet cannot be fetched")
-    else:
-        import pyarrow.parquet as pq
-
-        table = pq.read_table(io.BytesIO(index_bytes), columns=["canvas_id"])
-        index_ids = set(table.column("canvas_id").to_pylist())
-        index_rows = table.num_rows
-        manifest_ids = {canvas.get("id") for canvas in canvases}
-        if index_ids != manifest_ids:
-            only_index = len(index_ids - manifest_ids)
-            only_manifest = len(manifest_ids - index_ids)
-            problems.append(
-                f"index.parquet and the manifests disagree: {only_index} canvas id(s) only in the index, "
-                f"{only_manifest} only in the manifests"
-            )
 
     for problem in problems:
         reporter.warn(problem)
@@ -1434,9 +1510,10 @@ def print_result(command: str, result: dict, reporter: Reporter) -> None:
         print(f"Not published (no image files yet): {len(result['not_tiled'])} image(s). Run publish.")
     if result["orphans"]:
         print(f"Still in the destination but no longer in the source: {len(result['orphans'])} image(s).")
+    if "entry_url" not in result:
+        return
     print(f"IIIF {result['entry_kind']}: {result['entry_url']}")
     print(f"Index (Parquet): {result['index_url']}")
-    print(f"Open in Mirador: {result['mirador_url']}")
     if result.get("space_url"):
         print(f"Viewer Space:    {result['space_url']}")
     print(f"Verify with:     iiif.py check {result['destination']}")
@@ -1456,6 +1533,12 @@ def main(argv: list[str] | None = None) -> int:
             if error.hint:
                 print(f"  next: {error.hint}", file=sys.stderr)
         return 2
+    except Exception as error:
+        if not args.json:
+            raise
+        traceback.print_exc(file=sys.stderr)
+        print(json.dumps({"ok": False, "error": f"{type(error).__name__}: {error}", "hint": ""}, indent=2))
+        return 1
     print_result(args.command, result, reporter)
     return 0 if result["ok"] else 1
 
