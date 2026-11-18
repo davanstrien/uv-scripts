@@ -362,7 +362,10 @@ def recipe_html(recipe):
     if recipe["support"] == "experimental":
         status += ", experimental"
     status_class = "warn" if recipe["source"] == "flags-needed" else "muted"
-    flavor = f" · {html.escape(recipe['flavor'])}" if recipe["flavor"] else ""
+    flavor = ""
+    if recipe["flavor"]:
+        # The page fills the price from the public Jobs hardware list when it loads, so it is never stale.
+        flavor = f' · {html.escape(recipe["flavor"])}<span class="price" data-flavor="{html.escape(recipe["flavor"])}"></span>'
     summary = f'<p class="muted">{html.escape(recipe["summary"])}</p>' if recipe["summary"] else ""
     if recipe["source"] == "flags-needed":
         body = f'<p class="small"><a href="{html.escape(recipe["page"])}">Read the script</a> for its options. There is no ready-made command yet.</p>'
@@ -388,11 +391,30 @@ def date_html(created):
     return f'<span class="date muted" title="Created on the Hub on {created}">{label}</span>'
 
 
-def model_row_html(task, model, recipes, created):
+def size_label(parameters):
+    """Parameter count from the Hub, such as "509M" or "3.3B", or "" when the Hub has none."""
+    if not parameters:
+        return ""
+    if parameters >= 10e9:
+        return f"{round(parameters / 1e9)}B"
+    if parameters >= 1e9:
+        return f"{parameters / 1e9:.1f}B"
+    return f"{round(parameters / 1e6)}M"
+
+
+def model_row_html(task, model, recipes, hub, extra):
     ranked = sorted(recipes, key=rank)
     best = ranked[0]
-    row_status = ROW_STATUS[best["source"]] + (f" · {best['flavor']}" if best["flavor"] else "")
+    info = hub.get(model, {})
+    # The collapsed row shows the model's age and size; the GPU and its price are in the opened row.
+    # A missing command is the only status shown.
+    size = size_label(info.get("parameters"))
+    facts = [f"{size} params" if size else ""]
+    if best["source"] == "flags-needed":
+        facts.append(ROW_STATUS["flags-needed"])
+    row_status = " · ".join(fact for fact in facts if fact)
     row_class = "warn" if best["source"] == "flags-needed" else "muted"
+    description = f'<span class="desc muted">{html.escape(best["summary"])}</span>' if best["summary"] else ""
     search_text = " ".join([model, task] + [f"{recipe['script']} {recipe['summary']}" for recipe in ranked]).lower()
     others = ranked[1:]
     more = ""
@@ -400,15 +422,20 @@ def model_row_html(task, model, recipes, created):
         label = f"{len(others)} more recipe{'s' if len(others) > 1 else ''}"
         more = f'<details class="more"><summary>{label}</summary>' + "".join(recipe_html(recipe) for recipe in others) + "</details>"
     return (
-        f'<li data-task="{html.escape(task)}" data-model="{html.escape(model.lower())}" data-text="{html.escape(search_text)}"><details>'
-        f'<summary><span class="name">{html.escape(model)}</span>{date_html(created)}<span class="state {row_class}">{html.escape(row_status)}</span></summary>'
+        f'<li data-task="{html.escape(task)}" data-model="{html.escape(model.lower())}" data-text="{html.escape(search_text)}"'
+        + (' data-extra="1"' if extra else "")
+        + '><details>'
+        f'<summary><span class="name">{html.escape(model)}</span>{date_html(info.get("created"))}<span class="state {row_class}">{html.escape(row_status)}</span>{description}</summary>'
         + f'<p class="model-link small muted"><a href="https://huggingface.co/{html.escape(model)}">Open the model page</a>'
         + f' · <a href="{SPACE_URL}?model={html.escape(model)}">Link to this model</a></p>'
         + recipe_html(best) + more + "</details></li>"
     )
 
 
-def render_index(recipes, created):
+ROWS_SHOWN = 5  # per task, before "Show N more"; search and task filters show every row
+
+
+def render_index(recipes, hub):
     template = (ROOT / "tools" / "run-on-jobs-template.html").read_text()
     entries = {}
     for recipe in recipes:
@@ -420,15 +447,21 @@ def render_index(recipes, created):
     for task in TASK_ORDER:
         models = sorted((model for entry_task, model in entries if entry_task == task), key=str.lower)
         # Newest first. The sort is stable, so models with the same date (or no date) stay alphabetical.
-        models = sorted(models, key=lambda model: created.get(model) or "", reverse=True)
+        models = sorted(models, key=lambda model: hub.get(model, {}).get("created") or "", reverse=True)
         if not models:
             continue
-        used_tasks.append(task)
-        rows = "".join(model_row_html(task, model, entries[(task, model)], created.get(model)) for model in models)
-        groups.append(f'<section data-group><h2>{html.escape(task)}</h2><ul class="models">{rows}</ul></section>')
+        used_tasks.append((task, len(models)))
+        rows = "".join(
+            model_row_html(task, model, entries[(task, model)], hub, extra=index >= ROWS_SHOWN)
+            for index, model in enumerate(models)
+        )
+        hidden = len(models) - ROWS_SHOWN
+        more = f'<button class="show-more" hidden>Show {hidden} more</button>' if hidden > 0 else ""
+        groups.append(f'<section data-group><h2>{html.escape(task)}</h2><ul class="models">{rows}</ul>{more}</section>')
 
     filters = '<button data-task="All" aria-pressed="true">All</button>' + "".join(
-        f'<button data-task="{html.escape(task)}" aria-pressed="false">{html.escape(task)}</button>' for task in used_tasks
+        f'<button data-task="{html.escape(task)}" aria-pressed="false">{html.escape(task)} <span class="count">{count}</span></button>'
+        for task, count in used_tasks
     )
     tools = "".join(
         f'<li><a href="{HUB_BASE}/{folder}">{html.escape(label)}</a></li>' for folder, label in DATA_TOOLS.items()
@@ -501,16 +534,16 @@ Recipes that read files use mounts. A local folder also works as a source:
 """
 
 
-def generate(recipes, created):
+def generate(recipes, hub):
     catalog = {
         "recipes": [
-            {**recipe, "model_created": {model: created.get(model) for model in recipe["models"]}}
+            {**recipe, "model_created": {model: hub.get(model, {}).get("created") for model in recipe["models"]}}
             for recipe in sorted(recipes, key=lambda recipe: recipe["script"])
         ],
         "data_tools": [{"repo": f"uv-scripts/{folder}", "description": label} for folder, label in DATA_TOOLS.items()],
     }
     return {
-        "index.html": render_index(recipes, created),
+        "index.html": render_index(recipes, hub),
         "README.md": render_readme(recipes),
         "AGENTS.md": render_agents(),
         "recipes.json": json.dumps(catalog, indent=1, ensure_ascii=False) + "\n",
@@ -522,19 +555,21 @@ def all_models(recipes):
 
 
 def fetch_model(model):
-    """Return (created date or None, error or None) for one model."""
+    """Return ({"created": date or None, "parameters": count or None}, error or None) for one model."""
     try:
         with urllib.request.urlopen(f"https://huggingface.co/api/models/{model}", timeout=30) as response:
             info = json.load(response)
     except urllib.error.HTTPError as error:
-        return None, f"HTTP {error.code}"
+        return {}, f"HTTP {error.code}"
     except (urllib.error.URLError, TimeoutError) as error:
-        return None, f"no response: {error}"
-    return info.get("createdAt", "")[:10] or None, None
+        return {}, f"no response: {error}"
+    created = info.get("createdAt", "")[:10] or None
+    parameters = (info.get("safetensors") or {}).get("total")
+    return {"created": created, "parameters": parameters}, None
 
 
 def fetch_models(recipes):
-    """Look up every model on the Hub. Returns {model: (created date or None, error or None)}."""
+    """Look up every model on the Hub. Returns {model: (info, error or None)}; see fetch_model."""
     models = [model for model in all_models(recipes) if model not in NOT_HUB_MODELS]
     with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
         return dict(zip(models, pool.map(fetch_model, models)))
@@ -543,7 +578,7 @@ def fetch_models(recipes):
 def verify_models(recipes, hub_info):
     missing = []
     for model in declared_models(recipes):
-        _, error = hub_info.get(model, (None, "not looked up"))
+        _, error = hub_info.get(model, ({}, "not looked up"))
         if error:
             missing.append(f"{model} ({error})")
     return missing
@@ -559,11 +594,12 @@ def main():
     shutil.copytree(ROOT / "tools" / "run-on-jobs-assets", OUTPUT_DIR / "assets")
     recipes = load_recipes()
     hub_info = fetch_models(recipes)
-    created = {model: date for model, (date, _) in hub_info.items() if date}
-    for name, content in generate(recipes, created).items():
+    hub = {model: info for model, (info, _) in hub_info.items()}
+    for name, content in generate(recipes, hub).items():
         (OUTPUT_DIR / name).write_text(content)
 
-    print(f"{len(recipes)} recipes, {len(declared_models(recipes))} declared models, {len(created)} with a Hub date")
+    dated = sum(1 for info in hub.values() if info.get("created"))
+    print(f"{len(recipes)} recipes, {len(declared_models(recipes))} declared models, {dated} with a Hub date")
     problems = command_problems(recipes)
     if problems:
         print("Commands that would not run as pasted:", ", ".join(problems))
