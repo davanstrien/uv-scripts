@@ -57,3 +57,11 @@ Result published as [`davanstrien/apollo-11-diarized`](https://huggingface.co/da
 "Transcription" starts once the server is up; "whole job" includes the checkpoint download (17–30 s) and engine load and warmup (4–5.5 min). A part that loops until `max_tokens` finishes last and sets the batch time: in the slower NVFP4 run one part took 171 s, the others 122 s or less. The cards report error rates about 1.0% (FP8) and 3.6% (NVFP4) higher than BF16, in relative terms. With no ground truth here, word agreement with the BF16 run (difflib ratio, mean over files) was 0.80 for FP8 and 0.82–0.83 for NVFP4, and 0.80 for a second BF16 run on the mp3 input, so on this noisy 1971 audio the quantized checkpoints differ from BF16 about as much as two BF16 runs differ from each other.
 
 Did not work on 2026-11-03: vLLM 0.33.0 (the NeMo Speech plugin fails at startup: `_parse_chat_message_content_parts` is missing); FP8 on `l40sx1` (FlashInfer's JIT build of a Mamba kernel fails at the first request). For comparison, `nemotron-transcribe-saturate.py` (SGLang-Omni main, BF16) took 7.0 min (97x) on the same FLAC files, and its FP8 checkpoint does not load.
+
+**`rumble-transcribe.py`** (CBS Suspense, 10 episodes, 295 min, from the Internet Archive via `download-ia.py`; vLLM 0.32.0 image, default options, auto language detection):
+
+| GPU | Transcription | RTFx | Whole job | Cost | Output |
+|-----|---------------|------|-----------|------|--------|
+| L4 | 40 s (incl. mp3 decoding) | 438x | 152 s | ~$0.03 | 10 `.txt`, 648 chunks, 0 truncated, English detected for all |
+
+Word disagreement with `cohere-transcribe.py` on the same episodes, after lowercasing and stripping punctuation: 9.0% (44,292 Cohere words, 43,717 Rumble words; 2,235 substitutions, 1,158 deletions, 583 insertions). Ignoring "ha", "uh", "um", "hmm", "ah", "oh" and "mm": 8.7%.
