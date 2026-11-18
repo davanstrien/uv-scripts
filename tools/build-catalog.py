@@ -270,6 +270,45 @@ def summarize(tree):
     return sentence[:150].rsplit(" ", 1)[0] + "…"
 
 
+# One public demo input per task. Commands in these tasks use it in place of the user's own input, so they run
+# as pasted and a first run is small. Add a task here when it has a demo input; nothing is needed per recipe.
+DEMO_INPUTS = {
+    "OCR": {
+        "input": "uv-scripts/ocr-demo",
+        "about": "seven scanned pages from the uv-scripts/ocr-demo dataset",
+        "replace": [(r"\bINPUT_DATASET\b", "uv-scripts/ocr-demo"), (r"\bOUTPUT_DATASET\b", "your-username/{stem}-demo")],
+    },
+    "Transcription": {
+        "input": "hf://buckets/uv-scripts/transcription-demo/podcast",
+        "about": "a 4-minute NASA podcast clip from the uv-scripts/transcription-demo bucket",
+        "replace": [
+            (r"hf://buckets/your-username/[\w.-]+:/input:ro", "hf://buckets/uv-scripts/transcription-demo/podcast:/input:ro")
+        ],
+    },
+}
+OUTPUT_BUCKET = re.compile(r"hf://buckets/your-username/([\w.-]+)[^\s:]*:/output")
+
+
+def apply_demo_input(recipe):
+    """Point the command at its task's demo input. Returns a note for the page, or None if nothing changed."""
+    demo = DEMO_INPUTS.get(recipe["task"])
+    if not demo or not recipe["command"]:
+        return None
+    stem = recipe["script"].split("/")[-1].removesuffix(".py")
+    command = recipe["command"]
+    for pattern, replacement in demo["replace"]:
+        command = re.sub(pattern, replacement.format(stem=stem), command)
+    if command == recipe["command"]:
+        return None
+    recipe["command"] = command
+    recipe["demo_input"] = demo["input"]
+    note = f"This command runs on {demo['about']}. Replace it with your own data for a real run."
+    bucket = OUTPUT_BUCKET.search(command)
+    if bucket:
+        note += f" Create the output bucket first: hf buckets create your-username/{bucket.group(1)} --private"
+    return note
+
+
 def load_recipes():
     ocr_catalog = json.loads((ROOT / "ocr" / "models.json").read_text())
     recipes = []
@@ -328,7 +367,9 @@ def load_recipes():
                 "command": command,
                 "summary": summarize(tree),
                 "declared": declared,
+                "demo_input": None,
             }
+            recipe["demo_note"] = apply_demo_input(recipe)
             recipes.append(recipe)
             for tested_model in TESTED_MODELS.get(script, []):
                 has_model_option = any(argument["name"] == "--model" for argument in arguments)
@@ -371,6 +412,8 @@ def recipe_html(recipe):
         body = f'<p class="small"><a href="{html.escape(recipe["page"])}">Read the script</a> for its options. There is no ready-made command yet.</p>'
     else:
         body = command_block(recipe["command"])
+        if recipe.get("demo_note"):
+            body += f'<p class="small muted">{html.escape(recipe["demo_note"])}</p>'
     name = recipe["script"].split("/")[-1]
     return (
         f'<div class="recipe"><p><a href="{html.escape(recipe["page"])}"><code>{html.escape(name)}</code></a> '
@@ -507,6 +550,7 @@ Each recipe is one script, run from its URL with `hf jobs uv run`. There is noth
 - `hf download uv-scripts/run-on-jobs recipes.json --repo-type space`, then look for the model in `recipes[].models`.
 - To send a person to one model, link to `https://huggingface.co/spaces/uv-scripts/run-on-jobs?model=<org>/<name>`. The page opens at that model.
 - `kind`: `run` applies a model to data; `train` fine-tunes one.
+- `demo_input`: set when `command` reads a small public demo input instead of the user's data. Run it as is to try the recipe, then replace that input with the user's data.
 - `model_created`: the date each model was created on the Hub (YYYY-MM-DD), to find the newest. This is when the repo was created, which can be some weeks before the public release.
 - `source`: `header` carries its launch settings; `documented` is an example from the script's docs; `flags-needed` has no command, so read the script first.
 - Read a script's docstring and options: `curl -s <url> | head -100`. Running it locally may fail on GPU-only dependencies.
@@ -537,7 +581,10 @@ Recipes that read files use mounts. A local folder also works as a source:
 def generate(recipes, hub):
     catalog = {
         "recipes": [
-            {**recipe, "model_created": {model: hub.get(model, {}).get("created") for model in recipe["models"]}}
+            {
+                **{key: value for key, value in recipe.items() if key != "demo_note"},
+                "model_created": {model: hub.get(model, {}).get("created") for model in recipe["models"]},
+            }
             for recipe in sorted(recipes, key=lambda recipe: recipe["script"])
         ],
         "data_tools": [{"repo": f"uv-scripts/{folder}", "description": label} for folder, label in DATA_TOOLS.items()],
