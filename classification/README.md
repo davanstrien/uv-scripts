@@ -379,7 +379,17 @@ The result loads with `timm.create_model("hf-hub:username/beans-convnext", pretr
 
 ### Measured
 
-MEASURED_TABLE
+Default backbone unless named, evaluated by `train.py` on each dataset's validation split (beans:
+133 images, bee-dataset: 4 labels). Time is the whole Job after the dependencies install: data,
+training, push and reload check.
+
+| Dataset | Task | Backbone | Epochs | Flavor | Time | Result |
+|---|---|---|---|---|---|---|
+| [`AI-Lab-Makerere/beans`](https://huggingface.co/datasets/AI-Lab-Makerere/beans) | single-label, 3 classes | ConvNeXt-T | 3 | `a10g-small` | 0.7 min | top-1 97.7% |
+| `AI-Lab-Makerere/beans` | single-label | ConvNeXt-S | 3 | `a10g-small` | 1.0 min | top-1 100% |
+| `AI-Lab-Makerere/beans` | single-label | ViT-B/16 | 3 | `a10g-small` | 0.9 min | top-1 99.2% |
+| `AI-Lab-Makerere/beans` | single-label | ConvNeXt-T | 3 | `a10g-largex2` (2 GPUs) | 0.8 min | top-1 96.2% |
+| [`timm/bee-dataset`](https://huggingface.co/datasets/timm/bee-dataset) | multi-label, 4 labels | ConvNeXt-T | 3 | `a10g-small` | 1.0 min | mAP 99.7, macro F1 99.2 |
 
 **These are easy datasets.** They show that the recipe runs end to end, not how well it does on
 your images. Try two or three backbones (`--model`) on your own data before you trust one.
