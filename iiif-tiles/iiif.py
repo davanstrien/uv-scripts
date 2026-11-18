@@ -2,7 +2,7 @@
 # requires-python = ">=3.10,<3.14"
 # dependencies = [
 #     "pyvips[binary]",
-#     "huggingface-hub>=1.22",
+#     "huggingface-hub>=2.0",
 #     "pyarrow",
 # ]
 # ///
