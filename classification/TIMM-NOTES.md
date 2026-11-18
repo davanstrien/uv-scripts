@@ -13,7 +13,7 @@ options, what the script decides for you, and the timm details found while writi
 | `--batch-size` | 64 | per GPU |
 | `--lr` | 5e-5 (finetune), 1e-3 (probe) | multiplied by the GPU count in fine-tune mode |
 | `--weight-decay` | 0.05 (finetune), 1e-4 (probe) | |
-| `--img-size` | the model's pretrained size | recorded in the pushed config |
+| `--img-size` | the model's pretrained size | recorded in the pushed config; ViT-family models are resized (position embeddings resampled) |
 | `--image-column`, `--label-column` | auto | |
 | `--train-split`, `--val-split` | `train`, auto | |
 | `--val-size` | 0.1 | used only when the script carves a validation split |
@@ -23,8 +23,16 @@ options, what the script decides for you, and the timm details found while writi
 | `--private` | off | create the output repo as private |
 | `--skip-reload-check` | off | skip reloading the pushed model |
 
-Everything after a literal `--` goes to timm `train.py` unchanged (fine-tune mode only). See
+Everything after a literal `--` goes to timm `train.py` unchanged (fine-tune mode only). On HF
+Jobs, put another `--` right after `hf jobs uv run` and its flags; otherwise `hf` takes the only
+`--` as its own separator and the script receives `--loss` and the like. See
 `python train.py --help` in the timm repo for its options.
+
+The script refuses passthrough flags it sets itself (`--model`, `--epochs`, `--batch-size`, `--lr`,
+the data and output flags) and flags that change the architecture or preprocessing (`--gp`,
+`--mean`, `--std`, `--interpolation`, `--crop-pct`, `--model-kwargs`, ...). It rebuilds the pushed
+model from its own arguments, so those flags would make the pushed model or its config differ from
+the trained one.
 
 ## What the script decides
 

@@ -60,8 +60,9 @@ Examples (the [tool.hf-jobs] header sets a10g-small, a 2h timeout and HF_TOKEN; 
         https://huggingface.co/datasets/uv-scripts/classification/raw/main/train-timm.py \\
         AI-Lab-Makerere/beans username/beans-convnext --epochs 10
 
-    # Pass extra flags straight to timm train.py after "--"
-    hf jobs uv run \\
+    # Pass extra flags straight to timm train.py after "--". The first "--" stops hf from
+    # reading the script's flags, so the second one reaches the script.
+    hf jobs uv run -- \\
         https://huggingface.co/datasets/uv-scripts/classification/raw/main/train-timm.py \\
         timm/bee-dataset username/bee-asl --epochs 10 -- --loss asl --mixup 0.2
 """
@@ -122,6 +123,26 @@ CARVED_DATA_ROOT = Path("/tmp/train-timm-data")
 
 
 # ----------------------------------------------------------------------------- args
+
+
+# train.py flags the script sets itself, or that change the architecture or preprocessing. The
+# parent rebuilds the pushed model from its own arguments, so these would make it differ from the
+# trained one. Use the script's own options instead.
+RESERVED_TRAIN_PY_FLAGS = [
+    "--model", "--num-classes", "--img-size", "--input-size", "--in-chans", "--model-kwargs",
+    "--gp", "--mean", "--std", "--interpolation", "--crop-pct", "--crop-mode",
+    "--dataset", "--data-dir", "--train-split", "--val-split", "--input-key", "--target-key",
+    "--task", "--target-format", "--output", "--experiment", "--epochs", "--batch-size", "--lr",
+]  # fmt: skip
+
+
+def reserved_flags_in(passthrough):
+    found = []
+    for argument in passthrough:
+        for flag in RESERVED_TRAIN_PY_FLAGS:
+            if argument == flag or argument.startswith(flag + "="):
+                found.append(flag)
+    return found
 
 
 def split_passthrough(argv):
@@ -750,6 +771,9 @@ def build_train_command(
         command += ["--multilabel-threshold", str(args.threshold)]
     if args.img_size:
         command += ["--img-size", str(args.img_size)]
+        if has_fixed_input_size(args.model):
+            # train.py resizes the data but not the model; ViTs need the size at creation
+            command += ["--model-kwargs", f"img_size={args.img_size}"]
     if device.type == "cuda":
         command += ["--amp", "--pin-mem"]
         if amp_dtype_for(device) == torch.bfloat16:
@@ -780,15 +804,25 @@ def run_finetune(args, plan, device, num_workers, passthrough):
     model = timm.create_model(
         args.model, pretrained=False, num_classes=plan["num_classes"]
     )
+    if args.img_size:
+        set_input_size(
+            model, args.img_size
+        )  # before loading: the checkpoint has the trained size
     # our own checkpoint, it holds the argparse Namespace so weights_only loading is not possible
     load_checkpoint(model, str(checkpoint), weights_only=False)
-    if args.img_size:
-        set_input_size(model, args.img_size)
     return model.to(device)
 
 
+def has_fixed_input_size(model_name):
+    """True for models (ViT family) whose position embeddings fix the input size; CNNs take any size."""
+    probe = timm.create_model(model_name, pretrained=False, num_classes=0)
+    return hasattr(probe, "set_input_size")
+
+
 def set_input_size(model, img_size):
-    """Record a non-default training size in pretrained_cfg so the pushed config preprocesses the same way."""
+    """Resize a fixed-size model, and record the size in pretrained_cfg so the pushed config preprocesses the same way."""
+    if hasattr(model, "set_input_size"):
+        model.set_input_size(img_size=img_size)  # resamples ViT position embeddings
     channels = model.pretrained_cfg.get("input_size", (3, 224, 224))[0]
     model.pretrained_cfg["input_size"] = (channels, img_size, img_size)
     model.pretrained_cfg.pop("test_input_size", None)
@@ -885,11 +919,15 @@ def base_model_license(model_name):
         hub_id = model_name[len("hf-hub:") :]
     else:
         hub_id = f"timm/{model_name}"
+    hub_id = hub_id.split("@")[0]  # hf-hub:org/name@revision
     try:
         info = HfApi().model_info(hub_id)
         card = info.card_data.to_dict() if info.card_data else {}
         return hub_id, card.get("license")
-    except HfHubHTTPError as error:
+    except (
+        HfHubHTTPError,
+        ValueError,
+    ) as error:  # ValueError: HFValidationError for odd ids
         # the base might not live under timm/ (e.g. a custom model name)
         logger.warning(f"Could not read base model info for {hub_id}: {error}")
         return None, None
@@ -1120,6 +1158,13 @@ def main():
     if passthrough and args.mode == "probe":
         sys.exit(
             "ERROR: arguments after '--' are for timm train.py and only apply to --mode finetune"
+        )
+    reserved = reserved_flags_in(passthrough)
+    if reserved:
+        sys.exit(
+            f"ERROR: {', '.join(reserved)} after '--' would make the pushed model or its config "
+            "differ from the trained one. Use the script's own options (--model, --img-size, "
+            "--epochs, --batch-size, --lr, ...) instead."
         )
 
     device = pick_device(args.allow_cpu)

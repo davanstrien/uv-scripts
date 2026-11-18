@@ -397,8 +397,10 @@ your images. Compare the probe and a fine-tune on your own data before you trust
 - **Several GPUs in one Job.** On a flavor such as `l4x4`, fine-tune mode trains on all its GPUs.
   `--batch-size` is per GPU, and the learning rate is multiplied by the GPU count. It does not
   train across several Jobs.
-- **timm options pass through.** Everything after a literal `--` goes to timm `train.py`, for
-  example `-- --loss asl --mixup 0.2` for a multi-label run.
+- **timm options pass through.** Everything after a second literal `--` goes to timm `train.py`.
+  Put the first `--` right after `hf jobs uv run` and its flags, so `hf` passes the second one on:
+  `hf jobs uv run -- <script-url> timm/bee-dataset username/bee-asl -- --loss asl --mixup 0.2`.
+  Flags the script sets itself, or that change the architecture or preprocessing, are refused.
 - **No validation split?** The script carves a seeded 10% split from `train` and says so on the card.
 - **Multi-label thresholds.** The pushed `config.json` holds per-label thresholds tuned on the
   validation split, as `multilabel_thresholds`.
