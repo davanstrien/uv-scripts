@@ -8,7 +8,7 @@ Tiered: 4 of 57 recipes with a header.
 | Recipe | Tier | Image | Packages | Last smoke test | Result |
 |---|---|---|---|---|---|
 | `ocr/falcon-ocr-1.5.py` | active | default | latest | 2026-11-18 | [pass](https://huggingface.co/jobs/davanstrien/6afdde06e41aae15936ca99f) |
-| `transcription/rumble-transcribe.py` | active | `vllm/vllm-openai:v0.32.0` | latest | 2026-11-18 | [pass](https://huggingface.co/jobs/davanstrien/6afdcd4d545f95df1c066593) |
+| `transcription/rumble-transcribe.py` | active | `vllm/vllm-openai:v0.32.0` | latest | 2026-11-18 | [pass](https://huggingface.co/jobs/davanstrien/6afde071e41aae15936cacce) |
 | `ocr/falcon-ocr.py` | frozen (→ falcon-ocr-1.5.py) | `ghcr.io/astral-sh/uv@85d4cb1afa76` | as of 2026-11-18 | 2026-11-18 | [pass](https://huggingface.co/jobs/davanstrien/6afddf1c545f95df1c066eda) |
 | `ocr/lighton-ocr2.py` | frozen (→ lighton-ocr3.py) | `vllm/vllm-openai@953d3a06d5e6` | as of 2026-10-01 | 2026-11-06 | [pass](https://huggingface.co/jobs/davanstrien/6aede22ac78863f9c6347831) |
 | `classification/classify-dataset-sglang.py` | — | `lmsysorg/sglang:v0.5.20-cu130` | latest | never |  |
@@ -35,7 +35,7 @@ Tiered: 4 of 57 recipes with a header.
 | `ocr/lighton-ocr3-bucket.py` | — | `vllm/vllm-openai:v0.30.0` | latest | never |  |
 | `ocr/lighton-ocr3-live.py` | — | `vllm/vllm-openai:v0.30.0` | latest | 2026-11-10 | [pass](https://huggingface.co/jobs/davanstrien/6af35d729737d9a9e0913810) |
 | `ocr/lighton-ocr3-saturate.py` | — | `vllm/vllm-openai:v0.30.0` | latest | never |  |
-| `ocr/lighton-ocr3.py` | — | `vllm/vllm-openai:v0.30.0` | latest | never |  |
+| `ocr/lighton-ocr3.py` | — | `vllm/vllm-openai:v0.30.0` | latest | 2026-11-18 | [pass](https://huggingface.co/jobs/davanstrien/6afde06ee41aae15936caccc) |
 | `ocr/minicpm-ocr.py` | — | `cr.hf.co/davanstrien/minicpm-ocr:1.0-vllm-5d35ce3` | latest | never |  |
 | `ocr/nuextract3.py` | — | `vllm/vllm-openai:v0.29.0` | latest | never |  |
 | `ocr/ocr-vllm-judge.py` | — | `vllm/vllm-openai:v0.29.0` | latest | never |  |
