@@ -204,11 +204,15 @@ class BucketSource:
 
     def list_files(self) -> list[SourceFile]:
         files = []
-        strip = len(self.prefix) + 1 if self.prefix else 0
-        for entry in self.api.list_bucket_tree(self.bucket, prefix=self.prefix or None, recursive=True):
+        # The Hub matches a prefix as text, so "scans" also matches "scans-old/". The trailing
+        # slash and the check below keep the listing inside the folder.
+        folder = f"{self.prefix}/" if self.prefix else ""
+        for entry in self.api.list_bucket_tree(self.bucket, prefix=folder or None, recursive=True):
             if getattr(entry, "type", "file") != "file" or not hasattr(entry, "size"):
                 continue
-            rel = entry.path[strip:]
+            if not entry.path.startswith(folder):
+                continue
+            rel = entry.path[len(folder) :]
             if not rel or any(part.startswith((".", "_publish")) for part in rel.split("/")):
                 continue
             marker = getattr(entry, "xet_hash", None) or getattr(entry, "mtime", None) or ""
@@ -261,6 +265,13 @@ class LocalDest:
     def remove(self, dest_path: str) -> None:
         (self.root / dest_path).unlink(missing_ok=True)
 
+    def list_names(self, dest_prefix: str) -> list[str]:
+        """Paths of the files inside `dest_prefix`, relative to the destination."""
+        folder = self.root / dest_prefix
+        if not folder.is_dir():
+            return []
+        return [p.relative_to(self.root).as_posix() for p in folder.rglob("*") if p.is_file()]
+
     def list_dirs(self, dest_prefix: str) -> set[str]:
         """Names of the folders directly inside `dest_prefix`."""
         folder = self.root / dest_prefix
@@ -280,8 +291,21 @@ class BucketDest:
         return f"{self.prefix}/{dest_path}" if self.prefix else dest_path
 
     def _list(self, dest_prefix: str) -> list:
-        entries = self.api.list_bucket_tree(self.bucket, prefix=self._full(dest_prefix), recursive=True)
-        return [e for e in entries if getattr(e, "type", "file") == "file" and hasattr(e, "size")]
+        """Files at `dest_prefix`: that exact file, or every file inside that folder.
+
+        The Hub matches a prefix as text, so the result is filtered here as well. A delete
+        can then never reach a neighbour such as "page10" when the prefix is "page1".
+        """
+        wanted = self._full(dest_prefix)
+        inside = wanted.rstrip("/") + "/"
+        entries = self.api.list_bucket_tree(self.bucket, prefix=wanted, recursive=True)
+        files = [e for e in entries if getattr(e, "type", "file") == "file" and hasattr(e, "size")]
+        return [e for e in files if e.path == wanted or e.path.startswith(inside)]
+
+    def list_names(self, dest_prefix: str) -> list[str]:
+        """Paths of the files inside `dest_prefix`, relative to the destination."""
+        strip = len(self.prefix) + 1 if self.prefix else 0
+        return [entry.path[strip:] for entry in self._list(dest_prefix + "/")]
 
     def put_tree(self, local_dir: Path, dest_prefix: str) -> None:
         pairs = []
@@ -373,6 +397,17 @@ def open_dest(location: Location, create: bool, allow_private: bool):
     return BucketDest(api, location.bucket, location.prefix)
 
 
+def is_inside(child: Path, parent: Path) -> bool:
+    """True if `child` is `parent` or lies inside it. Compares real files, so a path that
+    differs only in letter case on a case-insensitive disk still counts."""
+    if not parent.exists():
+        return False
+    for candidate in (child, *child.parents):
+        if candidate.exists() and candidate.samefile(parent):
+            return True
+    return False
+
+
 def check_no_overlap(source: Location, dest: Location) -> None:
     """Refuse a destination inside the source (or the reverse): the next run would
     read the published JPEGs as new source images."""
@@ -380,7 +415,7 @@ def check_no_overlap(source: Location, dest: Location) -> None:
         return
     if source.kind == "local":
         first, second = Path(source.path).resolve(), Path(dest.path).resolve()
-        overlap = first == second or first in second.parents or second in first.parents
+        overlap = is_inside(first, second) or is_inside(second, first)
     else:
         first, second = source.prefix.strip("/"), dest.prefix.strip("/")
         nested = first == second or not first or not second
@@ -431,6 +466,17 @@ class PlannedItem:
     images: list = field(default_factory=list)
 
 
+def read_metadata_file(source, source_file: SourceFile) -> list[dict]:
+    name = PurePosixPath(source_file.rel_path).name
+    try:
+        return read_rows(source.read_text(source_file), name)
+    except (UnicodeDecodeError, ValueError, csv.Error) as error:
+        raise UserError(
+            f"Cannot read {source_file.rel_path}: {error}",
+            "Save the file as UTF-8. A .csv needs a header row; a .jsonl needs one JSON object per line.",
+        ) from error
+
+
 def read_rows(text: str, filename: str) -> list[dict]:
     """Read a metadata file into a list of dicts with string values."""
     rows = []
@@ -444,6 +490,13 @@ def read_rows(text: str, filename: str) -> list[dict]:
     for row in rows:
         cleaned.append({str(k).strip(): ("" if v is None else str(v).strip()) for k, v in row.items() if k})
     return cleaned
+
+
+def canonical_rights(value: str) -> str:
+    """IIIF uses the http:// form of these URIs. Accept https:// input and store http://."""
+    if value.startswith("https://"):
+        return "http://" + value[len("https://") :]
+    return value
 
 
 def check_rights(value: str, where: str) -> None:
@@ -486,7 +539,7 @@ def build_plan(source, title: str, reporter: Reporter) -> tuple[list[PlannedItem
         path = PurePosixPath(source_file.rel_path)
         if path.name not in METADATA_FILENAMES:
             continue
-        rows = read_rows(source.read_text(source_file), path.name)
+        rows = read_metadata_file(source, source_file)
         folder = "" if str(path.parent) == "." else str(path.parent)
         unmatched = []
         for row in rows:
@@ -508,7 +561,7 @@ def build_plan(source, title: str, reporter: Reporter) -> tuple[list[PlannedItem
     # Per-item metadata from items.csv in the source root.
     item_rows: dict[str, dict] = {}
     if ITEMS_FILENAME in by_path:
-        rows = read_rows(source.read_text(by_path[ITEMS_FILENAME]), ITEMS_FILENAME)
+        rows = read_metadata_file(source, by_path[ITEMS_FILENAME])
         if rows and "folder" not in rows[0]:
             raise UserError(f"{ITEMS_FILENAME} has no 'folder' column.")
         for row in rows:
@@ -532,7 +585,7 @@ def build_plan(source, title: str, reporter: Reporter) -> tuple[list[PlannedItem
                 id=item_id,
                 folder=folder,
                 label=row.get("label") or (folder if folder else title),
-                rights=row.get("rights", ""),
+                rights=canonical_rights(row.get("rights", "")),
                 attribution=row.get("attribution", ""),
                 metadata={k: v for k, v in row.items() if k not in RESERVED_ITEM_COLUMNS and v},
             )
@@ -543,7 +596,7 @@ def build_plan(source, title: str, reporter: Reporter) -> tuple[list[PlannedItem
                 id=image_id_for(source_file.rel_path),
                 source=source_file.rel_path,
                 label=row.get("label") or path.stem,
-                rights=row.get("rights", ""),
+                rights=canonical_rights(row.get("rights", "")),
                 attribution=row.get("attribution", ""),
                 metadata={k: v for k, v in row.items() if k not in RESERVED_IMAGE_COLUMNS and v},
             )
@@ -601,9 +654,11 @@ def normalise(image):
     if image.interpretation in ("b-w", "grey16"):
         image = image.colourspace("b-w")
     else:
+        # An embedded profile (Adobe RGB, ProPhoto, a CMYK press profile) says what the numbers
+        # mean. Convert through it; the files are then saved as plain sRGB without a profile.
         has_profile = image.get_typeof("icc-profile-data") != 0
         converted = None
-        if has_profile and image.interpretation == "cmyk":
+        if has_profile:
             try:
                 converted = image.icc_transform("srgb")
             except Exception:  # noqa: BLE001 - a broken embedded profile; use the built-in conversion
@@ -629,8 +684,11 @@ def process_image(source_path: Path, out_dir: Path, settings: Settings) -> dict:
     notes = []
     pages = image.get("n-pages") if image.get_typeof("n-pages") else 1
     if pages > 1:
+        # A pyramidal TIFF stores smaller copies of one picture as extra pages: each is about
+        # half the size of the one before. Anything else is a document with several pages.
         second = pyvips.Image.new_from_file(str(source_path), page=1)
-        if (second.width, second.height) == (image.width, image.height):
+        half = abs(second.width * 2 - image.width) <= 2 and abs(second.height * 2 - image.height) <= 2
+        if not half:
             notes.append(f"multi-page file: only page 1 of {pages} is published")
     image, more_notes = normalise(image)
     notes.extend(more_notes)
@@ -861,6 +919,30 @@ def collection_json(base_url: str, items: list[PlannedItem], states: dict, confi
     return collection
 
 
+# Fixed columns of index.parquet, in order. Never remove or rename one.
+INDEX_COLUMNS = [
+    "image_id",
+    "item_id",
+    "item_label",
+    "position",
+    "label",
+    "source_path",
+    "width",
+    "height",
+    "tiled",
+    "canvas_id",
+    "manifest_url",
+    "image_service",
+    "image_url",
+    "derivative_url",
+    "derivative_width",
+    "derivative_height",
+    "thumbnail_url",
+    "rights",
+    "attribution",
+]
+
+
 def index_parquet(base_url: str, items: list[PlannedItem], states: dict, config: dict) -> bytes:
     """One row per image. This table is the interface for programs: only add columns."""
     import pyarrow as pa
@@ -901,8 +983,15 @@ def index_parquet(base_url: str, items: list[PlannedItem], states: dict, config:
             for column in meta_columns:
                 row[f"meta_{column}"] = image.metadata.get(column)
             rows.append(row)
+    integer_columns = {"position", "width", "height", "derivative_width", "derivative_height"}
+    fields = []
+    for column in INDEX_COLUMNS:
+        kind = pa.int64() if column in integer_columns else pa.bool_() if column == "tiled" else pa.string()
+        fields.append(pa.field(column, kind))
+    for column in meta_columns:
+        fields.append(pa.field(f"meta_{column}", pa.string()))
     buffer = io.BytesIO()
-    pq.write_table(pa.Table.from_pylist(rows), buffer)
+    pq.write_table(pa.Table.from_pylist(rows, schema=pa.schema(fields)), buffer)
     return buffer.getvalue()
 
 
@@ -955,8 +1044,14 @@ def load_states(dest) -> dict[str, dict]:
     return states
 
 
-def write_outputs(dest, base_url: str, items: list[PlannedItem], states: dict, config: dict, reporter) -> dict:
-    """Write info.json files, manifests, the Collection, the index and the catalog."""
+def write_outputs(
+    dest, base_url: str, items: list[PlannedItem], states: dict, config: dict, reporter, allow_empty: bool = False
+) -> dict:
+    """Write info.json files, manifests, the Collection, the index and the catalog.
+
+    `allow_empty` is for a run that removed every published image: the Collection must then
+    be rewritten without them, or it would point at files that are gone.
+    """
     published = []
     not_tiled = []
     for item in items:
@@ -966,13 +1061,14 @@ def write_outputs(dest, base_url: str, items: list[PlannedItem], states: dict, c
             published.append(
                 PlannedItem(item.id, item.folder, item.label, item.rights, item.attribution, item.metadata, ready)
             )
-    if not published:
+    if not published and not allow_empty:
         raise UserError("No image is ready to publish.", "Run publish first and check the errors it reports.")
 
     files = []
-    for item in published:
-        for image in item.images:
-            files.append((to_json_bytes(info_json(base_url, states[image.id])), f"images/{image.id}/info.json"))
+    # Every finished image gets its info.json, including one that is no longer listed, so
+    # no file keeps an old base URL.
+    for image_id in sorted(states):
+        files.append((to_json_bytes(info_json(base_url, states[image_id])), f"images/{image_id}/info.json"))
     for item in published:
         files.append((to_json_bytes(manifest_json(base_url, item, states, config)), f"manifests/{item.id}.json"))
     files.append((to_json_bytes(collection_json(base_url, published, states, config)), "collection.json"))
@@ -981,6 +1077,10 @@ def write_outputs(dest, base_url: str, items: list[PlannedItem], states: dict, c
     files.append((to_json_bytes(catalog_document(published, config)), CATALOG_PATH))
     reporter.info(f"Writing {len(files)} description files (info.json, manifests, collection, index)")
     dest.put_files(files)
+    current_manifests = {f"manifests/{item.id}.json" for item in published}
+    for path in dest.list_names("manifests"):
+        if path not in current_manifests:
+            dest.remove(path)  # the manifest of an item that is no longer published
 
     planned_ids = {image.id for item in published for image in item.images}
     return {
@@ -1091,7 +1191,19 @@ def make_config(args, previous: dict | None) -> dict:
         "language": args.language or old.get("language") or "none",
     }
     check_rights(config["rights"], "--rights")
+    config["rights"] = canonical_rights(config["rights"])
     return config
+
+
+def is_custom_base(location: Location, stored_base: str | None) -> bool:
+    """True if the last run stored a base URL that must be kept.
+
+    A local destination always has one. A bucket has one only if `--base-url` was used: the
+    default bucket URL is not kept, so `manifest` follows a bucket that was renamed.
+    """
+    if not stored_base:
+        return False
+    return location.kind == "local" or not stored_base.startswith("https://huggingface.co/buckets/")
 
 
 def summary_links(base_url: str, catalog: dict) -> dict:
@@ -1179,7 +1291,13 @@ def command_publish(args, reporter: Reporter) -> dict:
             except Exception as error:  # noqa: BLE001 - one bad image must not stop the run
                 failures.append({"source": image.source, "error": f"{type(error).__name__}: {error}"})
                 reporter.warn(f"[{done}/{len(todo)}] FAILED {image.source}: {error}")
-                states.pop(image.id, None)  # its files may be incomplete; the next run retries it
+                # Its files may be incomplete or out of date. Without a state file the image
+                # leaves the manifests now, and the next run processes it again.
+                states.pop(image.id, None)
+                try:
+                    dest.remove(state_path(image.id))
+                except OSError as remove_error:
+                    reporter.warn(f"could not remove the state file of {image.source}: {remove_error}")
                 continue
             states[state["id"]] = state
             kind = "tiled" if state["tiled"] else "single image"
@@ -1197,13 +1315,16 @@ def command_publish(args, reporter: Reporter) -> dict:
         "skipped": total - len(todo),
         "failed": failures,
     }
-    if failures and not any(image.id in states for item in items for image in item.images):
-        # Every image failed. Nothing can be published, and that is a failed run, not a usage error.
+    nothing_ready = not any(image.id in states for item in items for image in item.images)
+    if failures and nothing_ready and previous is None:
+        # Every image failed on a first run. Nothing was published before, so nothing is written.
         result.update({"items": 0, "images": 0, "not_tiled": [], "orphans": []})
         return result
-    counts = write_outputs(dest, base_url, items, states, config, reporter)
+    counts = write_outputs(dest, base_url, items, states, config, reporter, allow_empty=bool(failures))
     catalog = load_catalog(dest)
     result.update(counts)
+    if nothing_ready:
+        return result
     result.update(summary_links(base_url, catalog))
     if args.space:
         result["space_url"] = publish_space(args.space, base_url, catalog, args.space_private)
@@ -1220,7 +1341,7 @@ def command_manifest(args, reporter: Reporter) -> dict:
             f"Run: iiif.py publish <SOURCE> {args.dest}",
         )
     stored_base = (previous or {}).get("config", {}).get("base_url")
-    if dest_location.kind == "local" and not args.base_url and stored_base:
+    if not args.base_url and is_custom_base(dest_location, stored_base):
         base_url = stored_base
     else:
         base_url = default_base_url(dest_location, args.base_url)
@@ -1307,7 +1428,11 @@ def command_check(args, reporter: Reporter) -> dict:
         base_url = json.loads(catalog_bytes)["config"]["base_url"]
     else:
         base_url = default_base_url(location, None)
-        reader = HttpReader(base_url)
+        reader = HttpReader(base_url)  # files are always fetched from the bucket itself
+        catalog_bytes = reader.get(CATALOG_PATH)
+        stored_base = json.loads(catalog_bytes)["config"].get("base_url") if catalog_bytes else None
+        if is_custom_base(location, stored_base):
+            base_url = stored_base  # published with --base-url: the ids must use that URL
     is_remote = location.kind == "bucket"
 
     def relative(url: str, what: str) -> str | None:
@@ -1507,9 +1632,9 @@ def print_result(command: str, result: dict, reporter: Reporter) -> None:
     if result.get("failed"):
         print(f"FAILED: {len(result['failed'])} image(s). Fix them and run the same command again.")
     if result["not_tiled"]:
-        print(f"Not published (no image files yet): {len(result['not_tiled'])} image(s). Run publish.")
+        print(f"Not published: {len(result['not_tiled'])} image(s) failed or are not processed yet. Run publish.")
     if result["orphans"]:
-        print(f"Still in the destination but no longer in the source: {len(result['orphans'])} image(s).")
+        print(f"In the destination but not in the published list: {len(result['orphans'])} image(s).")
     if "entry_url" not in result:
         return
     print(f"IIIF {result['entry_kind']}: {result['entry_url']}")

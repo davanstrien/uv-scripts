@@ -81,7 +81,7 @@ letter-1,Letter to a friend,A. Writer,My Library
 | Column | Use |
 |---|---|
 | `label` | Name shown in viewers. Default: the file or folder name |
-| `rights` | A [Creative Commons](https://creativecommons.org/) or [RightsStatements.org](https://rightsstatements.org/) URI |
+| `rights` | A [Creative Commons](https://creativecommons.org/) or [RightsStatements.org](https://rightsstatements.org/) URI. It is stored in the `http://` form that IIIF uses |
 | `attribution` | Credit line that viewers must show |
 | any other column | Shown as metadata. Image columns are also added to the index as `meta_<column>` |
 
@@ -176,10 +176,12 @@ An image id is made from the source path: `letter-1/page1.jpg` becomes `letter-1
 ## Things to know
 
 - **Rotation.** A photo with an EXIF rotation tag is stored upright. Width and height are the upright values.
-- **Colour.** CMYK and 16-bit images are converted to 8-bit (sRGB, or greyscale for a greyscale image), and transparency is flattened onto white. The run prints a warning for each such image.
-- **Multi-page TIFF.** Only the first page is published. The run prints a warning.
+- **Colour.** Every file is saved as 8-bit sRGB (or greyscale for a greyscale image). An embedded colour profile such as Adobe RGB is applied in the conversion. CMYK and 16-bit images are converted, and transparency is flattened onto white; the run prints a warning for each of these.
+- **Multi-page TIFF.** Only the first page is published. The run prints a warning. A pyramidal TIFF is read as one image.
+- **The destination belongs to the tool.** Do not keep your own files under `images/`, `manifests/` or `_publish/`: a run can delete them.
 - **Source and destination must not overlap.** The destination cannot be inside the source, or the reverse.
-- **Removed images.** An image that you delete from the source leaves the manifests on the next run. Its files stay in the bucket, and the run reports the count.
+- **Removed images.** An image that you delete from the source leaves the manifests on the next run. Its image files stay in the bucket, and the run reports the count.
+- **Failed images.** An image that cannot be read is left out, the run exits with code 1, and the other images are published. Fix the file and run the same command again.
 - **Python.** The script needs Python 3.10 to 3.13 (the image library has no build for newer versions yet). `uv` selects one for you.
 - **Viewer.** The Space uses [Triiiceratops](https://github.com/d-flood/triiiceratops), pinned to one version. Other IIIF viewers can open the Collection or manifest URL.
 - **Level 0.** All files are made in advance. That gives deep zoom and browsing. It does not give crops, rotation or other sizes on request; those need an image server.

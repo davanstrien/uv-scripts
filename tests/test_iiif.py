@@ -82,6 +82,9 @@ def test_image_ids_join_folder_and_stem():
 def test_fit_long_edge_rounds_the_short_edge_half_up():
     assert recipe.fit_long_edge(2411, 3372, 1024) == (732, 1024)
     assert recipe.fit_long_edge(3, 2, 2) == (2, 1)
+    assert recipe.fit_long_edge(2, 3, 2) == (1, 2)  # 1.33 rounds down
+    assert recipe.fit_long_edge(5, 8, 4) == (3, 4)  # 2.5 rounds up
+    assert recipe.fit_long_edge(8, 5, 4) == (4, 3)
     assert recipe.fit_long_edge(300, 200, 400) is None
 
 
@@ -129,8 +132,6 @@ def test_small_image_has_one_whole_image_tile_and_large_image_has_tiles(source, 
     small = read_json(dest / "images" / "small" / "info.json")
     assert small["tiles"] == [{"width": 300, "scaleFactors": [1]}]
     assert small["sizes"] == [{"width": 300, "height": 200}]
-    flattened = pyvips.Image.new_from_file(str(dest / "images" / "small" / "full" / "max" / "0" / "default.jpg"))
-    assert flattened.bands == 3
 
     large = read_json(dest / "images" / "book-a__page2" / "info.json")
     assert large["tiles"][0]["width"] == 512
@@ -280,3 +281,132 @@ def test_space_readme_title_is_valid_yaml_for_awkward_titles():
     front_matter = line.split("---")[1]
     title_line = next(row for row in front_matter.splitlines() if row.startswith("title: "))
     assert json.loads(title_line[len("title: ") :]) == 'A "quoted" title with a backslash \\ and a new line'
+
+
+def published_image(dest, image_id):
+    return pyvips.Image.new_from_file(str(dest / "images" / image_id / "full" / "max" / "0" / "default.jpg"))
+
+
+def test_transparent_pixels_become_white(tmp_path):
+    source = tmp_path / "source"
+    source.mkdir()
+    black = pyvips.Image.black(200, 100, bands=3).cast("uchar")
+    black.bandjoin(0).pngsave(str(source / "clear.png"))  # fully transparent black
+    run("publish", source, tmp_path / "published", "--base-url", BASE)
+    assert published_image(tmp_path / "published", "clear").avg() > 250
+
+
+def test_embedded_colour_profile_is_applied(tmp_path):
+    source = tmp_path / "source"
+    source.mkdir()
+    original = picture(400, 300)
+    wide = original.icc_transform("p3", input_profile="srgb")  # same colours, Display P3 numbers
+    assert wide.get_typeof("icc-profile-data") != 0
+    wide.tiffsave(str(source / "wide.tif"))
+    run("publish", source, tmp_path / "published", "--base-url", BASE)
+    result = published_image(tmp_path / "published", "wide")
+    untreated = (wide.cast("int") - original.cast("int")).abs().avg()
+    treated = (result.cast("int") - original.cast("int")).abs().avg()
+    assert treated < 3 and treated < untreated / 2
+
+
+def test_multi_page_tiff_warns_but_pyramid_does_not(tmp_path, capsys):
+    source = tmp_path / "source"
+    source.mkdir()
+    pages = pyvips.Image.arrayjoin([picture(600, 400), picture(600, 400)], across=1).copy()
+    pages.set_type(pyvips.GValue.gint_type, "page-height", 400)
+    pages.tiffsave(str(source / "document.tif"))
+    picture(1200, 800).tiffsave(str(source / "pyramid.tif"), pyramid=True, tile=True, tile_width=256, tile_height=256)
+    run("publish", source, tmp_path / "published", "--base-url", BASE)
+    warnings = [line for line in capsys.readouterr().err.splitlines() if "multi-page" in line]
+    assert len(warnings) == 1 and "document.tif" in warnings[0]
+
+
+def test_removed_item_loses_its_manifest_file(source, tmp_path):
+    dest = tmp_path / "published"
+    run("publish", source, dest, "--base-url", BASE)
+    for path in (source / "book-b").iterdir():
+        path.unlink()
+    (source / "book-b").rmdir()
+    run("publish", source, dest, "--base-url", BASE)
+    assert not (dest / "manifests" / "book-b.json").exists()
+    run("manifest", dest, "--base-url", "https://example.org/new")
+    leftovers = [p for p in dest.rglob("*.json") if "localhost:8000" in p.read_text() and "_publish" not in p.parts]
+    assert leftovers == []
+
+
+def test_when_every_replacement_fails_the_collection_is_emptied(source, tmp_path, monkeypatch, capsys):
+    dest = tmp_path / "published"
+    run("publish", source, dest, "--base-url", BASE)
+
+    def no_space(self, local_dir, dest_prefix):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(recipe.LocalDest, "put_tree", no_space)
+    capsys.readouterr()
+    assert run("publish", source, dest, "--base-url", BASE, "--tile-size", "256", "--json") == 1
+    assert len(json.loads(capsys.readouterr().out)["failed"]) == 5
+    assert read_json(dest / "collection.json")["items"] == []
+    assert pq.read_table(io.BytesIO((dest / "index.parquet").read_bytes())).num_rows == 0
+    monkeypatch.undo()
+    assert run("publish", source, dest, "--base-url", BASE) == 0  # a later run recovers
+    assert run("check", dest) == 0
+
+
+def test_published_image_that_becomes_unreadable_stays_out_until_fixed(source, tmp_path):
+    dest = tmp_path / "published"
+    run("publish", source, dest, "--base-url", BASE)
+    (source / "small.png").write_bytes(b"no longer a PNG")
+    assert run("publish", source, dest, "--base-url", BASE) == 1
+    assert not (dest / "_publish" / "state" / "small.json").exists()
+    assert run("manifest", dest, "--source", source) == 0
+    labels = [c["id"] for c in read_json(dest / "manifests" / "_root.json")["items"]]
+    assert f"{BASE}/canvas/small" not in labels
+
+
+def test_metadata_file_that_is_not_utf8_is_a_usage_error(source, tmp_path, capsys):
+    (source / "metadata.csv").write_bytes("file_name,label\nsmall.png,Caf\xe9\n".encode("latin-1"))
+    assert run("publish", source, tmp_path / "published", "--base-url", BASE) == 2
+    assert "UTF-8" in capsys.readouterr().err
+
+
+def test_https_rights_uri_is_stored_in_the_http_form(source, tmp_path):
+    dest = tmp_path / "published"
+    run("publish", source, dest, "--base-url", BASE, "--rights", "https://creativecommons.org/publicdomain/zero/1.0/")
+    assert read_json(dest / "collection.json")["rights"] == "http://creativecommons.org/publicdomain/zero/1.0/"
+
+
+class FakeBucketApi:
+    """Lists paths the way the Hub does: the prefix is matched as text."""
+
+    def __init__(self, paths):
+        self.paths = paths
+
+    def list_bucket_tree(self, bucket, prefix=None, recursive=None):
+        from types import SimpleNamespace
+
+        return [
+            SimpleNamespace(path=path, size=10, type="file", xet_hash="h")
+            for path in self.paths
+            if path.startswith(prefix or "")
+        ]
+
+
+def test_bucket_source_prefix_does_not_match_a_sibling_folder():
+    api = FakeBucketApi(["scans/a.jpg", "scans/book/b.jpg", "scans-old/z.jpg", "scansx.jpg"])
+    listed = [f.rel_path for f in recipe.BucketSource(api, "o/b", "scans").list_files()]
+    assert listed == ["a.jpg", "book/b.jpg"]
+
+
+def test_bucket_destination_listing_does_not_match_a_neighbour():
+    api = FakeBucketApi(["pub/images/page1/info.json", "pub/images/page10/info.json", "published/images/page1/x"])
+    dest = recipe.BucketDest(api, "o/b", "pub")
+    assert [e.path for e in dest._list("images/page1/")] == ["pub/images/page1/info.json"]
+    assert dest.list_names("images") == ["images/page1/info.json", "images/page10/info.json"]
+
+
+def test_bucket_prefixes_that_only_share_text_do_not_overlap():
+    source = recipe.Location(kind="bucket", bucket="o/b", prefix="pub")
+    recipe.check_no_overlap(source, recipe.Location(kind="bucket", bucket="o/b", prefix="published"))
+    with pytest.raises(recipe.UserError):
+        recipe.check_no_overlap(source, recipe.Location(kind="bucket", bucket="o/b", prefix="pub/out"))
