@@ -43,6 +43,11 @@ ul.models>li{border-top:1px solid var(--rule)}
 summary{font-size:13.5px;padding:7px 0;cursor:pointer;overflow-wrap:anywhere;list-style:none;display:flex;flex-wrap:wrap;gap:0 12px}
 .name{flex:1 1 240px;min-width:0}
 .state,.date{font:13px var(--text);white-space:nowrap}
+.desc{flex:1 1 100%;margin-left:24px;font:13px var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+details[open]>summary .desc{display:none}
+.show-more{margin:8px 0 0;font:14px var(--text);color:var(--link);background:none;border:0;padding:0;cursor:pointer}
+.count{color:var(--muted);font-size:12.5px}
+@media (max-width:640px){.desc{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}.name+.date,.name+.state{margin-left:24px}}
 summary::-webkit-details-marker{display:none}
 summary::before{content:"\203A";display:inline-block;width:12px;color:var(--muted);font-family:var(--text);transition:transform .1s}
 details[open]>summary::before{transform:rotate(90deg)}
@@ -261,21 +266,29 @@ const input = document.getElementById('q');
 const filters = [...document.querySelectorAll('nav button')];
 const items = [...document.querySelectorAll('ul.models>li')];
 let task = 'All';
+// While browsing (no search, no task filter) each task shows its first rows; "Show N more" opens the rest.
 function apply() {
   const q = input.value.trim().toLowerCase();
+  const browsing = q === '' && task === 'All';
   let visible = 0;
   for (const item of items) {
-    const show = (task === 'All' || item.dataset.task === task) && item.dataset.text.includes(q);
-    item.hidden = !show;
-    if (show) visible++;
+    const match = (task === 'All' || item.dataset.task === task) && item.dataset.text.includes(q);
+    const expanded = item.closest('section').dataset.expanded === '1';
+    item.hidden = !match || (browsing && item.dataset.extra === '1' && !expanded);
+    if (match) visible++;
   }
   for (const section of document.querySelectorAll('section[data-group]')) {
     section.hidden = !section.querySelector('ul.models>li:not([hidden])');
+    const more = section.querySelector('.show-more');
+    if (more) more.hidden = !browsing || section.dataset.expanded === '1';
   }
   document.getElementById('none').hidden = visible > 0;
   document.getElementById('tools').hidden = q !== '' || task !== 'All';
 }
 input.addEventListener('input', apply);
+for (const more of document.querySelectorAll('.show-more')) {
+  more.addEventListener('click', () => { more.closest('section').dataset.expanded = '1'; apply(); });
+}
 document.getElementById('clear').addEventListener('click', () => { input.value = ''; filters[0].click(); });
 for (const button of filters) {
   button.addEventListener('click', () => {
@@ -284,10 +297,13 @@ for (const button of filters) {
     apply();
   });
 }
+apply();
 // ?model=org/name opens the page at that model. The Hub passes the query string of the Space page to this page.
 const wantedModel = (new URLSearchParams(location.search).get('model') || '').trim().toLowerCase();
 if (wantedModel) {
   const matches = items.filter(item => item.dataset.model === wantedModel);
+  for (const item of matches) item.closest('section').dataset.expanded = '1';
+  apply();
   for (const item of matches) item.querySelector('details').open = true;
   if (matches.length) {
     matches[0].scrollIntoView();
@@ -299,6 +315,15 @@ if (wantedModel) {
     document.getElementById('find').scrollIntoView();
   }
 }
+// Prices come from the public Jobs hardware list at page load, so they match what Jobs charges today.
+fetch('https://huggingface.co/api/jobs/hardware').then(response => response.json()).then(flavors => {
+  const perHour = {};
+  for (const flavor of flavors) perHour[flavor.name] = flavor.unitCostUSD * (flavor.unitLabel === 'minute' ? 60 : 1);
+  for (const slot of document.querySelectorAll('.price[data-flavor]')) {
+    const price = perHour[slot.dataset.flavor];
+    if (price) slot.textContent = ` (about $${price < 10 ? price.toFixed(2) : price.toFixed(0)}/h at today's price)`;
+  }
+}).catch(() => {});
 const stepButtons = [...document.querySelectorAll('.switch button')];
 const steps = [...document.querySelectorAll('[data-step]')];
 function showStep(name) {
