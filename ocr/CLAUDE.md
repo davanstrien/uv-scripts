@@ -416,7 +416,9 @@ ARM wheels) — if a nightly-recipe install fails on resolution, wait and retry 
   `falcon-ocr-bucket.py` pin the last v1 commit; new `falcon-ocr-1.5.py` pins the v1.5 release head. All
   three take `--revision`; the dataset recipes record the resolved commit and carry the canonical provenance stamp.
   Headers: `a10g-small` on all three; the two dataset recipes also set `1h` and `HF_TOKEN`. `falcon-ocr.py` frozen (superseded by `falcon-ocr-1.5.py`), `falcon-ocr-1.5.py` active.
-  SMOKE_PLACEHOLDER
+  The frozen v1 header pins the default uv image by digest. Smoke-tested on HF Jobs (`l4x1`; `a10g-small` was
+  not scheduling), `uv-scripts/ocr-demo`: v1 7/7, v1.5 7/7, bucket variant 7/7 pages, 0 empty or error
+  rows; the cards and `inference_info` carry the pinned commit and version label.
 
 - **2026-11-05** — added `hpd-parsing-saturate.py` (experimental) for `PaddlePaddle/HPD-Parsing` (1B,
   Apache-2.0): the July server recipe's serve command and block parser, driven by saturate `==0.3.0`
