@@ -30,7 +30,7 @@ Tiered: 4 of 57 recipes with a header.
 | `ocr/hunyuan-ocr-1.5.py` | — | `vllm/vllm-openai:v0.24.0` | latest | 2026-11-06 | [pass](https://huggingface.co/jobs/davanstrien/6aedd708c78863f9c634607e) |
 | `ocr/jina-ocr-v1.py` | — | default | latest | never |  |
 | `ocr/lfm2-extract.py` | — | `vllm/vllm-openai:v0.29.0` | latest | never |  |
-| `ocr/lift-extract.py` | — | default | latest | never |  |
+| `ocr/lift-extract.py` | — | default | latest | 2026-11-18 | [pass](https://huggingface.co/jobs/davanstrien/6afde1aae41aae15936caf68) |
 | `ocr/lighton-ocr2-saturate.py` | — | `vllm/vllm-openai:v0.22.1` | latest | never |  |
 | `ocr/lighton-ocr3-bucket.py` | — | `vllm/vllm-openai:v0.30.0` | latest | never |  |
 | `ocr/lighton-ocr3-live.py` | — | `vllm/vllm-openai:v0.30.0` | latest | 2026-11-10 | [pass](https://huggingface.co/jobs/davanstrien/6af35d729737d9a9e0913810) |
