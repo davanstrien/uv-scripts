@@ -66,6 +66,7 @@
     "support_note": "Falcon-OCR v1. Frozen 2026-11-18 (superseded by falcon-ocr-1.5.py): package cutoff and model revision pinned; fixed only when it breaks. Upstream replaced the repo root with v1.5 on 2026-09-11, so this recipe pins the last v1 commit. Use falcon-ocr-1.5.py for new runs.",
     "revision": "42ec56b72a23984ac059e7c8a6d397a8529423fe",
     "jobs": {
+      "image": "ghcr.io/astral-sh/uv@sha256:85d4cb1afa769a7338e095b927bee941cf5ec92266c7424b3f6c0f2748567248",
       "flavor": "a10g-small",
       "timeout": "1h",
       "secrets": [

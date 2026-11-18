@@ -18,6 +18,7 @@
 # superseded_by = "falcon-ocr-1.5.py"
 #
 # [tool.hf-jobs]
+# image = "ghcr.io/astral-sh/uv@sha256:85d4cb1afa769a7338e095b927bee941cf5ec92266c7424b3f6c0f2748567248"  # python3.12-bookworm, the Jobs default for uv run
 # flavor = "a10g-small"
 # timeout = "1h"
 # secrets = ["HF_TOKEN"]
