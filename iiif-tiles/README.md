@@ -129,7 +129,7 @@ uv run iiif.py manifest hf://buckets/myorg/my-collection --title "A better title
 uv run iiif.py check hf://buckets/myorg/my-collection
 ```
 
-`check` reads the collection the way a viewer does. It reads every manifest and compares the canvas ids with the index. For a sample of 25 images (`--sample 0` for all) it also confirms that each id matches its URL and that the full image, thumbnail, 1024 px image and the first and last tile can be fetched. The exit code is 1 when it finds a problem.
+`check` reads the collection the way a viewer does. It reads every manifest and compares the canvas ids with the index. For a sample of 25 images (`--sample 0` for all) it also confirms that each id matches its URL and that the full image, thumbnail, 1024 px image and the first and last tile can be fetched. The exit code is 1 when it finds a problem. It makes 16 requests at a time (`--workers`); 164 images with `--sample 0` took about 40 seconds.
 
 ## For scripts and agents
 

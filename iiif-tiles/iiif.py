@@ -33,6 +33,7 @@ import re
 import shutil
 import sys
 import tempfile
+import time
 import traceback
 import unicodedata
 import urllib.error
@@ -1387,25 +1388,36 @@ class HttpReader:
     def __init__(self, base_url: str):
         self.base_url = base_url
 
-    def _open(self, path: str, method: str):
+    def _fetch(self, path: str, limit: int | None) -> bytes | None:
+        """Return the file content (or its first `limit` bytes), or None if it does not exist.
+
+        A network error, a rate limit or a server error is tried again. A missing file is not.
+        """
         url = f"{self.base_url}/{urllib.parse.quote(path)}"
-        request = urllib.request.Request(url, method=method, headers={"User-Agent": "iiif-tiles-check"})
-        return urllib.request.urlopen(request, timeout=30)
+        request = urllib.request.Request(url, headers={"User-Agent": "iiif-tiles-check"})
+        last_error = None
+        for attempt in range(4):
+            if attempt:
+                time.sleep(2**attempt)
+            try:
+                with urllib.request.urlopen(request, timeout=30) as response:
+                    return response.read() if limit is None else response.read(limit)
+            except urllib.error.HTTPError as error:
+                if error.code != 429 and error.code < 500:
+                    return None
+                last_error = error
+            except (urllib.error.URLError, TimeoutError, ConnectionError) as error:
+                last_error = error
+        raise UserError(
+            f"Network error while reading {url}: {last_error}",
+            "Run check again. If it repeats, pass a lower --workers value.",
+        )
 
     def get(self, path: str) -> bytes | None:
-        try:
-            with self._open(path, "GET") as response:
-                return response.read()
-        except urllib.error.HTTPError:
-            return None
+        return self._fetch(path, None)
 
     def exists(self, path: str) -> bool:
-        try:
-            with self._open(path, "GET") as response:
-                response.read(1)
-                return True
-        except urllib.error.HTTPError:
-            return False
+        return self._fetch(path, 1) is not None
 
 
 def spread_sample(values: list, count: int) -> list:
@@ -1496,7 +1508,8 @@ def command_check(args, reporter: Reporter) -> dict:
             )
 
     sample = spread_sample(canvases, args.sample)
-    for canvas in sample:
+
+    def check_canvas(canvas: dict) -> None:
         name = canvas.get("id", "?")
         row = index_by_canvas.get(name)
         if not canvas.get("thumbnail"):
@@ -1510,7 +1523,7 @@ def command_check(args, reporter: Reporter) -> dict:
             service_id = body["service"][0]["id"]
         except (KeyError, IndexError):
             problems.append(f"{name}: canvas has no image with an image service")
-            continue
+            return
         path = relative(body["id"], f"{name}: image")
         if path is not None and not reader.exists(path):
             problems.append(f"{name}: full image cannot be fetched: {path}")
@@ -1524,10 +1537,10 @@ def command_check(args, reporter: Reporter) -> dict:
                 problems.append(f"{name}: derivative image cannot be fetched: {path}")
         service_path = relative(service_id, f"{name}: image service")
         if service_path is None:
-            continue
+            return
         info = load(f"{service_path}/info.json", f"{name}: info.json")
         if info is None:
-            continue
+            return
         if info.get("id") != service_id:
             problems.append(f"{name}: info.json id is {info.get('id')}, the manifest says {service_id}")
         if (info.get("width"), info.get("height")) != (canvas.get("width"), canvas.get("height")):
@@ -1554,6 +1567,12 @@ def command_check(args, reporter: Reporter) -> dict:
                 tile_path = f"{service_path}/{left},{top},{last_w},{last_h}/{last_w},{last_h}/0/default.jpg"
                 if not reader.exists(tile_path):
                     problems.append(f"{name}: last tile cannot be fetched: {tile_path}")
+
+    # Each test is one request, and a request to a bucket takes about half a second.
+    # Running them side by side turns minutes into seconds. `problems.append` is thread-safe.
+    with ThreadPoolExecutor(max_workers=max(1, args.workers)) as pool:
+        list(pool.map(check_canvas, sample))
+    problems.sort()
     reporter.info(f"Checked files for {len(sample)} of {len(canvases)} canvas(es)")
 
     for problem in problems:
@@ -1613,6 +1632,7 @@ def build_parser() -> argparse.ArgumentParser:
     check = commands.add_parser("check", help="Verify a published destination")
     check.add_argument("dest", help="Destination of an earlier publish")
     check.add_argument("--sample", type=int, default=25, help="Canvases to check in detail; 0 = all (default: 25)")
+    check.add_argument("--workers", type=int, default=16, help="Requests made at the same time (default: 16)")
 
     for command in (publish, manifest, check):
         command.add_argument("--json", action="store_true", help="Print the result as JSON on stdout")
