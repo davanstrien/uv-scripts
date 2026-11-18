@@ -414,8 +414,8 @@ ARM wheels) — if a nightly-recipe install fails on resolution, wait and retry 
 
 - **2026-11-18** — Falcon OCR split by version identity (PR #110): `falcon-ocr.py` and
   `falcon-ocr-bucket.py` pin the last v1 commit; new `falcon-ocr-1.5.py` pins the v1.5 release head. All
-  three take `--revision`; the dataset recipes record the resolved commit. Headers: `a10g-small`, `1h`,
-  `HF_TOKEN`. `falcon-ocr.py` frozen (superseded by `falcon-ocr-1.5.py`), `falcon-ocr-1.5.py` active.
+  three take `--revision`; the dataset recipes record the resolved commit and carry the canonical provenance stamp.
+  Headers: `a10g-small` on all three; the two dataset recipes also set `1h` and `HF_TOKEN`. `falcon-ocr.py` frozen (superseded by `falcon-ocr-1.5.py`), `falcon-ocr-1.5.py` active.
   SMOKE_PLACEHOLDER
 
 - **2026-11-05** — added `hpd-parsing-saturate.py` (experimental) for `PaddlePaddle/HPD-Parsing` (1B,
