@@ -62,6 +62,28 @@ for a few hundred rows. Texts are cut at the model's own maximum length unless y
 `--max-seq-len`. Prompts follow the same rule as below: `--prompt`, then the model's registered
 document prompt, then the known-family table.
 
+Options for larger runs:
+
+- `--keep language date` copies source columns into the output, with their types, so the
+  vectors join back to their metadata. `--no-text` leaves the text itself out.
+- `--id-column id` uses a source column as the row id (default: the row's position).
+- `--skip-empty` leaves out rows whose text is empty.
+- Input can be a bucket glob instead of a dataset id: `hf://buckets/you/corpus/data/*.parquet`
+  (also `.jsonl`, `.json`, `.csv`; for `.txt` and `.md` each file is one row, with its path as
+  the id). Output can be a bucket path, `hf://buckets/you/embeddings/run1`.
+- `--shard 0/4` ... `--shard 3/4` on four Jobs with the same output splits the rows between them
+  by a hash of the row id. Each Job still reads the whole input. Use a bucket output for this:
+  each flush to a dataset repo is a commit.
+
+```bash
+# 4 Jobs, one bucket output; run the same command with --shard 1/4, 2/4, 3/4
+hf jobs uv run \
+  https://huggingface.co/datasets/uv-scripts/embeddings/raw/main/generate-embeddings-saturate.py \
+  biglam/europeana_newspapers hf://buckets/your-name/europeana-bge-m3 \
+  --model BAAI/bge-m3 --id-column id --keep language date --no-text --skip-empty \
+  --max-seq-len 512 --shard 0/4
+```
+
 ## Fan-out: N Jobs in parallel
 
 One L4 does ~900 rows/s with `all-MiniLM-L6-v2`; a fleet of 8 does ~7k. `launch-embedding-fleet.py`

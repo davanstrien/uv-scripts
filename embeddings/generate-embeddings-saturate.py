@@ -56,12 +56,14 @@ error).
 
 BUCKETS: the input can be a glob of files in a Storage Bucket instead of a dataset id, for
 example hf://buckets/you/corpus/data/*.parquet (also .jsonl, .json, .csv, and .txt or .md,
-where each file is one row). The output can be a bucket path, for example
+where each file is one row and its id is the file path). The output can be a bucket path, for example
 hf://buckets/you/embeddings/run1: the parts land there and no dataset card is written.
 
-KEEP COLUMNS: --keep language date copies those source columns into the output, so the
-vectors join back to their metadata. Kept values are written as strings (lists and dicts as
-JSON). --id-column sets the row id; use a column with stable unique values for large runs.
+KEEP COLUMNS: --keep language date copies those source columns into the output, with their
+types, so the vectors join back to their metadata. A column whose type the dataset does not
+declare is written as a string (lists and dicts as JSON). --id-column sets the row id; use a
+column with stable unique values for large runs. --no-text leaves the text itself out of the
+output, which can halve its size; join back on the id.
 
 FAN-OUT: --shard 2/4 makes this Job process the rows whose id hashes to shard 2 of 4. Start
 4 Jobs with --shard 0/4 ... 3/4 and the same output; together they cover the input once.
@@ -131,8 +133,50 @@ def bucket_id(uri):
     return "/".join(uri.removeprefix("hf://buckets/").split("/")[:2])
 
 
+def text_file_rows(args, shard):
+    """One row per .txt/.md file in a bucket glob, with the file's path as its id.
+
+    Paths are relative to the glob's fixed prefix, so adding files later keeps every
+    id. The shard filter runs on the path before any file is read."""
+    from saturate import bucket_rows
+
+    if args.id_column:
+        print("--id-column is ignored for text files: the id is the file path", file=sys.stderr)
+    root = args.input_dataset.split("*")[0].rsplit("/", 1)[0]
+    for row_id, row in bucket_rows(args.input_dataset, root=root, limit=args.max_samples, shard=shard):
+        yield row_id, {args.column: row["bytes"].decode("utf-8", errors="replace")}
+
+
+def source_features(args):
+    """The Hub dataset's column types, or None when the repo does not declare them."""
+    try:
+        from datasets import load_dataset_builder
+
+        return load_dataset_builder(args.input_dataset, args.config).info.features
+    except Exception as error:  # noqa: BLE001  any failure here: kept columns become strings
+        print(f"Column types unknown ({type(error).__name__}); kept columns are written as strings",
+              file=sys.stderr)
+        return None
+
+
+def kept_column_types(features, keep):
+    """Arrow type for each kept column from the source features; None means 'write a string'."""
+    from datasets import Features
+
+    types = {}
+    for column in keep:
+        feature = (features or {}).get(column)
+        if feature is None:
+            types[column] = None
+            continue
+        if type(feature).__name__ in ("Image", "Audio", "Video", "Pdf"):
+            sys.exit(f"--keep {column}: media columns cannot be copied; keep a path or id column instead")
+        types[column] = Features({column: feature}).arrow_schema.field(column).type
+    return types
+
+
 def keep_value(value):
-    """Kept columns are written as strings; lists and dicts as JSON."""
+    """Kept columns of unknown type are written as strings; lists and dicts as JSON."""
     if value is None or isinstance(value, str):
         return value
     return json.dumps(value, ensure_ascii=False, default=str)
@@ -298,6 +342,8 @@ def reproduce_options(args):
         options += ["--keep", *args.keep]
     if args.skip_empty:
         options += ["--skip-empty"]
+    if args.no_text:
+        options += ["--no-text"]
     return " ".join(shlex.quote(option) for option in options)
 
 
@@ -364,6 +410,8 @@ def main():
     parser.add_argument("--keep", nargs="+", default=[], metavar="COLUMN",
                         help="Source columns to copy into the output (written as strings)")
     parser.add_argument("--skip-empty", action="store_true", help="Leave out rows whose text is empty")
+    parser.add_argument("--no-text", action="store_true",
+                        help="Do not copy the text into the output (join back on the id instead)")
     parser.add_argument("--shard", default="0/1", metavar="RANK/WORLD",
                         help="Process only shard RANK of WORLD (fan-out over several Jobs), e.g. 0/4")
     args = parser.parse_args()
@@ -398,22 +446,29 @@ def main():
         output_uri = f"hf://datasets/{args.output_dataset}/data"
 
     columns = [args.column, *args.keep]
+    features = None  # source column types, so kept columns keep them
     if bucket_input:
-        from datasets import load_dataset
-
         suffix = os.path.splitext(args.input_dataset)[1].lower()
         if suffix not in BUCKET_FORMATS:
             sys.exit(f"A bucket input is a glob ending in one of {sorted(BUCKET_FORMATS)}, "
                      f"for example hf://buckets/you/b/data/*.parquet; got {args.input_dataset!r}")
         builder = BUCKET_FORMATS[suffix]
-        extra = {"sample_by": "document"} if builder == "text" else {}
-        loaded = load_dataset(builder, data_files=args.input_dataset, split="train", streaming=True, **extra)
-        rows = dataset_rows(loaded, split="train", columns=columns, ids=ids, limit=args.max_samples, shard=shard)
+        if builder == "text":
+            rows = text_file_rows(args, shard)
+        else:
+            from datasets import load_dataset
+
+            loaded = load_dataset(builder, data_files=args.input_dataset, split="train", streaming=True)
+            features = loaded.features
+            rows = dataset_rows(loaded, split="train", columns=columns, ids=ids, limit=args.max_samples,
+                                shard=shard)
     else:
+        features = source_features(args)
         rows = dataset_rows(
             args.input_dataset, config=args.config, split=args.split,
             columns=columns, ids=ids, limit=args.max_samples, shard=shard,
         )
+    keep_types = kept_column_types(features, args.keep)
     if args.skip_empty:
         rows = ((row_id, row) for row_id, row in rows if (row[args.column] or "").strip())
     report_memory()
@@ -428,18 +483,24 @@ def main():
         }
 
     # Declared, so a part holding only error rows has the same columns as the rest.
+    text_field = [] if args.no_text else [(args.column, pa.string())]
     schema = pa.schema([
-        ("id", pa.string()), ("error", pa.string()), (args.column, pa.string()),
+        ("id", pa.string()), ("error", pa.string()), *text_field,
         (args.output_column, pa.list_(pa.float32())), ("model", pa.string()), ("prompt_tokens", pa.int64()),
-    ] + [(column, pa.string()) for column in args.keep])  # fmt: skip
+    ] + [(column, keep_types[column] or pa.string()) for column in args.keep])  # fmt: skip
+
     def parse(row, body):
-        return {
-            args.column: row[args.column],
+        result = {
             args.output_column: body["data"][0]["embedding"],
             "model": args.model,
             "prompt_tokens": (body.get("usage") or {}).get("prompt_tokens"),
-            **{column: keep_value(row.get(column)) for column in args.keep},
         }
+        if not args.no_text:
+            result[args.column] = row[args.column]
+        for column in args.keep:
+            value = row.get(column)
+            result[column] = value if keep_types[column] is not None else keep_value(value)
+        return result
 
     # The readiness check sends one embedding request, so the server is known to embed before the run starts.
     engine = Engine(
