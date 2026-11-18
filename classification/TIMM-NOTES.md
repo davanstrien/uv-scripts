@@ -37,9 +37,11 @@ Architecture and preprocessing flags (`--gp`, `--mean`, `--std`, `--crop-pct`, `
 `--model-ema`, ...) work: the pushed model is rebuilt from the arguments `train.py` saved in its
 checkpoint. Flags that clash with what the script sets from the dataset are refused: `--dataset`,
 `--data-dir`, the split and key flags, `--num-classes`, `--task`, `--target-format`, `--class-map`
-(it would change the label order), `--model`, `--output`, `--experiment` and `-c`/`--config`.
+(it would change the label order), `--model`, `--output`, `--experiment`, `-c`/`--config` and `--split-bn`.
+`--split-bn` is refused because it changes the checkpoint layout after the model is built.
 Abbreviations of these (for example `--mod`) are refused too. `--epochs`, `--batch-size` and `--lr`
-after `--` override the script's values, as in `train.py`.
+after `--` override the script's values, as in `train.py`. Use the script's own `--epochs`, though:
+the one warmup epoch is set from it, so `-- --epochs 1` would spend the whole run in warmup.
 
 ## What the script decides
 
@@ -81,7 +83,9 @@ an error if the labels or the logits differ from the trained model.
   PyPI release with `--task multilabel`.
 - **Rebuilding the model.** `model_best.pth.tar` holds `train.py`'s full arguments. The script
   rebuilds the model with `resolve_model_input_args` and `create_model`, the same call `train.py`
-  uses, so fixed-size models at another `--img-size` (ViT, PiT, LeViT, VOLO, ...) load correctly.
+  uses, so fixed-size models at another `--img-size` (ViT, LeViT, VOLO, ...) load correctly. timm
+  cannot load PiT's pretrained weights at another size (`pit_ti_224` at 256 stops in `train.py`
+  with a `pos_embed` size mismatch, before training starts).
 - **Metrics.** The card's metrics are the `eval_*` columns of `train.py`'s `summary.csv` for the
   best epoch. With `--model-ema`, the summary row and the best checkpoint both refer to the EMA
   weights. `map` is timm's mean average precision and can differ from scikit-learn's per-class
@@ -91,5 +95,9 @@ an error if the labels or the logits differ from the trained model.
 - **Warmup.** `train.py` defaults to 5 warmup epochs and does not shorten them for short runs.
   Without `--sched-on-updates` the learning rate changes once per epoch. With lr 2e-4, 2 epochs
   and no warmup, beans fell to chance; the script passes one warmup epoch and `--sched-on-updates`.
+- **Learning rate and CNNs.** The default `--lr` 5e-5 suits the ConvNeXt and ViT backbones. In
+  3 epochs on beans, `resnet50.a1_in1k`, `efficientnet_b0.ra_in1k` and
+  `mobilenetv4_conv_small.e2400_r224_in1k` reached only 47-63% top-1 with it (ConvNeXt-tiny and
+  ViT-small: 97.7%). Give CNNs a higher `--lr` and more epochs.
 - **Default backbone.** `convnext_tiny.in12k_ft_in1k` (28M parameters, Apache-2.0). DINOv3 backbones
   were considered, but their licence would carry over to every trained model.

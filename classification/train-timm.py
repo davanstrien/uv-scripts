@@ -125,13 +125,14 @@ LABEL_COLUMN_PREFERENCE = [
 IMAGE_COLUMN_PREFERENCE = ["image", "img", "picture", "photo"]
 CARVED_DATA_ROOT = Path("/tmp/train-timm-data")
 
-# train.py flags this script sets from the dataset, or that would change the label order. Every
+# train.py flags this script sets from the dataset, or that would change the label order
+# (--split-bn changes the checkpoint layout after the model is built, so it is refused too). Every
 # other train.py flag passes through after "--": the pushed model is rebuilt from the arguments
 # train.py saved in its checkpoint, so architecture and preprocessing flags carry over.
 RESERVED_TRAIN_PY_FLAGS = [
     "--dataset", "--data-dir", "--train-split", "--val-split", "--input-key", "--target-key",
     "--num-classes", "--task", "--target-format", "--class-map", "--model", "--output",
-    "--experiment", "--config",
+    "--experiment", "--config", "--split-bn",
 ]  # fmt: skip
 
 
@@ -691,6 +692,7 @@ def load_trained_model(run_dir):
             global_pool=train_args["gp"],
             bn_momentum=train_args["bn_momentum"],
             bn_eps=train_args["bn_eps"],
+            pretrained_cfg_overlay=train_args.get("pretrained_cfg_overlay") or None,
             **train_args["model_kwargs"],
         )
     )
@@ -869,12 +871,13 @@ def push_model(model, train_args, args, plan, metrics, best_epoch, argv):
         model_config["multilabel_threshold"] = args.threshold
     model_config["eval_metrics"] = metrics
 
+    data_config = resolve_input_data_config(model, train_args)
     export_dir = Path(tempfile.mkdtemp(prefix="train-timm-export-"))
     save_for_hf(
         model.cpu(),
         str(export_dir),
         model_config=model_config,
-        data_config=resolve_input_data_config(model, train_args),
+        data_config=data_config,
         safe_serialization=True,
     )
     card = build_model_card(args, plan, metrics, best_epoch, argv)
@@ -891,11 +894,20 @@ def push_model(model, train_args, args, plan, metrics, best_epoch, argv):
         commit_message=f"Fine-tune {args.model} on {args.dataset}",
     )
     logger.info(f"Pushed: https://huggingface.co/{args.output_repo}")
+    return data_config
+
+
+def np_list(value):
+    """A comparable sequence for a data-config value (tuple, list, number or string)."""
+    if isinstance(value, (list, tuple)):
+        return [round(float(item), 6) for item in value]
+    return [value]
 
 
 @torch.no_grad()
-def reload_check(args, plan, local_model, device):
-    """Reload the pushed model from the Hub; check its labels and its logits on a fixed input."""
+def reload_check(args, plan, local_model, data_config, device):
+    """Reload the pushed model from the Hub; check its labels, its preprocessing config and its
+    logits on a fixed input."""
     logger.info("Reload check: timm.create_model('hf-hub:...', pretrained=True)")
     hub_model = timm.create_model(f"hf-hub:{args.output_repo}", pretrained=True)
     hub_model = hub_model.to(device).eval()
@@ -903,7 +915,15 @@ def reload_check(args, plan, local_model, device):
     if hub_labels != plan["label_names"]:
         sys.exit(f"ERROR: reloaded label_names {hub_labels} != {plan['label_names']}")
 
-    input_size = timm.data.resolve_data_config(model=hub_model)["input_size"]
+    hub_data_config = timm.data.resolve_data_config(model=hub_model)
+    for key in ("input_size", "interpolation", "mean", "std", "crop_pct", "crop_mode"):
+        if tuple(np_list(hub_data_config.get(key))) != tuple(
+            np_list(data_config.get(key))
+        ):
+            sys.exit(
+                f"ERROR: reloaded {key} {hub_data_config.get(key)} != trained {data_config.get(key)}"
+            )
+    input_size = hub_data_config["input_size"]
     generator = torch.Generator().manual_seed(0)
     image = torch.randn(1, *input_size, generator=generator).to(device)
     local_model = local_model.to(device).eval()
@@ -954,9 +974,11 @@ def main():
         flush=True,
     )
 
-    push_model(model, train_args, args, plan, metrics, best_epoch, sys.argv[1:])
+    data_config = push_model(
+        model, train_args, args, plan, metrics, best_epoch, sys.argv[1:]
+    )
     if not args.skip_reload_check:
-        reload_check(args, plan, model, device)
+        reload_check(args, plan, model, data_config, device)
     logger.info(f"Done in {(time.time() - started) / 60:.1f} min")
 
 
