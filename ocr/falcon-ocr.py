@@ -8,6 +8,19 @@
 #     "torchvision",
 #     "falcon-perception",
 # ]
+#
+# [tool.uv]
+# exclude-newer = "2026-11-18T00:00:00Z"  # frozen: resolve packages as on this date
+#
+# [tool.uv-scripts]
+# maintenance = "frozen"
+# frozen_on = "2026-11-18"
+# superseded_by = "falcon-ocr-1.5.py"
+#
+# [tool.hf-jobs]
+# flavor = "a10g-small"
+# timeout = "1h"
+# secrets = ["HF_TOKEN"]
 # ///
 
 """
@@ -22,9 +35,22 @@ Features:
 - Multi-format: Plain text, LaTeX formulas, HTML tables
 - Layout-aware: Optional 2-stage pipeline (layout detection + per-region OCR)
 
-Model: tiiuae/Falcon-OCR
+Model: tiiuae/Falcon-OCR (pinned to the last v1 revision)
+Frozen recipe: for Falcon OCR v1.5, use falcon-ocr-1.5.py.
 Backend: falcon-perception (OCRInferenceEngine)
 License: Apache 2.0
+
+Versions: TII released Falcon OCR v1.5 on 2026-09-11 by overwriting the weights on
+`main` of the same repo (no tag, no branch). This script is the **v1** recipe: it pins
+the last v1 commit (42ec56b7…) so its behaviour does not change under you. v1.5 is its
+own recipe, `falcon-ocr-1.5.py`. `--revision` overrides the pin (`--revision main`
+tracks whatever the repo root holds); the resolved commit is always recorded in
+`inference_info` and on the dataset card.
+
+Launch config: the `[tool.hf-jobs]` header carries the default flavor (a10g-small), a 1h timeout and the
+HF_TOKEN secret, so `hf jobs uv run falcon-ocr.py IN OUT` needs no flags on hf >= 1.32
+(read client-side by the CLI; older CLIs and plain `uv run` ignore it). Explicit flags
+still win.
 
 Examples:
     # Basic text OCR
@@ -33,11 +59,14 @@ Examples:
     # Test with small sample
     uv run falcon-ocr.py dataset test --max-samples 5 --shuffle
 
-    # Run on HF Jobs with GPU
-    hf jobs uv run --flavor l4x1 \\
-        -s HF_TOKEN \\
-        falcon-ocr.py \\
-        input-dataset output-dataset --max-samples 10
+    # Track the repo root instead of the v1 pin (v1.5 at the time of writing)
+    uv run falcon-ocr.py dataset out --revision main
+
+    # Run on HF Jobs (flavor + HF_TOKEN come from the [tool.hf-jobs] header on hf >= 1.32)
+    hf jobs uv run falcon-ocr.py input-dataset output-dataset --max-samples 10
+
+    # Older hf CLI: pass the launch flags yourself
+    hf jobs uv run --flavor a10g-small -s HF_TOKEN falcon-ocr.py input-dataset output-dataset
 """
 
 import argparse
@@ -52,13 +81,19 @@ from typing import Any, Dict, Union
 
 import torch
 from datasets import load_dataset
-from huggingface_hub import DatasetCard, login
+from huggingface_hub import DatasetCard, HfApi, login
 from PIL import Image
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 MODEL_ID = "tiiuae/Falcon-OCR"
+# Upstream swapped the weights in place (v1 -> v1.5) on 2026-09-11 with no tag or
+# branch, so `main` is a moving target. This pin IS this script's v1 identity — never
+# loosen it to "main" here; v1.5 lives in falcon-ocr-1.5.py. Override with --revision
+# only to reproduce old runs or to follow the repo root deliberately.
+DEFAULT_REVISION = "42ec56b72a23984ac059e7c8a6d397a8529423fe"  # last v1 commit, 2026-07-03
+MODEL_LABEL = "Falcon-OCR"
 
 TASK_MODES = {
     "plain": "Full-page text extraction",
@@ -68,7 +103,7 @@ TASK_MODES = {
 def check_cuda_availability():
     if not torch.cuda.is_available():
         logger.error("CUDA is not available. This script requires a GPU.")
-        logger.error("For cloud execution, use HF Jobs with --flavor l4x1 or similar.")
+        logger.error("For cloud execution, use HF Jobs with --flavor a10g-small or similar.")
         sys.exit(1)
     else:
         logger.info(f"CUDA is available. GPU: {torch.cuda.get_device_name(0)}")
@@ -115,8 +150,11 @@ def create_dataset_card(
     processing_time: str,
     image_column: str = "image",
     split: str = "train",
+    revision: str = "main",
+    model_commit: str | None = None,
 ) -> str:
     task_description = TASK_MODES[task_mode]
+    commit_note = f" (resolved to `{model_commit}`)" if model_commit else ""
     return f"""---
 tags:
 - ocr
@@ -135,6 +173,7 @@ This dataset contains OCR results from images in [{source_dataset}](https://hugg
 
 - **Source Dataset**: [{source_dataset}](https://huggingface.co/datasets/{source_dataset})
 - **Model**: [{MODEL_ID}](https://huggingface.co/{MODEL_ID})
+- **Model Revision**: `{revision}`{commit_note}
 - **Task Mode**: `{task_mode}` - {task_description}
 - **Number of Samples**: {num_samples:,}
 - **Processing Time**: {processing_time}
@@ -148,7 +187,8 @@ uv run https://huggingface.co/datasets/uv-scripts/ocr/raw/main/falcon-ocr.py \\
     {source_dataset} \\
     <output-dataset> \\
     --task-mode {task_mode} \\
-    --image-column {image_column}
+    --image-column {image_column} \\
+    --revision {model_commit or revision}
 ```
 
 Generated with [UV Scripts](https://huggingface.co/uv-scripts)
@@ -174,8 +214,12 @@ def main(
     cudagraph: bool = True,
     progress: bool = False,
     verbose: bool = False,
+    revision: str | None = None,
 ):
     check_cuda_availability()
+    if revision is None:
+        revision = DEFAULT_REVISION
+        logger.info(f"Pinning {MODEL_ID} to {MODEL_LABEL} revision {revision[:8]}")
     start_time = datetime.now()
 
     HF_TOKEN = hf_token or os.environ.get("HF_TOKEN")
@@ -210,6 +254,15 @@ def main(
         dataset = dataset.select(range(min(max_samples, len(dataset))))
         logger.info(f"Limited to {len(dataset)} samples")
 
+    # Resolve the revision to a commit sha up front so the run is reproducible even
+    # when `main` moves again (it did on 2026-09-11: v1 -> v1.5, same repo).
+    try:
+        model_commit = HfApi().model_info(MODEL_ID, revision=revision).sha
+    except Exception as e:  # offline / transient API error: run anyway, less provenance
+        logger.warning(f"Could not resolve revision {revision!r} to a commit: {e}")
+        model_commit = None
+    logger.info(f"Model revision: {revision} -> {model_commit or 'unresolved'}")
+
     # Load model using falcon-perception
     logger.info(f"Loading model: {MODEL_ID} via falcon-perception engine")
     from falcon_perception import load_and_prepare_model
@@ -218,6 +271,7 @@ def main(
 
     model, tokenizer, model_args = load_and_prepare_model(
         hf_model_id=MODEL_ID,
+        hf_revision=model_commit or revision,  # load the commit that inference_info records
         device="cuda",
         dtype="bfloat16",
         compile=compile,
@@ -269,8 +323,10 @@ def main(
     # Track inference info
     inference_entry = {
         "model_id": MODEL_ID,
-        "model_name": "Falcon-OCR",
+        "model_name": MODEL_LABEL,
         "model_size": "0.3B",
+        "revision": revision,
+        "model_commit": model_commit,
         "task_mode": task_mode,
         "column_name": output_column,
         "timestamp": datetime.now().isoformat(),
@@ -333,6 +389,8 @@ def main(
         processing_time=processing_time_str,
         image_column=image_column,
         split=split,
+        revision=revision,
+        model_commit=model_commit,
     )
     card = DatasetCard(card_content)
     card.push_to_hub(output_dataset, token=HF_TOKEN)
@@ -364,7 +422,7 @@ if __name__ == "__main__":
         print("=" * 70)
         print("Falcon OCR - 0.3B Document OCR (falcon-perception engine)")
         print("=" * 70)
-        print(f"\nModel: {MODEL_ID}")
+        print(f"\nModel: {MODEL_ID} @ {DEFAULT_REVISION[:10]} ({MODEL_LABEL}; --revision to override)")
         print("License: Apache 2.0")
         print("\nTask Modes:")
         for mode, description in TASK_MODES.items():
@@ -441,6 +499,13 @@ if __name__ == "__main__":
     parser.add_argument(
         "--verbose", action="store_true", help="Log resolved package versions",
     )
+    parser.add_argument(
+        "--revision", default=None,
+        help=f"Model repo revision (branch, tag or commit sha). Default: the {MODEL_LABEL} "
+        f"pin {DEFAULT_REVISION[:10]}. Pass 'main' to follow the repo root (v1.5 since "
+        "2026-09-11) or any commit to reproduce a run; the resolved commit is recorded "
+        "in inference_info.",
+    )
 
     args = parser.parse_args()
 
@@ -463,4 +528,5 @@ if __name__ == "__main__":
         cudagraph=not args.no_cudagraph,
         progress=args.progress,
         verbose=args.verbose,
+        revision=args.revision,
     )

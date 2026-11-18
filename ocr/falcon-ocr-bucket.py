@@ -7,6 +7,9 @@
 #     "torchvision",
 #     "falcon-perception[ocr]",
 # ]
+#
+# [tool.hf-jobs]
+# flavor = "a10g-small"
 # ///
 
 """
@@ -30,7 +33,7 @@ Examples:
   uv run falcon-ocr-bucket.py ./test-images ./test-output
 
   # HF Jobs with bucket volumes
-  hf jobs uv run --flavor l4x1 \\
+  hf jobs uv run --flavor a10g-small \\
       -s HF_TOKEN \\
       -v hf://buckets/user/ocr-input:/input:ro \\
       -v hf://buckets/user/ocr-output:/output \\
@@ -39,6 +42,12 @@ Examples:
 
 Model: tiiuae/Falcon-OCR (0.3B, 80.3% olmOCR, Apache 2.0)
 Backend: falcon-perception (OCRInferenceEngine with CUDA graphs)
+
+Versions: upstream overwrote `main` with the v1.5 weights on 2026-09-11 (same repo, no
+tag). Like falcon-ocr.py this variant pins the last **v1** commit (42ec56b7…) by default;
+`--revision fe757d59ecd79d4d68760162306a70a015761ad9` runs the v1.5 release head and
+`--revision main` follows the repo root. The `[tool.hf-jobs]` header supplies the default
+flavor on hf >= 1.32; add `-s HF_TOKEN` yourself only if the bucket mounts need it.
 """
 
 import argparse
@@ -54,6 +63,9 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 logger = logging.getLogger(__name__)
 
 MODEL_ID = "tiiuae/Falcon-OCR"
+# Upstream swapped the weights in place (v1 -> v1.5) on 2026-09-11; this pin is the v1
+# identity shared with falcon-ocr.py. v1.5 release head = fe757d59ecd79d4d68760162306a70a015761ad9.
+DEFAULT_REVISION = "42ec56b72a23984ac059e7c8a6d397a8529423fe"  # last v1 commit, 2026-07-03
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".tiff", ".tif", ".bmp", ".webp"}
 
 
@@ -157,6 +169,12 @@ def main():
     parser.add_argument(
         "--verbose", action="store_true", help="Print resolved package versions",
     )
+    parser.add_argument(
+        "--revision", default=DEFAULT_REVISION,
+        help=f"Model repo revision (branch, tag or commit sha). Default: the v1 pin "
+        f"{DEFAULT_REVISION[:10]}. Pass fe757d59ec for the v1.5 release head or 'main' "
+        "to follow the repo root (v1.5 since 2026-09-11).",
+    )
 
     args = parser.parse_args()
 
@@ -200,7 +218,7 @@ def main():
     logger.info(f"Total images to OCR: {len(items)}")
 
     # Load model
-    logger.info(f"Loading {MODEL_ID} via falcon-perception engine...")
+    logger.info(f"Loading {MODEL_ID} (revision {args.revision}) via falcon-perception engine...")
     from falcon_perception import load_and_prepare_model
     from falcon_perception.data import ImageProcessor
     from falcon_perception.paged_ocr_inference import OCRInferenceEngine
@@ -210,6 +228,7 @@ def main():
 
     model, tokenizer, model_args = load_and_prepare_model(
         hf_model_id=MODEL_ID,
+        hf_revision=args.revision,
         device="cuda",
         dtype="bfloat16",
         compile=do_compile,
@@ -289,7 +308,7 @@ if __name__ == "__main__":
         print("  uv run falcon-ocr-bucket.py ./images ./output")
         print()
         print("HF Jobs with bucket volumes:")
-        print("  hf jobs uv run --flavor l4x1 -s HF_TOKEN \\")
+        print("  hf jobs uv run --flavor a10g-small -s HF_TOKEN \\")
         print("      -v hf://buckets/user/ocr-input:/input:ro \\")
         print("      -v hf://buckets/user/ocr-output:/output \\")
         print(
