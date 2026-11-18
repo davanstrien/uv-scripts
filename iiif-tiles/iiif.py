@@ -33,12 +33,9 @@ import re
 import shutil
 import sys
 import tempfile
-import time
 import traceback
 import unicodedata
-import urllib.error
 import urllib.parse
-import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
@@ -1388,36 +1385,37 @@ class HttpReader:
     def __init__(self, base_url: str):
         self.base_url = base_url
 
-    def _fetch(self, path: str, limit: int | None) -> bytes | None:
-        """Return the file content (or its first `limit` bytes), or None if it does not exist.
+    def _request(self, method: str, path: str):
+        """One request, without a token. Returns the response, or None if the file does not exist.
 
-        A network error, a rate limit or a server error is tried again. A missing file is not.
+        `http_backoff` from huggingface_hub does the retries: it tries again after a timeout,
+        a network error, a rate limit (429) or a server error, with a growing wait.
         """
+        from huggingface_hub.utils import http_backoff
+
         url = f"{self.base_url}/{urllib.parse.quote(path)}"
-        request = urllib.request.Request(url, headers={"User-Agent": "iiif-tiles-check"})
-        last_error = None
-        for attempt in range(4):
-            if attempt:
-                time.sleep(2**attempt)
-            try:
-                with urllib.request.urlopen(request, timeout=30) as response:
-                    return response.read() if limit is None else response.read(limit)
-            except urllib.error.HTTPError as error:
-                if error.code != 429 and error.code < 500:
-                    return None
-                last_error = error
-            except (urllib.error.URLError, TimeoutError, ConnectionError) as error:
-                last_error = error
+        try:
+            response = http_backoff(method, url, follow_redirects=True, timeout=30, max_retries=4)
+        except Exception as error:  # the network failed on every attempt
+            raise UserError(
+                f"Network error while reading {url}: {error}",
+                "Run check again. If it repeats, pass a lower --workers value.",
+            ) from error
+        if response.status_code == 200:
+            return response
+        if response.status_code in (401, 403, 404):
+            return None
         raise UserError(
-            f"Network error while reading {url}: {last_error}",
+            f"Unexpected HTTP status {response.status_code} for {url}",
             "Run check again. If it repeats, pass a lower --workers value.",
         )
 
     def get(self, path: str) -> bytes | None:
-        return self._fetch(path, None)
+        response = self._request("GET", path)
+        return None if response is None else response.content
 
     def exists(self, path: str) -> bool:
-        return self._fetch(path, 1) is not None
+        return self._request("HEAD", path) is not None
 
 
 def spread_sample(values: list, count: int) -> list:
@@ -1468,6 +1466,11 @@ def command_check(args, reporter: Reporter) -> dict:
             return None
 
     canvases = []
+    if reader.get("collection.json") is None:
+        raise UserError(
+            f"No published collection found at {args.dest}.",
+            "Check the destination name, and that the bucket is public. To publish: iiif.py publish <SOURCE> <DEST>",
+        )
     collection = load("collection.json", "Collection")
     manifests_checked = 0
     if collection is not None:
