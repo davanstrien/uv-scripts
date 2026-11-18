@@ -44,7 +44,7 @@ DATA_TOOLS = {
     "object-detection": "Check and convert detection datasets",
     "deduplication": "Remove near-duplicate text",
     "build-atlas": "Build an embedding atlas",
-    "iiif-tiles": "Make IIIF deep-zoom tiles",
+    "iiif-tiles": "Publish images as a IIIF collection",
     "data-processing": "Convert uploads to optimized Parquet",
 }
 
