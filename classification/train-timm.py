@@ -20,54 +20,57 @@
 # secrets = ["HF_TOKEN"]
 # ///
 """
-Train a timm image classifier on a Hugging Face dataset and push it to the Hub.
+Fine-tune a timm image classifier on a Hugging Face dataset and push it to the Hub.
 
-Handles single-label (ClassLabel column) and multi-label (List(ClassLabel) column)
-datasets. The task, label names, image column and label column are read from the
-dataset features.
+This script runs timm's own ``train.py`` (fetched at the tag of the installed timm
+release) and adds what a Hub run on HF Jobs needs around it:
 
-Two modes:
+- reads the task, image column, label column, label names and validation split from
+  the dataset features (``ClassLabel`` = single-label, ``List(ClassLabel)`` =
+  multi-label), and carves a seeded validation split if there is none;
+- runs ``train.py`` on every GPU of the flavor with ``torch.distributed.run`` (one Job;
+  it does not span several Jobs); the learning rate is a base rate that timm scales
+  with the global batch;
+- rebuilds the best checkpoint the way ``train.py`` built it, takes the validation
+  metrics from ``train.py``'s ``summary.csv``, and pushes the model with its label
+  names, its trained preprocessing config and a model card in one commit;
+- reloads the pushed model from the Hub and checks it against the trained one.
 
-- ``--mode finetune`` (default): runs timm's own ``train.py`` (fetched at the tag of
-  the installed timm release) with sensible defaults. Anything after a literal ``--``
-  goes to ``train.py`` unchanged. On a flavor with several GPUs (for example
-  ``l4x4``), it runs ``train.py`` on all of them with ``torch.distributed.run`` and
-  scales the learning rate by the number of GPUs. It does not span several Jobs.
-- ``--mode probe``: freezes the backbone, extracts pooled features once, and fits a
-  linear head on one GPU. Fast and cheap; a good first baseline.
+Anything after a literal ``--`` goes to ``train.py`` unchanged, for example
+``-- --loss asl --mixup 0.2``. On HF Jobs, put another ``--`` right after
+``hf jobs uv run`` and its flags, so ``hf`` passes the second one on.
 
-The pushed model loads with ``timm.create_model("hf-hub:<repo>", pretrained=True)``
-and carries the label names in its config.
+The pushed model loads with ``timm.create_model("hf-hub:<repo>", pretrained=True)``.
 
 Default backbone: ``timm/convnext_tiny.in12k_ft_in1k`` - one of the most downloaded timm
-checkpoints (28M params, ImageNet-12k pretrain, Apache-2.0), cheap on an A10G.
-DINOv3 ViT-S probes better but its licence would carry over to every pushed model.
+checkpoints (28M params, ImageNet-12k pretrain, Apache-2.0), cheap on an A10G. The base
+model's licence carries over to the trained model.
 
 Examples (the [tool.hf-jobs] header sets a10g-small, a 2h timeout and HF_TOKEN; hf CLI 1.32+):
 
-    # Multi-label linear probe (minutes on an A10G)
+    # Single-label, a short first run (about a minute of training)
     hf jobs uv run \\
         https://huggingface.co/datasets/uv-scripts/classification/raw/main/train-timm.py \\
-        timm/bee-dataset username/bee-probe --mode probe
+        AI-Lab-Makerere/beans username/beans-convnext --epochs 3
 
-    # Single-label fine-tune
+    # Multi-label
     hf jobs uv run \\
         https://huggingface.co/datasets/uv-scripts/classification/raw/main/train-timm.py \\
-        AI-Lab-Makerere/beans username/beans-convnext --epochs 10
+        timm/bee-dataset username/bee-convnext --epochs 10
 
-    # Fine-tune on four GPUs in one Job
+    # Four GPUs in one Job
     hf jobs uv run --flavor l4x4 \\
         https://huggingface.co/datasets/uv-scripts/classification/raw/main/train-timm.py \\
         AI-Lab-Makerere/beans username/beans-convnext --epochs 10
 
-    # Pass extra flags straight to timm train.py after "--". The first "--" stops hf from
-    # reading the script's flags, so the second one reaches the script.
+    # Extra flags for timm train.py after a second "--"
     hf jobs uv run -- \\
         https://huggingface.co/datasets/uv-scripts/classification/raw/main/train-timm.py \\
         timm/bee-dataset username/bee-asl --epochs 10 -- --loss asl --mixup 0.2
 """
 
 import argparse
+import csv
 import json
 import logging
 import os
@@ -85,12 +88,14 @@ import torch
 from huggingface_hub import HfApi
 from huggingface_hub.errors import HfHubHTTPError
 from huggingface_hub.utils import disable_progress_bars
-from timm.data import create_transform, resolve_data_config
-from timm.models import load_checkpoint, push_to_hf_hub
-from timm.task.evaluator import (
-    ClassificationEvaluator,
-    MultiLabelClassificationEvaluator,
+from timm.data.model_config import resolve_input_data_config
+from timm.models import (
+    create_model,
+    load_checkpoint,
+    resolve_model_input_args,
+    save_for_hf,
 )
+from timm.utils.checkpoint_saver import load_checkpoint_metadata
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("train-timm")
@@ -118,31 +123,19 @@ LABEL_COLUMN_PREFERENCE = [
     "targets",
 ]
 IMAGE_COLUMN_PREFERENCE = ["image", "img", "picture", "photo"]
-# timm's hfds reader lower-cases the dataset name, so a carved local copy must live on a lower-case path
 CARVED_DATA_ROOT = Path("/tmp/train-timm-data")
 
-
-# ----------------------------------------------------------------------------- args
-
-
-# train.py flags the script sets itself, or that change the architecture or preprocessing. The
-# parent rebuilds the pushed model from its own arguments, so these would make it differ from the
-# trained one. Use the script's own options instead.
+# train.py flags this script sets from the dataset, or that would change the label order. Every
+# other train.py flag passes through after "--": the pushed model is rebuilt from the arguments
+# train.py saved in its checkpoint, so architecture and preprocessing flags carry over.
 RESERVED_TRAIN_PY_FLAGS = [
-    "--model", "--num-classes", "--img-size", "--input-size", "--in-chans", "--model-kwargs",
-    "--gp", "--mean", "--std", "--interpolation", "--crop-pct", "--crop-mode",
     "--dataset", "--data-dir", "--train-split", "--val-split", "--input-key", "--target-key",
-    "--task", "--target-format", "--output", "--experiment", "--epochs", "--batch-size", "--lr",
+    "--num-classes", "--task", "--target-format", "--class-map", "--model", "--output",
+    "--experiment", "--config",
 ]  # fmt: skip
 
 
-def reserved_flags_in(passthrough):
-    found = []
-    for argument in passthrough:
-        for flag in RESERVED_TRAIN_PY_FLAGS:
-            if argument == flag or argument.startswith(flag + "="):
-                found.append(flag)
-    return found
+# ----------------------------------------------------------------------------- args
 
 
 def split_passthrough(argv):
@@ -153,10 +146,34 @@ def split_passthrough(argv):
     return argv, []
 
 
+def reserved_flags_in(passthrough):
+    """Reserved train.py flags in the passthrough, including argparse abbreviations and -c."""
+    found = []
+    for token in passthrough:
+        if token.startswith("-c") and not token.startswith("--"):
+            found.append("-c (config file)")
+            continue
+        if not token.startswith("--") or token == "--":
+            continue
+        name = token.split("=", 1)[0]
+        # argparse accepts any unique prefix, so "--mod" can mean "--model"
+        found += [flag for flag in RESERVED_TRAIN_PY_FLAGS if flag.startswith(name)]
+    return sorted(set(found))
+
+
+def timm_model_name(model):
+    """The name timm.create_model and train.py take: timm/<name> becomes <name>, other Hub ids hf-hub:<id>."""
+    if model.startswith("timm/"):
+        return model[len("timm/") :]
+    if "/" in model and not model.startswith("hf-hub:"):
+        return f"hf-hub:{model}"
+    return model
+
+
 def parse_args(argv):
     parser = argparse.ArgumentParser(
-        description="Train a timm image classifier on a Hub dataset and push it to the Hub.",
-        epilog="Arguments after a literal '--' are passed verbatim to timm train.py (finetune mode).",
+        description="Fine-tune a timm image classifier on a Hub dataset and push it to the Hub.",
+        epilog="Arguments after a literal '--' are passed verbatim to timm train.py.",
     )
     parser.add_argument(
         "dataset", help="Input dataset id on the Hub, e.g. timm/bee-dataset"
@@ -164,7 +181,6 @@ def parse_args(argv):
     parser.add_argument(
         "output_repo", help="Output model repo id, e.g. username/my-classifier"
     )
-    parser.add_argument("--mode", choices=["finetune", "probe"], default="finetune")
     parser.add_argument(
         "--model",
         default=DEFAULT_MODEL,
@@ -206,26 +222,19 @@ def parse_args(argv):
         help="Cap validation rows (for quick tests)",
     )
 
-    train = parser.add_argument_group("training")
-    train.add_argument(
-        "--epochs",
-        type=int,
-        default=None,
-        help="Default: 10 (finetune), 100 (probe head)",
-    )
-    train.add_argument("--batch-size", type=int, default=64)
+    train = parser.add_argument_group("training (passed to train.py)")
+    train.add_argument("--epochs", type=int, default=10)
+    train.add_argument("--batch-size", type=int, default=64, help="Per GPU")
     train.add_argument(
         "--lr",
         type=float,
-        default=None,
-        help="Default: 5e-5 (finetune), 1e-3 (probe head)",
+        default=5e-5,
+        help=(
+            "Learning rate for one GPU's batch (default: 5e-5). Passed as train.py --lr-base "
+            "with --lr-base-size = --batch-size, so timm scales it for several GPUs."
+        ),
     )
-    train.add_argument(
-        "--weight-decay",
-        type=float,
-        default=None,
-        help="Default: 0.05 (finetune), 1e-4 (probe)",
-    )
+    train.add_argument("--weight-decay", type=float, default=0.05)
     train.add_argument(
         "--img-size",
         type=int,
@@ -237,7 +246,10 @@ def parse_args(argv):
     )
     train.add_argument("--seed", type=int, default=42)
     train.add_argument(
-        "--num-workers", type=int, default=None, help="Default: from CPU_CORES env"
+        "--num-workers",
+        type=int,
+        default=None,
+        help="Data loader workers per GPU (default: from CPU_CORES)",
     )
 
     hub = parser.add_argument_group("hub")
@@ -260,15 +272,6 @@ def parse_args(argv):
     return args
 
 
-def timm_model_name(model):
-    """The name timm.create_model and train.py take: timm/<name> becomes <name>, other Hub ids hf-hub:<id>."""
-    if model.startswith("timm/"):
-        return model[len("timm/") :]
-    if "/" in model and not model.startswith("hf-hub:"):
-        return f"hf-hub:{model}"
-    return model
-
-
 # ----------------------------------------------------------------------------- environment
 
 
@@ -287,12 +290,33 @@ def pick_device(allow_cpu):
     )
 
 
-def default_num_workers():
+def gpu_count():
+    # device_count() asks NVML and does not create a CUDA context in this parent process
+    return torch.cuda.device_count() if torch.cuda.is_available() else 0
+
+
+def gpus_support_bf16():
+    """Compute capability 8.0+ (A10G, L4, A100, ...) supports bfloat16. Asks nvidia-smi so this
+    process does not hold a CUDA context on GPU 0 while train.py runs."""
+    try:
+        listed = subprocess.run(
+            ["nvidia-smi", "--query-gpu=compute_cap", "--format=csv,noheader"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=True,
+        ).stdout
+        capabilities = [float(line) for line in listed.split() if line.strip()]
+        return bool(capabilities) and min(capabilities) >= 8.0
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return False
+
+
+def default_num_workers(processes):
     # On HF Jobs, CPU_CORES is the real quota; os.cpu_count() reports the whole node.
     cores = os.environ.get("CPU_CORES")
-    if cores:
-        return max(1, int(float(cores)) - 1)
-    return min(8, max(1, (os.cpu_count() or 2) - 1))
+    total = int(float(cores)) if cores else min(8, os.cpu_count() or 2)
+    return max(1, (total - 1) // max(1, processes))
 
 
 def jobs_flavor() -> str:
@@ -368,16 +392,6 @@ def jobs_flavor() -> str:
         return min(candidates, key=distance).name
     except Exception:
         return ""
-
-
-def gpu_count():
-    return torch.cuda.device_count() if torch.cuda.is_available() else 0
-
-
-def amp_dtype_for(device):
-    if device.type == "cuda" and torch.cuda.is_bf16_supported():
-        return torch.bfloat16
-    return torch.float16
 
 
 # ----------------------------------------------------------------------------- dataset inspection
@@ -485,17 +499,17 @@ def carve_validation(train_ds, label_column, task, val_size, seed):
 
 
 def write_local_copy(train_ds, val_ds, dataset_id):
-    """Write the carved splits as parquet so timm train.py can read them with its hfds reader.
+    """Write changed splits (carved or capped) as parquet with real 'train' / 'validation' splits.
 
-    timm's hfds reader looks up split sizes in dataset.info.splits, so split slicing such as
-    "train[:90%]" does not work. A local parquet folder gives it real 'train' / 'validation' splits.
+    train.py could read a slice such as "train[:90%]", but a slice is neither seeded nor
+    stratified, so the script writes its own split for train.py's hfds reader.
     """
-    local_dir = CARVED_DATA_ROOT / dataset_id.replace("/", "__").lower()
+    local_dir = CARVED_DATA_ROOT / dataset_id.replace("/", "__")
     data_dir = local_dir / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
     train_ds.to_parquet(str(data_dir / "train-00000-of-00001.parquet"))
     val_ds.to_parquet(str(data_dir / "validation-00000-of-00001.parquet"))
-    logger.info(f"Wrote carved splits to {local_dir}")
+    logger.info(f"Wrote the train and validation splits to {local_dir}")
     return str(local_dir)
 
 
@@ -517,7 +531,7 @@ def prepare_data(args):
     task = "classification" if is_class_label(label_feature) else "multilabel"
     label_names = label_names_for(label_feature)
 
-    # Keep only the two columns we need; it keeps the carved copy and data loading small.
+    # Keep only the two columns train.py needs; it keeps a local copy small.
     train_ds = train_ds.select_columns([image_column, label_column])
 
     val_split = detect_val_split(split_names, args.val_split, args.train_split)
@@ -526,10 +540,8 @@ def prepare_data(args):
         train_ds, val_ds = carve_validation(
             train_ds, label_column, task, args.val_size, args.seed
         )
-        train_split_name, val_split_name = "train", "validation"
     else:
         val_ds = dataset_dict[val_split].select_columns([image_column, label_column])
-        train_split_name, val_split_name = args.train_split, val_split
 
     if args.max_train_samples:
         train_ds = train_ds.shuffle(seed=args.seed).select(
@@ -540,17 +552,13 @@ def prepare_data(args):
             range(min(args.max_val_samples, len(val_ds)))
         )
 
-    # train.py reads straight from the Hub unless we had to change the rows (probe mode never uses it).
-    needs_local_copy = args.mode == "finetune" and bool(
-        carved or args.max_train_samples or args.max_val_samples
-    )
-    train_py_dataset = (
-        write_local_copy(train_ds, val_ds, args.dataset)
-        if needs_local_copy
-        else args.dataset
-    )
-    if needs_local_copy:
+    # train.py reads straight from the Hub unless the rows changed.
+    if carved or args.max_train_samples or args.max_val_samples:
+        train_py_dataset = write_local_copy(train_ds, val_ds, args.dataset)
         train_split_name, val_split_name = "train", "validation"
+    else:
+        train_py_dataset = args.dataset
+        train_split_name, val_split_name = args.train_split, val_split
 
     plan = {
         "task": task,
@@ -570,144 +578,10 @@ def prepare_data(args):
         + json.dumps({k: v for k, v in plan.items() if k != "label_names"})
     )
     logger.info(f"Labels ({len(label_names)}): {label_names}")
-    return plan, train_ds, val_ds
+    return plan
 
 
-# ----------------------------------------------------------------------------- data loading
-
-
-class HfImageDataset(torch.utils.data.Dataset):
-    """Decodes images from a HF dataset and returns (tensor, target)."""
-
-    def __init__(
-        self, hf_dataset, image_column, label_column, transform, task, num_classes
-    ):
-        self.hf_dataset = hf_dataset
-        self.image_column = image_column
-        self.label_column = label_column
-        self.transform = transform
-        self.task = task
-        self.num_classes = num_classes
-
-    def __len__(self):
-        return len(self.hf_dataset)
-
-    def __getitem__(self, index):
-        row = self.hf_dataset[index]
-        image = row[self.image_column].convert("RGB")
-        label = row[self.label_column]
-        if self.task == "multilabel":
-            target = torch.zeros(self.num_classes, dtype=torch.float32)
-            for class_index in label:
-                target[class_index] = 1.0
-        else:
-            target = torch.tensor(label, dtype=torch.long)
-        return self.transform(image), target
-
-
-def make_eval_loader(hf_dataset, plan, model, batch_size, num_workers):
-    data_config = resolve_data_config(model=model)
-    transform = create_transform(**data_config, is_training=False)
-    torch_dataset = HfImageDataset(
-        hf_dataset,
-        plan["image_column"],
-        plan["label_column"],
-        transform,
-        plan["task"],
-        plan["num_classes"],
-    )
-    return torch.utils.data.DataLoader(
-        torch_dataset,
-        batch_size=batch_size,
-        shuffle=False,
-        num_workers=num_workers,
-        pin_memory=torch.cuda.is_available(),
-    )
-
-
-@torch.no_grad()
-def run_model(model, loader, device):
-    """Return (outputs, targets) for every batch in the loader, on CPU in float32."""
-    model.eval()
-    outputs = []
-    targets = []
-    autocast_enabled = device.type == "cuda"
-    started = time.time()
-    for batch_index, (images, batch_targets) in enumerate(loader):
-        images = images.to(device, non_blocking=True)
-        with torch.autocast(
-            device_type=device.type,
-            dtype=amp_dtype_for(device),
-            enabled=autocast_enabled,
-        ):
-            batch_outputs = model(images)
-        outputs.append(batch_outputs.float().cpu())
-        targets.append(batch_targets)
-        if batch_index % 20 == 0:
-            logger.info(
-                f"  batch {batch_index + 1}/{len(loader)} ({time.time() - started:.0f}s)"
-            )
-    return torch.cat(outputs), torch.cat(targets)
-
-
-# ----------------------------------------------------------------------------- metrics
-
-
-def best_threshold_for_label(probabilities, targets):
-    """Threshold in 0.05..0.95 that gives the best F1 for one label."""
-    best_threshold = 0.5
-    best_f1 = -1.0
-    for step in range(1, 20):
-        threshold = step * 0.05
-        predicted = probabilities >= threshold
-        true_positive = (predicted & targets).sum().item()
-        denominator = predicted.sum().item() + targets.sum().item()
-        f1 = 2 * true_positive / denominator if denominator else 0.0
-        if f1 > best_f1:
-            best_f1 = f1
-            best_threshold = threshold
-    return round(best_threshold, 2), best_f1
-
-
-def compute_metrics(logits, targets, plan, threshold):
-    """Return (metrics dict, per-label thresholds or None). Metrics are percentages."""
-    if plan["task"] == "classification":
-        evaluator = ClassificationEvaluator()
-        evaluator.update(logits, targets)
-        summary = evaluator.compute()
-        metrics = {
-            "top1": summary["top1"],
-            "top5": summary["top5"],
-            "loss": summary["loss"],
-        }
-        return {k: round(v, 4) for k, v in metrics.items()}, None
-
-    evaluator = MultiLabelClassificationEvaluator(threshold=threshold)
-    evaluator.update(logits, targets)
-    summary = evaluator.compute()
-    metrics = {
-        "map": summary["map"],
-        "micro_f1": summary["micro_f1"],
-        "macro_f1": summary["macro_f1"],
-        "sample_f1": summary["sample_f1"],
-        "loss": summary["loss"],
-    }
-
-    probabilities = logits.sigmoid()
-    target_bool = targets.bool()
-    thresholds = {}
-    per_label_f1 = []
-    for class_index, name in enumerate(plan["label_names"]):
-        best, f1 = best_threshold_for_label(
-            probabilities[:, class_index], target_bool[:, class_index]
-        )
-        thresholds[name] = best
-        per_label_f1.append(f1)
-    metrics["macro_f1_tuned"] = 100 * sum(per_label_f1) / len(per_label_f1)
-    return {k: round(v, 4) for k, v in metrics.items()}, thresholds
-
-
-# ----------------------------------------------------------------------------- finetune mode
+# ----------------------------------------------------------------------------- train.py
 
 
 def fetch_train_py(work_dir):
@@ -717,20 +591,12 @@ def fetch_train_py(work_dir):
     return path
 
 
-def build_train_command(
-    train_py, args, plan, output_dir, device, num_workers, passthrough
-):
-    epochs = args.epochs or 10
-    # LR is stepped per update, so one warmup epoch is fine even for very short runs
-    warmup_epochs = 1 if epochs >= 2 else 0
+def build_train_command(train_py, args, plan, output_dir, device, passthrough):
     processes = gpu_count() if device.type == "cuda" else 1
-    lr = (
-        args.lr or 5e-5
-    ) * processes  # --batch-size is per GPU: linear LR scaling for the global batch
     if processes > 1:
         logger.info(
             f"{processes} GPUs: running train.py with torch.distributed.run; "
-            f"global batch {args.batch_size * processes}, lr {lr:g}"
+            f"global batch {args.batch_size * processes}"
         )
         launcher = [
             sys.executable,
@@ -741,6 +607,13 @@ def build_train_command(
         ]
     else:
         launcher = [sys.executable]
+    num_workers = (
+        args.num_workers
+        if args.num_workers is not None
+        else default_num_workers(processes)
+    )
+    # LR is stepped per update, so one warmup epoch is fine even for very short runs
+    warmup_epochs = 1 if args.epochs >= 2 else 0
     command = launcher + [
         str(train_py),
         "--dataset", f"hfds/{plan['train_py_dataset']}",
@@ -751,15 +624,17 @@ def build_train_command(
         "--num-classes", str(plan["num_classes"]),
         "--model", args.model,
         "--pretrained",
-        "--epochs", str(epochs),
+        "--epochs", str(args.epochs),
         "--batch-size", str(args.batch_size),
         "--opt", "adamw",
-        "--lr", str(lr),
-        "--weight-decay", str(args.weight_decay if args.weight_decay is not None else 0.05),
+        # timm sets lr = lr-base x (global batch / lr-base-size)^k, with its own k for the optimizer
+        "--lr-base", str(args.lr),
+        "--lr-base-size", str(args.batch_size),
+        "--weight-decay", str(args.weight_decay),
         "--sched", "cosine",
         "--sched-on-updates",
         "--warmup-epochs", str(warmup_epochs),
-        "--workers", str(max(1, num_workers // processes)),
+        "--workers", str(num_workers),
         "--seed", str(args.seed),
         "--output", str(output_dir),
         "--experiment", "run",
@@ -771,144 +646,73 @@ def build_train_command(
         command += ["--multilabel-threshold", str(args.threshold)]
     if args.img_size:
         command += ["--img-size", str(args.img_size)]
-        if has_fixed_input_size(args.model):
-            # train.py resizes the data but not the model; ViTs need the size at creation
-            command += ["--model-kwargs", f"img_size={args.img_size}"]
     if device.type == "cuda":
         command += ["--amp", "--pin-mem"]
-        if amp_dtype_for(device) == torch.bfloat16:
+        if gpus_support_bf16():
             command += ["--amp-dtype", "bfloat16"]
     else:
         command += ["--device", "cpu"]
     return command + passthrough
 
 
-def run_finetune(args, plan, device, num_workers, passthrough):
+def run_train_py(args, plan, device, passthrough):
+    """Run train.py and return its run directory (best checkpoint, args.yaml, summary.csv)."""
     work_dir = Path(tempfile.mkdtemp(prefix="train-timm-"))
     train_py = fetch_train_py(work_dir)
     output_dir = work_dir / "output"
-    command = build_train_command(
-        train_py, args, plan, output_dir, device, num_workers, passthrough
-    )
+    command = build_train_command(train_py, args, plan, output_dir, device, passthrough)
     logger.info("Running: " + shlex.join(command))
     completed = subprocess.run(
         command, check=False, env={**os.environ, "PYTHONUNBUFFERED": "1"}
     )
     if completed.returncode != 0:
         sys.exit(f"ERROR: timm train.py failed with exit code {completed.returncode}")
-
-    checkpoint = output_dir / "run" / "model_best.pth.tar"
-    if not checkpoint.exists():
-        sys.exit(f"ERROR: expected best checkpoint at {checkpoint}, not found")
-    logger.info(f"Loading best checkpoint {checkpoint}")
-    model = timm.create_model(
-        args.model, pretrained=False, num_classes=plan["num_classes"]
-    )
-    if args.img_size:
-        set_input_size(
-            model, args.img_size
-        )  # before loading: the checkpoint has the trained size
-    # our own checkpoint, it holds the argparse Namespace so weights_only loading is not possible
-    load_checkpoint(model, str(checkpoint), weights_only=False)
-    return model.to(device)
+    run_dir = output_dir / "run"
+    if not (run_dir / "model_best.pth.tar").exists():
+        sys.exit(f"ERROR: expected the best checkpoint in {run_dir}, not found")
+    return run_dir
 
 
-def has_fixed_input_size(model_name):
-    """True for models (ViT family) whose position embeddings fix the input size; CNNs take any size."""
-    probe = timm.create_model(model_name, pretrained=False, num_classes=0)
-    return hasattr(probe, "set_input_size")
+def load_trained_model(run_dir):
+    """Rebuild the best checkpoint the way train.py built the model, from the arguments it saved.
 
-
-def set_input_size(model, img_size):
-    """Resize a fixed-size model, and record the size in pretrained_cfg so the pushed config preprocesses the same way."""
-    if hasattr(model, "set_input_size"):
-        model.set_input_size(img_size=img_size)  # resamples ViT position embeddings
-    channels = model.pretrained_cfg.get("input_size", (3, 224, 224))[0]
-    model.pretrained_cfg["input_size"] = (channels, img_size, img_size)
-    model.pretrained_cfg.pop("test_input_size", None)
-
-
-# ----------------------------------------------------------------------------- probe mode
-
-
-def fit_linear_head(
-    train_features,
-    train_targets,
-    task,
-    num_classes,
-    epochs,
-    lr,
-    weight_decay,
-    device,
-    seed,
-):
-    """Logistic regression on frozen features: CE for single-label, BCE for multi-label."""
-    torch.manual_seed(seed)
-    head = torch.nn.Linear(train_features.shape[1], num_classes).to(device)
-    optimizer = torch.optim.AdamW(head.parameters(), lr=lr, weight_decay=weight_decay)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
-    loss_fn = (
-        torch.nn.BCEWithLogitsLoss()
-        if task == "multilabel"
-        else torch.nn.CrossEntropyLoss()
-    )
-
-    features = train_features.to(device)
-    targets = train_targets.to(device)
-    batch_size = 256
-    for epoch in range(epochs):
-        order = torch.randperm(features.shape[0], device=device)
-        total_loss = 0.0
-        for start in range(0, features.shape[0], batch_size):
-            batch = order[start : start + batch_size]
-            loss = loss_fn(head(features[batch]), targets[batch])
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-            total_loss += loss.item() * batch.shape[0]
-        scheduler.step()
-        if epoch % 10 == 0 or epoch == epochs - 1:
-            logger.info(
-                f"  head epoch {epoch + 1}/{epochs} loss {total_loss / features.shape[0]:.4f}"
-            )
-    return head.cpu()
-
-
-def run_probe(args, plan, train_ds, device, num_workers):
-    logger.info(f"Creating frozen backbone {args.model}")
-    model = timm.create_model(args.model, pretrained=True, num_classes=0)
-    if args.img_size:
-        set_input_size(model, args.img_size)
-    model = model.to(device)
-
-    logger.info(f"Extracting train features ({len(train_ds)} images)")
-    train_loader = make_eval_loader(train_ds, plan, model, args.batch_size, num_workers)
-    train_features, train_targets = run_model(model, train_loader, device)
-    logger.info(f"Train features: {tuple(train_features.shape)}")
-
-    head = fit_linear_head(
-        train_features,
-        train_targets,
-        plan["task"],
-        plan["num_classes"],
-        epochs=args.epochs or 100,
-        lr=args.lr or 1e-3,
-        weight_decay=args.weight_decay if args.weight_decay is not None else 1e-4,
-        device=device,
-        seed=args.seed,
-    )
-
-    # Put the trained head into the model so it is a normal timm classifier.
-    model.reset_classifier(plan["num_classes"])
-    classifier = model.get_classifier()
-    if tuple(classifier.weight.shape) != tuple(head.weight.shape):
-        sys.exit(
-            f"ERROR: classifier shape {tuple(classifier.weight.shape)} != head {tuple(head.weight.shape)}"
+    Returns (model, train_args, best_epoch). Every model-shaping flag train.py received,
+    including passthrough flags such as --gp or --model-kwargs, carries over.
+    """
+    checkpoint = run_dir / "model_best.pth.tar"
+    metadata = load_checkpoint_metadata(str(checkpoint))
+    train_args = vars(metadata["args"])
+    model = create_model(
+        **resolve_model_input_args(
+            train_args["model"],
+            train_args,
+            pretrained=False,
+            num_classes=train_args["num_classes"],
+            global_pool=train_args["gp"],
+            bn_momentum=train_args["bn_momentum"],
+            bn_eps=train_args["bn_eps"],
+            **train_args["model_kwargs"],
         )
-    with torch.no_grad():
-        classifier.weight.copy_(head.weight)
-        classifier.bias.copy_(head.bias)
-    return model.to(device)
+    )
+    load_checkpoint(model, str(checkpoint))
+    logger.info(
+        f"Loaded best checkpoint (epoch {metadata['epoch']}, {metadata['metric']:.4f})"
+    )
+    return model.eval(), train_args, metadata["epoch"]
+
+
+def read_best_metrics(run_dir, best_epoch):
+    """The eval_* values train.py wrote to summary.csv for the best epoch, as {name: value}."""
+    with open(run_dir / "summary.csv", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    for row in rows:
+        if int(row["epoch"]) == int(best_epoch):
+            return {
+                name[len("eval_") :]: round(float(value), 4)
+                for name, value in row.items()
+                if name.startswith("eval_") and value not in ("", None)
+            }
+    sys.exit(f"ERROR: no summary.csv row for the best epoch {best_epoch}")
 
 
 # ----------------------------------------------------------------------------- model card + push
@@ -924,18 +728,15 @@ def base_model_license(model_name):
         info = HfApi().model_info(hub_id)
         card = info.card_data.to_dict() if info.card_data else {}
         return hub_id, card.get("license")
-    except (
-        HfHubHTTPError,
-        ValueError,
-    ) as error:  # ValueError: HFValidationError for odd ids
+    except (HfHubHTTPError, ValueError) as error:  # ValueError: HFValidationError
         # the base might not live under timm/ (e.g. a custom model name)
         logger.warning(f"Could not read base model info for {hub_id}: {error}")
         return None, None
 
 
-def reproduction_command(argv):
+def reproduction_command(argv, flavor):
     """The command that made this model: same flavor, and the script's own args as passed."""
-    flags = f"--flavor {jobs_flavor() or 'a10g-small'} --secrets HF_TOKEN --timeout 2h"
+    flags = f"--flavor {flavor or 'a10g-small'} --secrets HF_TOKEN --timeout 2h"
     return f"hf jobs uv run {flags} -- " + shlex.join([SCRIPT_URL, *argv])
 
 
@@ -943,32 +744,26 @@ def metrics_table(metrics):
     lines = ["| Metric | Value |", "| --- | --- |"]
     for name, value in metrics.items():
         lines.append(
-            f"| {name} | {value:.2f} |"
-            if name != "loss"
-            else f"| {name} | {value:.4f} |"
+            f"| {name} | {value:.4f} |"
+            if name == "loss"
+            else f"| {name} | {value:.2f} |"
         )
     return "\n".join(lines)
 
 
-def label_table(plan, thresholds):
-    if thresholds is None:
-        lines = ["| Index | Label |", "| --- | --- |"]
-        for index, name in enumerate(plan["label_names"]):
-            lines.append(f"| {index} | {name} |")
-    else:
-        lines = ["| Index | Label | Tuned threshold |", "| --- | --- | --- |"]
-        for index, name in enumerate(plan["label_names"]):
-            lines.append(f"| {index} | {name} | {thresholds[name]} |")
+def label_table(label_names):
+    lines = ["| Index | Label |", "| --- | --- |"]
+    for index, name in enumerate(label_names):
+        lines.append(f"| {index} | {name} |")
     return "\n".join(lines)
 
 
-def usage_snippet(repo_id, task):
+def usage_snippet(repo_id, task, threshold):
     if task == "multilabel":
         predict = (
             "probs = model(transform(image).unsqueeze(0)).sigmoid()[0]\n"
             'labels = model.pretrained_cfg["label_names"]\n'
-            '# per-label tuned thresholds are in config.json under "multilabel_thresholds"\n'
-            "print([name for name, p in zip(labels, probs) if p >= 0.5])"
+            f"print([name for name, p in zip(labels, probs) if p >= {threshold}])"
         )
     else:
         predict = (
@@ -988,7 +783,8 @@ def usage_snippet(repo_id, task):
     )
 
 
-def build_model_card(args, plan, metrics, thresholds, argv, base_hub_id, license_name):
+def build_model_card(args, plan, metrics, best_epoch, argv):
+    base_hub_id, license_name = base_model_license(args.model)
     on_jobs = os.environ.get("JOB_ID") is not None
     hw = jobs_flavor()
     origin = (
@@ -1015,11 +811,6 @@ def build_model_card(args, plan, metrics, thresholds, argv, base_hub_id, license
         frontmatter += ["base_model:", f"- {base_hub_id}"]
     frontmatter += ["datasets:", f"- {args.dataset}", "---"]
 
-    mode_text = (
-        "fine-tuned end to end with timm `train.py`"
-        if args.mode == "finetune"
-        else "a linear probe (frozen backbone, trained linear head)"
-    )
     task_text = "multi-label" if plan["task"] == "multilabel" else "single-label"
     split_text = (
         f"a seeded {args.val_size:.0%} split carved from `{args.train_split}` (seed {args.seed})"
@@ -1031,116 +822,94 @@ def build_model_card(args, plan, metrics, thresholds, argv, base_hub_id, license
         if base_hub_id
         else f"`{args.model}`"
     )
+    multilabel_note = (
+        f"\n\nPredictions use a threshold of {args.threshold}. `map` is timm's mean average "
+        "precision, which can differ from scikit-learn's per-class average precision. "
+        "`sample_f1` follows timm and scores images with no labels as 0."
+        if plan["task"] == "multilabel"
+        else ""
+    )
 
     sections = [
         "\n".join(frontmatter),
         f"# {args.output_repo.split('/')[-1]}",
         (
-            f"A {task_text} image classifier: {base_link} {mode_text} on "
+            f"A {task_text} image classifier: {base_link} fine-tuned with timm `train.py` "
+            f"(timm {timm.__version__}) on "
             f"[`{args.dataset}`](https://huggingface.co/datasets/{args.dataset})."
         ),
         (
             f"- Image column: `{plan['image_column']}`, label column: `{plan['label_column']}`\n"
             f"- Train rows: {plan['num_train']}, validation rows: {plan['num_val']} ({split_text})"
         ),
-        "## Labels\n\n" + label_table(plan, thresholds),
+        "## Labels\n\n" + label_table(plan["label_names"]),
         "## Evaluation\n\n"
-        + f"Validation metrics (percent) on {split_text}:\n\n"
+        + f"Validation metrics from timm `train.py` (percent) for the best epoch ({best_epoch}) "
+        + f"on {split_text}:\n\n"
         + metrics_table(metrics)
-        + (
-            "\n\n`macro_f1_tuned` uses per-label thresholds tuned on this same validation split, "
-            "so it is optimistic. The tuned thresholds are stored as `multilabel_thresholds` in `config.json`. "
-            "`sample_f1` follows timm and scores images with no labels as 0, so it is low when many "
-            "images have no labels. `map` is timm's `MultiLabelClassificationEvaluator` mAP, which can "
-            "differ from scikit-learn's per-class average precision."
-            if plan["task"] == "multilabel"
-            else ""
-        ),
-        "## Usage\n\n" + usage_snippet(args.output_repo, plan["task"]),
+        + multilabel_note,
+        "## Usage\n\n" + usage_snippet(args.output_repo, plan["task"], args.threshold),
         (
             "## Reproduction\n\n"
             f"{origin} with the [`train-timm.py`]({SCRIPT_URL}) recipe from "
             "[uv-scripts](https://huggingface.co/uv-scripts). Run it yourself:\n\n"
             "```bash\n"
-            f"{reproduction_command(argv)}\n"
+            f"{reproduction_command(argv, hw)}\n"
             "```"
         ),
     ]
     return "\n\n".join(sections) + "\n"
 
 
-def push_model(model, args, plan, metrics, thresholds, argv):
+def push_model(model, train_args, args, plan, metrics, best_epoch, argv):
+    """Save with timm's save_for_hf (weights, config with labels and the trained preprocessing),
+    add the model card, and upload everything in one commit."""
+    model_config = {"label_names": plan["label_names"], "task": plan["task"]}
+    if plan["task"] == "multilabel":
+        model_config["multilabel_threshold"] = args.threshold
+    model_config["eval_metrics"] = metrics
+
+    export_dir = Path(tempfile.mkdtemp(prefix="train-timm-export-"))
+    save_for_hf(
+        model.cpu(),
+        str(export_dir),
+        model_config=model_config,
+        data_config=resolve_input_data_config(model, train_args),
+        safe_serialization=True,
+    )
+    card = build_model_card(args, plan, metrics, best_epoch, argv)
+    (export_dir / "README.md").write_text(card)
+
     api = HfApi()
     api.create_repo(
         args.output_repo, repo_type="model", private=args.private, exist_ok=True
     )
-
-    model_config = {
-        "num_classes": plan["num_classes"],
-        "label_names": plan["label_names"],
-        "task": plan["task"],
-    }
-    if plan["task"] == "multilabel":
-        model_config["multilabel_threshold"] = args.threshold
-        model_config["multilabel_thresholds"] = thresholds
-    model_config["eval_metrics"] = metrics
-
     logger.info(f"Pushing model to {args.output_repo}")
-    push_to_hf_hub(
-        model.cpu(),
-        args.output_repo,
-        commit_message=f"Train {args.model} on {args.dataset} ({args.mode})",
-        private=args.private,
-        model_config=model_config,
-        safe_serialization=True,
-    )
-
-    base_hub_id, license_name = base_model_license(args.model)
-    card = build_model_card(
-        args, plan, metrics, thresholds, argv, base_hub_id, license_name
-    )
-    api.upload_file(
-        path_or_fileobj=card.encode(),
-        path_in_repo="README.md",
+    api.upload_folder(
         repo_id=args.output_repo,
-        commit_message="Add model card",
+        folder_path=str(export_dir),
+        commit_message=f"Fine-tune {args.model} on {args.dataset}",
     )
     logger.info(f"Pushed: https://huggingface.co/{args.output_repo}")
 
 
 @torch.no_grad()
-def reload_check(args, plan, local_model, val_ds, device):
-    """Reload the pushed model from the Hub and compare one prediction with the local model."""
+def reload_check(args, plan, local_model, device):
+    """Reload the pushed model from the Hub; check its labels and its logits on a fixed input."""
     logger.info("Reload check: timm.create_model('hf-hub:...', pretrained=True)")
-    hub_model = (
-        timm.create_model(f"hf-hub:{args.output_repo}", pretrained=True)
-        .to(device)
-        .eval()
-    )
+    hub_model = timm.create_model(f"hf-hub:{args.output_repo}", pretrained=True)
+    hub_model = hub_model.to(device).eval()
     hub_labels = list(hub_model.pretrained_cfg.get("label_names") or [])
     if hub_labels != plan["label_names"]:
         sys.exit(f"ERROR: reloaded label_names {hub_labels} != {plan['label_names']}")
 
-    loader = make_eval_loader(
-        val_ds.select(range(1)), plan, hub_model, batch_size=1, num_workers=0
-    )
-    image, _ = next(iter(loader))
-    image = image.to(device)
+    input_size = timm.data.resolve_data_config(model=hub_model)["input_size"]
+    generator = torch.Generator().manual_seed(0)
+    image = torch.randn(1, *input_size, generator=generator).to(device)
     local_model = local_model.to(device).eval()
-    hub_logits = hub_model(image).float()
-    local_logits = local_model(image).float()
-    max_diff = (hub_logits - local_logits).abs().max().item()
-    if plan["task"] == "multilabel":
-        probabilities = hub_logits.sigmoid()[0]
-        predicted = [
-            name
-            for name, p in zip(hub_labels, probabilities.tolist())
-            if p >= args.threshold
-        ]
-    else:
-        predicted = hub_labels[hub_logits.argmax(-1).item()]
+    max_diff = (hub_model(image) - local_model(image)).abs().max().item()
     logger.info(
-        f"Reload OK: prediction on first val image = {predicted}; max |logit diff| = {max_diff:.2e}"
+        f"Reload OK: labels match; input {tuple(input_size)}; max |logit diff| = {max_diff:.2e}"
     )
     if max_diff > 1e-3:
         sys.exit(
@@ -1155,51 +924,39 @@ def main():
     started = time.time()
     own_argv, passthrough = split_passthrough(sys.argv[1:])
     args = parse_args(own_argv)
-    if passthrough and args.mode == "probe":
-        sys.exit(
-            "ERROR: arguments after '--' are for timm train.py and only apply to --mode finetune"
-        )
     reserved = reserved_flags_in(passthrough)
     if reserved:
         sys.exit(
-            f"ERROR: {', '.join(reserved)} after '--' would make the pushed model or its config "
-            "differ from the trained one. Use the script's own options (--model, --img-size, "
-            "--epochs, --batch-size, --lr, ...) instead."
+            f"ERROR: {', '.join(reserved)} after '--' would clash with what the script sets "
+            "from the dataset or with the label order. Use the script's own options "
+            "(--model, --train-split, --label-column, ...) instead."
         )
 
     device = pick_device(args.allow_cpu)
-    num_workers = (
-        args.num_workers if args.num_workers is not None else default_num_workers()
-    )
     logger.info(
         f"timm {timm.__version__}, torch {torch.__version__}, device {device}, GPUs {gpu_count()}"
     )
-    logger.info(f"Data loader workers: {num_workers}")
 
-    plan, train_ds, val_ds = prepare_data(args)
+    plan = prepare_data(args)
+    run_dir = run_train_py(args, plan, device, passthrough)
+    model, train_args, best_epoch = load_trained_model(run_dir)
+    metrics = read_best_metrics(run_dir, best_epoch)
+    print(
+        "METRICS "
+        + json.dumps(
+            {
+                "model": args.model,
+                "task": plan["task"],
+                "best_epoch": best_epoch,
+                "metrics": metrics,
+            }
+        ),
+        flush=True,
+    )
 
-    if args.mode == "finetune":
-        model = run_finetune(args, plan, device, num_workers, passthrough)
-    else:
-        model = run_probe(args, plan, train_ds, device, num_workers)
-
-    logger.info(f"Evaluating on validation ({len(val_ds)} images)")
-    val_loader = make_eval_loader(val_ds, plan, model, args.batch_size, num_workers)
-    logits, targets = run_model(model, val_loader, device)
-    metrics, thresholds = compute_metrics(logits, targets, plan, args.threshold)
-    result = {
-        "mode": args.mode,
-        "model": args.model,
-        "task": plan["task"],
-        "metrics": metrics,
-    }
-    if thresholds:
-        result["thresholds"] = thresholds
-    print("METRICS " + json.dumps(result), flush=True)
-
-    push_model(model, args, plan, metrics, thresholds, sys.argv[1:])
+    push_model(model, train_args, args, plan, metrics, best_epoch, sys.argv[1:])
     if not args.skip_reload_check:
-        reload_check(args, plan, model, val_ds, device)
+        reload_check(args, plan, model, device)
     logger.info(f"Done in {(time.time() - started) / 60:.1f} min")
 
 

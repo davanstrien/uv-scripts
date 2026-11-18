@@ -35,7 +35,7 @@ You need the `hf` CLI, signed in, and Jobs credit: see the [Jobs quickstart](htt
 | [`train-setfit.py`](#few-shot-with-setfit-train-setfitpy) | **Few-shot** train a classifier from 8-64 labels per class with [SetFit](https://huggingface.co/docs/setfit) — runs on CPU or GPU |
 | [`train-classifier.py`](#fine-tune-a-classifier-train-classifierpy) | **Fine-tune** an encoder into a classifier (default: [LFM2.5-Encoder-350M](https://huggingface.co/LiquidAI/LFM2.5-Encoder-350M)) and push it to the Hub |
 | [`train-kev.py`](#fine-tune-a-kev-decision-model-train-kevpy) | **Fine-tune** the open [Kev-4B](https://huggingface.co/jaredpalmer/kev-4b) decision model on your own questions, with Kev's own training code |
-| [`train-timm.py`](#image-classification-with-timm-train-timmpy) | **Image classification:** fine-tune or linear-probe a [timm](https://github.com/huggingface/pytorch-image-models) model on a Hub image dataset, single-label or multi-label (experimental) |
+| [`train-timm.py`](#image-classification-with-timm-train-timmpy) | **Image classification:** fine-tune a [timm](https://github.com/huggingface/pytorch-image-models) model on a Hub image dataset, single-label or multi-label (experimental) |
 | [`classify-dataset.py`](#zero-shot-classification-classify-datasetpy) | **Zero-shot** classify a dataset with an instruction LLM (SmolLM3 + vLLM, structured outputs) |
 | [`classify-dataset-sglang.py`](#zero-shot-classification-classify-datasetpy) | Zero-shot variant on SGLang (reasoning-aware `<think>` models) |
 
@@ -48,7 +48,7 @@ Pick by how many labels you have:
 | a few hundred to a few thousand | `train-gliner2.py`, which also shows you what zero-shot already gets | small GPU (`t4-small`) |
 | a few thousand or more | `train-classifier.py` | GPU |
 
-For images, use `train-timm.py`: a linear probe first, then a fine-tune (GPU).
+For images, use `train-timm.py` (GPU).
 
 The rungs chain: bootstrap labels with `classify-gliner2.py` or `classify-dataset.py`, review them,
 then train a small dedicated model on what you kept. Each rung is one command, so you can move up
@@ -354,24 +354,24 @@ Then copy the folder to your bucket: `hf buckets sync ./newsgroups hf://buckets/
 
 ## Image classification with timm (`train-timm.py`)
 
-For images: train a [timm](https://github.com/huggingface/pytorch-image-models) classifier on a Hub
-image dataset and push it to the Hub. A `ClassLabel` column gives a single-label model and a
-`List(ClassLabel)` column a multi-label one; the script reads the columns, label names and
-validation split from the dataset. Experimental: it works on HF Jobs, but the options may change.
+For images: fine-tune a [timm](https://github.com/huggingface/pytorch-image-models) classifier on a
+Hub image dataset and push it to the Hub. The script runs timm's own `train.py` and adds the Hub and
+Jobs parts around it. A `ClassLabel` column gives a single-label model and a `List(ClassLabel)`
+column a multi-label one; the script reads the columns, label names and validation split from the
+dataset. Experimental: it works on HF Jobs, but the options may change.
 
-Start with a linear probe (frozen backbone, trained head). Fine-tune when the probe is not good
-enough. The `[tool.hf-jobs]` header sets `a10g-small`, a 2-hour timeout and `HF_TOKEN`:
+The `[tool.hf-jobs]` header sets `a10g-small`, a 2-hour timeout and `HF_TOKEN`:
 
 ```bash
-# Linear probe, multi-label
+# Single-label, a short first run
 hf jobs uv run \
   https://huggingface.co/datasets/uv-scripts/classification/raw/main/train-timm.py \
-  timm/bee-dataset username/bee-probe --mode probe
+  AI-Lab-Makerere/beans username/beans-convnext --epochs 3
 
-# Full fine-tune, single-label
+# Multi-label
 hf jobs uv run \
   https://huggingface.co/datasets/uv-scripts/classification/raw/main/train-timm.py \
-  AI-Lab-Makerere/beans username/beans-convnext --epochs 10
+  timm/bee-dataset username/bee-convnext --epochs 10
 ```
 
 The result loads with `timm.create_model("hf-hub:username/beans-convnext", pretrained=True)`, and
@@ -379,35 +379,26 @@ The result loads with `timm.create_model("hf-hub:username/beans-convnext", pretr
 
 ### Measured
 
-Default backbone [`convnext_tiny.in12k_ft_in1k`](https://huggingface.co/timm/convnext_tiny.in12k_ft_in1k),
-evaluated on each dataset's validation split. Time is the whole Job after setup: data, training,
-evaluation, push and reload check.
-
-| Dataset | Task | Mode | Flavor | Time | Result |
-|---|---|---|---|---|---|
-| [`AI-Lab-Makerere/beans`](https://huggingface.co/datasets/AI-Lab-Makerere/beans) | single-label, 3 classes | fine-tune, 2 epochs | `a10g-small` | 0.7 min | top-1 95.5% |
-| [`timm/bee-dataset`](https://huggingface.co/datasets/timm/bee-dataset) | multi-label, 4 labels | probe | `a10g-small` | 0.4 min | mAP 99.0, macro F1 95.6 |
-MULTI_GPU_ROW
+MEASURED_TABLE
 
 **These are easy datasets.** They show that the recipe runs end to end, not how well it does on
-your images. Compare the probe and a fine-tune on your own data before you trust either.
+your images. Try two or three backbones (`--model`) on your own data before you trust one.
 
 ### Good to know
 
-- **Several GPUs in one Job.** On a flavor such as `l4x4`, fine-tune mode trains on all its GPUs.
-  `--batch-size` is per GPU, and the learning rate is multiplied by the GPU count. It does not
-  train across several Jobs.
-- **timm options pass through.** Everything after a second literal `--` goes to timm `train.py`.
-  Put the first `--` right after `hf jobs uv run` and its flags, so `hf` passes the second one on:
+- **Any timm model.** `--model` takes a Hub ID such as `timm/resnet50.a1_in1k` or a bare timm name.
+  The base model's licence carries over to the trained model; the default is Apache-2.0.
+- **Several GPUs in one Job.** On a flavor such as `l4x4`, the script runs `train.py` on all its
+  GPUs. `--batch-size` is per GPU, and `--lr` is the rate for one GPU's batch: timm scales it for
+  the global batch. It does not train across several Jobs.
+- **timm options pass through.** Everything after a second `--` goes to `train.py`, and the pushed
+  model keeps architecture and preprocessing flags. Put the first `--` right after
+  `hf jobs uv run` and its flags, so `hf` passes the second one on:
   `hf jobs uv run -- <script-url> timm/bee-dataset username/bee-asl -- --loss asl --mixup 0.2`.
-  Flags the script sets itself, or that change the architecture or preprocessing, are refused.
 - **No validation split?** The script carves a seeded 10% split from `train` and says so on the card.
-- **Multi-label thresholds.** The pushed `config.json` holds per-label thresholds tuned on the
-  validation split, as `multilabel_thresholds`.
-- **The base model's licence carries over.** The default backbone is Apache-2.0; check the
-  licence of any `--model` you swap in.
+- **Metrics come from timm.** The card shows `train.py`'s validation metrics for the best epoch.
 
-All options, the defaults the script picks, and timm details: [TIMM-NOTES.md](TIMM-NOTES.md).
+All options, what the script decides for you, and timm details: [TIMM-NOTES.md](TIMM-NOTES.md).
 
 ## Zero-shot classification (`classify-dataset.py`)
 
