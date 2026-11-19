@@ -74,6 +74,13 @@ TESTED_MODELS = {
         "Qwen/Qwen3-Embedding-0.6B",
         "google/embeddinggemma-2",
     ],
+    # Backbones that do well with the default command (lr 5e-5). CNNs such as resnet50.a1_in1k ran
+    # but stayed at 47-63% top-1 on beans in 3 epochs with it, so they are not listed.
+    "classification/train-timm.py": [
+        "timm/vit_small_patch16_224.augreg_in21k_ft_in1k",
+        "timm/vit_base_patch16_224.augreg2_in21k_ft_in1k",
+        "timm/convnext_small.in12k_ft_in1k",
+    ],
 }
 
 # Left out of the Space until they run again.
