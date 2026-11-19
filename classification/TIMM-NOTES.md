@@ -90,7 +90,8 @@ an error if the labels or the logits differ from the trained model.
   cannot load PiT's pretrained weights at another size (`pit_ti_224` at 256 stops in `train.py`
   with a `pos_embed` size mismatch, before training starts).
 - **Output repo.** The script creates the output repo before training, so a bad name or a token
-  without write access fails in seconds rather than after the run.
+  that cannot create the repo fails in seconds rather than after the run. (A token that can read
+  an existing repo but not write to it still fails only at the upload.)
 - **Metrics.** The card's metrics are the `eval_*` columns of `train.py`'s `summary.csv` for the
   best epoch. With `--model-ema`, `train.py` validates the EMA weights and the script pushes them.
   With `--model-ema-force-cpu`, `train.py` validates the regular weights, so the script pushes those. `map` is timm's mean average precision and can differ from scikit-learn's per-class

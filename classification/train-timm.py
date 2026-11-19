@@ -609,12 +609,18 @@ def build_train_command(train_py, args, plan, output_dir, device, passthrough):
         ]
     else:
         launcher = [sys.executable]
-    global_batch = args.batch_size * processes
-    if plan["num_train"] < global_batch:
+    # timm's train loader drops the last partial batch, so each GPU needs one full batch.
+    # The distributed sampler pads every GPU to ceil(rows / GPUs). Skipped when a passthrough
+    # flag sets the batch size, since train.py's own value then applies.
+    rows_per_gpu = -(-plan["num_train"] // processes)
+    batch_in_passthrough = any(
+        token.startswith("--batch") or token.startswith("-b") for token in passthrough
+    )
+    if rows_per_gpu < args.batch_size and not batch_in_passthrough:
         sys.exit(
-            f"ERROR: {plan['num_train']} training rows cannot fill one global batch of "
-            f"{global_batch} ({args.batch_size} per GPU x {processes}); timm drops the last "
-            "partial batch. Lower --batch-size or use a smaller flavor."
+            f"ERROR: {plan['num_train']} training rows give {rows_per_gpu} per GPU on "
+            f"{processes} GPU(s), less than one batch of {args.batch_size}; timm drops the "
+            "last partial batch. Lower --batch-size or use a smaller flavor."
         )
     num_workers = (
         args.num_workers
@@ -983,7 +989,7 @@ def main():
     model, train_args, best_epoch = load_trained_model(run_dir)
     # train.py's own values win: a passthrough --multilabel-threshold or --in-chans is what it used
     plan["threshold"] = train_args.get("multilabel_threshold", args.threshold)
-    plan["in_chans"] = train_args.get("in_chans") or 3
+    plan["in_chans"] = resolve_input_data_config(model, train_args)["input_size"][0]
     metrics = read_best_metrics(run_dir, best_epoch)
     print(
         "METRICS "
