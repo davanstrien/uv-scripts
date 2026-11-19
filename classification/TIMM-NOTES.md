@@ -40,8 +40,11 @@ checkpoint. Flags that clash with what the script sets from the dataset are refu
 (it would change the label order), `--model`, `--output`, `--experiment`, `-c`/`--config` and `--split-bn`.
 `--split-bn` is refused because it changes the checkpoint layout after the model is built.
 Abbreviations of these (for example `--mod`) are refused too. `--epochs`, `--batch-size` and `--lr`
-after `--` override the script's values, as in `train.py`. Use the script's own `--epochs`, though:
-the one warmup epoch is set from it, so `-- --epochs 1` would spend the whole run in warmup.
+after `--` override the script's values, as in `train.py`. Use the script's own options for these,
+though. The one warmup epoch is set from `--epochs`, so `-- --epochs 1` would spend the whole run in
+warmup. `--lr-base-size` is set from the script's `--batch-size`, so `-- --batch-size 8` also changes
+the learning rate. Train.py values that the card reports, such as `--multilabel-threshold`, are read
+back from the checkpoint, so a passthrough value shows up correctly.
 
 ## What the script decides
 
@@ -82,16 +85,18 @@ an error if the labels or the logits differ from the trained model.
   (for example `v1.0.31`), so the trainer and the library always match. timm 1.0.31 is the first
   PyPI release with `--task multilabel`.
 - **Rebuilding the model.** `model_best.pth.tar` holds `train.py`'s full arguments. The script
-  rebuilds the model with `resolve_model_input_args` and `create_model`, the same call `train.py`
-  uses, so fixed-size models at another `--img-size` (ViT, LeViT, VOLO, ...) load correctly. timm
+  rebuilds the model with `resolve_model_input_args` and `create_model`, as `train.py`
+  does (the training-only drop-rate arguments are left out), so fixed-size models at another `--img-size` (ViT, LeViT, VOLO, ...) load correctly. timm
   cannot load PiT's pretrained weights at another size (`pit_ti_224` at 256 stops in `train.py`
   with a `pos_embed` size mismatch, before training starts).
+- **Output repo.** The script creates the output repo before training, so a bad name or a token
+  without write access fails in seconds rather than after the run.
 - **Metrics.** The card's metrics are the `eval_*` columns of `train.py`'s `summary.csv` for the
-  best epoch. With `--model-ema`, the summary row and the best checkpoint both refer to the EMA
-  weights. `map` is timm's mean average precision and can differ from scikit-learn's per-class
+  best epoch. With `--model-ema`, `train.py` validates the EMA weights and the script pushes them.
+  With `--model-ema-force-cpu`, `train.py` validates the regular weights, so the script pushes those. `map` is timm's mean average precision and can differ from scikit-learn's per-class
   average precision. timm's `sample_f1` scores images with no labels as 0.
-- **Multi-label flags.** `--task multilabel` needs an explicit `--num-classes`, and a
-  `List(ClassLabel)` column needs `--target-format indices`. The script passes both.
+- **Multi-label flags.** `--task multilabel` needs an explicit `--num-classes`, which the script
+  passes, along with `--target-format indices` (timm's default for a `List(ClassLabel)` column).
 - **Warmup.** `train.py` defaults to 5 warmup epochs and does not shorten them for short runs.
   Without `--sched-on-updates` the learning rate changes once per epoch. With lr 2e-4, 2 epochs
   and no warmup, beans fell to chance; the script passes one warmup epoch and `--sched-on-updates`.

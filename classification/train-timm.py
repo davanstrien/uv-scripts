@@ -86,16 +86,15 @@ import datasets
 import timm
 import torch
 from huggingface_hub import HfApi
-from huggingface_hub.errors import HfHubHTTPError
 from huggingface_hub.utils import disable_progress_bars
-from timm.data.model_config import resolve_input_data_config
+from timm.data import resolve_input_data_config
 from timm.models import (
     create_model,
     load_checkpoint,
     resolve_model_input_args,
     save_for_hf,
 )
-from timm.utils.checkpoint_saver import load_checkpoint_metadata
+from timm.utils import load_checkpoint_metadata
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("train-timm")
@@ -163,8 +162,9 @@ def reserved_flags_in(passthrough):
 
 
 def timm_model_name(model):
-    """The name timm.create_model and train.py take: timm/<name> becomes <name>, other Hub ids hf-hub:<id>."""
-    if model.startswith("timm/"):
+    """The name timm.create_model and train.py take: timm/<name> becomes <name>, other Hub ids
+    (and any id with an @revision) hf-hub:<id>."""
+    if model.startswith("timm/") and "@" not in model:
         return model[len("timm/") :]
     if "/" in model and not model.startswith("hf-hub:"):
         return f"hf-hub:{model}"
@@ -569,6 +569,7 @@ def prepare_data(args):
         "num_classes": len(label_names),
         "train_split": train_split_name,
         "val_split": val_split_name,
+        "val_split_source": val_split,
         "val_carved": carved,
         "train_py_dataset": train_py_dataset,
         "num_train": len(train_ds),
@@ -608,6 +609,13 @@ def build_train_command(train_py, args, plan, output_dir, device, passthrough):
         ]
     else:
         launcher = [sys.executable]
+    global_batch = args.batch_size * processes
+    if plan["num_train"] < global_batch:
+        sys.exit(
+            f"ERROR: {plan['num_train']} training rows cannot fill one global batch of "
+            f"{global_batch} ({args.batch_size} per GPU x {processes}); timm drops the last "
+            "partial batch. Lower --batch-size or use a smaller flavor."
+        )
     num_workers = (
         args.num_workers
         if args.num_workers is not None
@@ -696,7 +704,10 @@ def load_trained_model(run_dir):
             **train_args["model_kwargs"],
         )
     )
-    load_checkpoint(model, str(checkpoint))
+    # train.py validates (and picks the best epoch on) the EMA weights only when EMA runs on the
+    # GPU; with --model-ema-force-cpu the metrics belong to the regular weights, so push those.
+    use_ema = not train_args.get("model_ema_force_cpu", False)
+    load_checkpoint(model, str(checkpoint), use_ema=use_ema)
     logger.info(
         f"Loaded best checkpoint (epoch {metadata['epoch']}, {metadata['metric']:.4f})"
     )
@@ -730,8 +741,9 @@ def base_model_license(model_name):
         info = HfApi().model_info(hub_id)
         card = info.card_data.to_dict() if info.card_data else {}
         return hub_id, card.get("license")
-    except (HfHubHTTPError, ValueError) as error:  # ValueError: HFValidationError
-        # the base might not live under timm/ (e.g. a custom model name)
+    # Card metadata is optional; never lose a trained run over it. The base might not live
+    # under timm/ (e.g. a custom model name), or the Hub might be unreachable.
+    except Exception as error:
         logger.warning(f"Could not read base model info for {hub_id}: {error}")
         return None, None
 
@@ -760,7 +772,9 @@ def label_table(label_names):
     return "\n".join(lines)
 
 
-def usage_snippet(repo_id, task, threshold):
+def usage_snippet(repo_id, task, threshold, in_chans):
+    # a model trained with --in-chans 1 takes grayscale
+    mode = "L" if in_chans == 1 else "RGB"
     if task == "multilabel":
         predict = (
             "probs = model(transform(image).unsqueeze(0)).sigmoid()[0]\n"
@@ -779,7 +793,7 @@ def usage_snippet(repo_id, task, threshold):
         f'model = timm.create_model("hf-hub:{repo_id}", pretrained=True).eval()\n'
         "config = timm.data.resolve_data_config(model=model)\n"
         "transform = timm.data.create_transform(**config)\n"
-        'image = Image.open("example.jpg").convert("RGB")\n'
+        f'image = Image.open("example.jpg").convert("{mode}")\n'
         f"{predict}\n"
         "```"
     )
@@ -817,7 +831,7 @@ def build_model_card(args, plan, metrics, best_epoch, argv):
     split_text = (
         f"a seeded {args.val_size:.0%} split carved from `{args.train_split}` (seed {args.seed})"
         if plan["val_carved"]
-        else f"the `{plan['val_split']}` split"
+        else f"the `{plan['val_split_source']}` split"
     )
     base_link = (
         f"[`{base_hub_id}`](https://huggingface.co/{base_hub_id})"
@@ -825,7 +839,7 @@ def build_model_card(args, plan, metrics, best_epoch, argv):
         else f"`{args.model}`"
     )
     multilabel_note = (
-        f"\n\nPredictions use a threshold of {args.threshold}. `map` is timm's mean average "
+        f"\n\nPredictions use a threshold of {plan['threshold']}. `map` is timm's mean average "
         "precision, which can differ from scikit-learn's per-class average precision. "
         "`sample_f1` follows timm and scores images with no labels as 0."
         if plan["task"] == "multilabel"
@@ -850,7 +864,10 @@ def build_model_card(args, plan, metrics, best_epoch, argv):
         + f"on {split_text}:\n\n"
         + metrics_table(metrics)
         + multilabel_note,
-        "## Usage\n\n" + usage_snippet(args.output_repo, plan["task"], args.threshold),
+        "## Usage\n\n"
+        + usage_snippet(
+            args.output_repo, plan["task"], plan["threshold"], plan["in_chans"]
+        ),
         (
             "## Reproduction\n\n"
             f"{origin} with the [`train-timm.py`]({SCRIPT_URL}) recipe from "
@@ -868,7 +885,7 @@ def push_model(model, train_args, args, plan, metrics, best_epoch, argv):
     add the model card, and upload everything in one commit."""
     model_config = {"label_names": plan["label_names"], "task": plan["task"]}
     if plan["task"] == "multilabel":
-        model_config["multilabel_threshold"] = args.threshold
+        model_config["multilabel_threshold"] = plan["threshold"]
     model_config["eval_metrics"] = metrics
 
     data_config = resolve_input_data_config(model, train_args)
@@ -883,12 +900,8 @@ def push_model(model, train_args, args, plan, metrics, best_epoch, argv):
     card = build_model_card(args, plan, metrics, best_epoch, argv)
     (export_dir / "README.md").write_text(card)
 
-    api = HfApi()
-    api.create_repo(
-        args.output_repo, repo_type="model", private=args.private, exist_ok=True
-    )
     logger.info(f"Pushing model to {args.output_repo}")
-    api.upload_folder(
+    HfApi().upload_folder(
         repo_id=args.output_repo,
         folder_path=str(export_dir),
         commit_message=f"Fine-tune {args.model} on {args.dataset}",
@@ -927,7 +940,10 @@ def reload_check(args, plan, local_model, data_config, device):
     generator = torch.Generator().manual_seed(0)
     image = torch.randn(1, *input_size, generator=generator).to(device)
     local_model = local_model.to(device).eval()
-    max_diff = (hub_model(image) - local_model(image)).abs().max().item()
+    hub_logits, local_logits = hub_model(image), local_model(image)
+    if not (torch.isfinite(hub_logits).all() and torch.isfinite(local_logits).all()):
+        sys.exit("ERROR: the trained or reloaded model gives non-finite logits")
+    max_diff = (hub_logits - local_logits).abs().max().item()
     logger.info(
         f"Reload OK: labels match; input {tuple(input_size)}; max |logit diff| = {max_diff:.2e}"
     )
@@ -952,6 +968,11 @@ def main():
             "(--model, --train-split, --label-column, ...) instead."
         )
 
+    # Create the output repo before training, so a bad name or a read-only token fails in seconds.
+    HfApi().create_repo(
+        args.output_repo, repo_type="model", private=args.private, exist_ok=True
+    )
+
     device = pick_device(args.allow_cpu)
     logger.info(
         f"timm {timm.__version__}, torch {torch.__version__}, device {device}, GPUs {gpu_count()}"
@@ -960,6 +981,9 @@ def main():
     plan = prepare_data(args)
     run_dir = run_train_py(args, plan, device, passthrough)
     model, train_args, best_epoch = load_trained_model(run_dir)
+    # train.py's own values win: a passthrough --multilabel-threshold or --in-chans is what it used
+    plan["threshold"] = train_args.get("multilabel_threshold", args.threshold)
+    plan["in_chans"] = train_args.get("in_chans") or 3
     metrics = read_best_metrics(run_dir, best_epoch)
     print(
         "METRICS "
