@@ -1,8 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="300" height="72" viewBox="0 0 300 72" role="img" aria-label="uv scripts">
-<g transform="translate(0,2) scale(0.34)"><g transform="rotate(-8 100 100)">
+<defs><filter id="halo" x="-20%" y="-20%" width="140%" height="140%">
+ <feMorphology in="SourceAlpha" operator="dilate" radius="5" result="d"/>
+ <feFlood flood-color="#f3f4f6"/><feComposite in2="d" operator="in" result="h"/>
+ <feMerge><feMergeNode in="h"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>
+<g filter="url(#halo)"><g transform="translate(0,2) scale(0.34)"><g transform="rotate(-8 100 100)">
 <rect x="38" y="28" width="132" height="156" rx="18" fill="#111"/>
 <rect x="28" y="18" width="132" height="156" rx="18" fill="#ff8fc8" stroke="#111" stroke-width="10"/>
 <g fill="none" stroke="#111" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"></g><circle cx="44" cy="117" r="8.5" fill="#111"/><g fill="none" stroke="#111" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"><path d="M64,70 V124 M64,82 a14,14 0 1 1 0,0.1"/><path d="M64,70 m0,12 a14,13 0 1 0 28,0 a14,13 0 1 0 -28,0"/><polyline points="104,70 118,104"/><line x1="134" y1="70" x2="112" y2="126"/></g>
-<circle cx="152" cy="162" r="34" fill="#111"/><circle cx="146" cy="156" r="34" fill="#111" stroke="#111" stroke-width="10"/><polygon points="136,139 136,173 165,156" fill="#ff8fc8" stroke="#ff8fc8" stroke-width="8" stroke-linejoin="round"/></g></g>
-<text x="80" y="49" font-family="'Source Sans Pro', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="40" font-weight="700" fill="#374151">uv scripts</text>
+<circle cx="152" cy="162" r="34" fill="#111"/><circle cx="146" cy="156" r="34" fill="#111" stroke="#111" stroke-width="10"/><polygon points="136,139 136,173 165,156" fill="#ff8fc8" stroke="#ff8fc8" stroke-width="8" stroke-linejoin="round"/></g></g></g>
+<text x="80" y="49" font-family="'Source Sans Pro', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="40" font-weight="700" fill="#7a8494">uv scripts</text>
 </svg>
