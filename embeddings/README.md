@@ -7,7 +7,11 @@ tags:
 - vector-search
 ---
 
+<a href="https://huggingface.co/uv-scripts"><img src="https://huggingface.co/spaces/uv-scripts/README/resolve/main/lockup.svg" alt="uv scripts" width="180"></a>
+
 # Embeddings
+
+<a href="https://huggingface.co/uv-scripts"><picture><source media="(prefers-color-scheme: dark)" srcset="https://huggingface.co/datasets/huggingface/badges/resolve/main/follow-us-on-hf-md-dark.svg"><img src="https://huggingface.co/datasets/huggingface/badges/resolve/main/follow-us-on-hf-md.svg" alt="Follow uv-scripts on Hugging Face"></picture></a>
 
 Generate embeddings for a Hugging Face dataset — text or images — with one command, on a
 cloud GPU, no infra. The output lands back on the Hub as a new dataset (or, with the Lance

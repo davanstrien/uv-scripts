@@ -8,7 +8,11 @@ tags:
 license: apache-2.0
 ---
 
+<a href="https://huggingface.co/uv-scripts"><img src="https://huggingface.co/spaces/uv-scripts/README/resolve/main/lockup.svg" alt="uv scripts" width="180"></a>
+
 # HF Jobs Utilities
+
+<a href="https://huggingface.co/uv-scripts"><picture><source media="(prefers-color-scheme: dark)" srcset="https://huggingface.co/datasets/huggingface/badges/resolve/main/follow-us-on-hf-md-dark.svg"><img src="https://huggingface.co/datasets/huggingface/badges/resolve/main/follow-us-on-hf-md.svg" alt="Follow uv-scripts on Hugging Face"></picture></a>
 
 Small utility scripts for working with the [uv-scripts](https://huggingface.co/uv-scripts) collection and Hugging Face Jobs — discovering the available recipes, and testing/benchmarking your Jobs setup.
 

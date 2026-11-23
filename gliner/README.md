@@ -9,7 +9,11 @@ tags:
   - hf-jobs
 ---
 
+<a href="https://huggingface.co/uv-scripts"><img src="https://huggingface.co/spaces/uv-scripts/README/resolve/main/lockup.svg" alt="uv scripts" width="180"></a>
+
 # GLiNER UV Scripts
+
+<a href="https://huggingface.co/uv-scripts"><picture><source media="(prefers-color-scheme: dark)" srcset="https://huggingface.co/datasets/huggingface/badges/resolve/main/follow-us-on-hf-md-dark.svg"><img src="https://huggingface.co/datasets/huggingface/badges/resolve/main/follow-us-on-hf-md.svg" alt="Follow uv-scripts on Hugging Face"></picture></a>
 
 Zero-shot named-entity recognition over Hugging Face datasets using [GLiNER](https://github.com/urchade/GLiNER). Pass a list of entity types at runtime — no fine-tuning required.
 

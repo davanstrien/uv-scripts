@@ -9,7 +9,11 @@ tags:
 license: apache-2.0
 ---
 
+<a href="https://huggingface.co/uv-scripts"><img src="https://huggingface.co/spaces/uv-scripts/README/resolve/main/lockup.svg" alt="uv scripts" width="180"></a>
+
 # VLM Object Detection
+
+<a href="https://huggingface.co/uv-scripts"><picture><source media="(prefers-color-scheme: dark)" srcset="https://huggingface.co/datasets/huggingface/badges/resolve/main/follow-us-on-hf-md-dark.svg"><img src="https://huggingface.co/datasets/huggingface/badges/resolve/main/follow-us-on-hf-md.svg" alt="Follow uv-scripts on Hugging Face"></picture></a>
 
 Instruction-prompted object detection with vision-language models via vLLM. Designed as a **VLM-as-labeller** primitive for bootstrapping object-detection datasets — give it a free-form prompt ("detect every photograph and illustration", "detect all PPE items", "detect every electronic component and identify its reference designator") and it returns bbox JSON ready for downstream labelling tools (Label Studio, FiftyOne, COCO conversion).
 

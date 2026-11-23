@@ -3,9 +3,11 @@ viewer: false
 tags: [uv-script, deduplication, semantic-similarity, data-processing, hf-jobs]
 ---
 
+<a href="https://huggingface.co/uv-scripts"><img src="https://huggingface.co/spaces/uv-scripts/README/resolve/main/lockup.svg" alt="uv scripts" width="180"></a>
+
 # Semantic Deduplication UV Script
 
-> Part of [uv-scripts](https://huggingface.co/uv-scripts) — self-contained UV scripts you run locally or on Hugging Face Jobs in one command.
+<a href="https://huggingface.co/uv-scripts"><picture><source media="(prefers-color-scheme: dark)" srcset="https://huggingface.co/datasets/huggingface/badges/resolve/main/follow-us-on-hf-md-dark.svg"><img src="https://huggingface.co/datasets/huggingface/badges/resolve/main/follow-us-on-hf-md.svg" alt="Follow uv-scripts on Hugging Face"></picture></a>
 
 Remove duplicate / near-duplicate text samples from a Hugging Face dataset by semantic similarity — clean training data and prevent train/test leakage. Uses [SemHash](https://github.com/MinishLab/semhash) with Model2Vec embeddings: **CPU-optimized, no GPU required.**
 
