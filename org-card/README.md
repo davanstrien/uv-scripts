@@ -7,7 +7,7 @@ sdk: static
 pinned: false
 ---
 
-<h1><img src="https://huggingface.co/spaces/uv-scripts/run-on-jobs/resolve/main/assets/logo.svg" alt="" width="40" align="top"> uv scripts</h1>
+# uv scripts
 
 **Run a data or ML task over a Hugging Face dataset in one command: OCR, transcription, classification, embeddings, deduplication and more.** Run it on your own machine, or on a pay-per-second GPU with [Hugging Face Jobs](https://huggingface.co/docs/hub/jobs-overview). For people and coding agents.
 
