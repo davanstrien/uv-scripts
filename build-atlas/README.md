@@ -3,7 +3,11 @@ viewer: false
 tags: [uv-script, hf-jobs, hf-buckets]
 ---
 
+<a href="https://huggingface.co/uv-scripts"><img src="https://huggingface.co/spaces/uv-scripts/README/resolve/main/lockup.svg" alt="uv scripts" width="180"></a>
+
 # Atlas Export
+
+<a href="https://huggingface.co/uv-scripts"><picture><source media="(prefers-color-scheme: dark)" srcset="https://huggingface.co/datasets/huggingface/badges/resolve/main/follow-us-on-hf-md-dark.svg"><img src="https://huggingface.co/datasets/huggingface/badges/resolve/main/follow-us-on-hf-md.svg" alt="Follow uv-scripts on Hugging Face"></picture></a>
 
 [Embedding Atlas](https://github.com/apple/embedding-atlas) is an open-source library from Apple for creating interactive, browser-based visualizations of embedding spaces. It renders millions of data points with WebGPU acceleration, supports real-time search and filtering, and automatically generates cluster labels.
 

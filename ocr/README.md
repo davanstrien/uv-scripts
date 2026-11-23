@@ -3,11 +3,11 @@ viewer: false
 tags: [uv-script, ocr, extraction, vision-language-model, document-processing, hf-jobs]
 ---
 
+<a href="https://huggingface.co/uv-scripts"><img src="https://huggingface.co/spaces/uv-scripts/README/resolve/main/lockup.svg" alt="uv scripts" width="180"></a>
+
 # OCR UV Scripts
 
 <a href="https://huggingface.co/uv-scripts"><picture><source media="(prefers-color-scheme: dark)" srcset="https://huggingface.co/datasets/huggingface/badges/resolve/main/follow-us-on-hf-md-dark.svg"><img src="https://huggingface.co/datasets/huggingface/badges/resolve/main/follow-us-on-hf-md.svg" alt="Follow uv-scripts on Hugging Face"></picture></a>
-
-> Part of [uv-scripts](https://huggingface.co/uv-scripts): self-contained UV scripts you run on Hugging Face Jobs in one command.
 
 One script per OCR model. Each script runs the model on a GPU with [Hugging Face Jobs](https://huggingface.co/docs/hub/jobs) and writes the text as markdown: as a new column in a Hub dataset, as `.md` files in a Bucket, or as resumable parquet parts (the `-saturate` recipes). A few scripts return JSON from a schema, detect layout regions, or compare the output of two models.
 

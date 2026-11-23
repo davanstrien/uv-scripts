@@ -10,11 +10,11 @@ tags:
   - multilingual
 ---
 
+<a href="https://huggingface.co/uv-scripts"><img src="https://huggingface.co/spaces/uv-scripts/README/resolve/main/lockup.svg" alt="uv scripts" width="180"></a>
+
 # Transcription UV Scripts
 
 <a href="https://huggingface.co/uv-scripts"><picture><source media="(prefers-color-scheme: dark)" srcset="https://huggingface.co/datasets/huggingface/badges/resolve/main/follow-us-on-hf-md-dark.svg"><img src="https://huggingface.co/datasets/huggingface/badges/resolve/main/follow-us-on-hf-md.svg" alt="Follow uv-scripts on Hugging Face"></picture></a>
-
-> Part of [uv-scripts](https://huggingface.co/uv-scripts): self-contained UV scripts you run on Hugging Face Jobs in one command.
 
 Scripts that transcribe audio files on a GPU with [Hugging Face Jobs](https://huggingface.co/docs/hub/jobs). Audio comes in from a [Bucket](https://huggingface.co/docs/hub/storage-buckets) or a local folder; transcripts go out as `.txt`, JSON (speaker segments or word timestamps), `.srt` or parquet.
 
