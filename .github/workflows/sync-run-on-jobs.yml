@@ -16,6 +16,7 @@ on:
       - 'tools/build-catalog.py'
       - 'tools/run-on-jobs-template.html'
       - 'tools/run-on-jobs-assets/**'
+      - 'assets/uv-scripts-logo.svg'
       - '.github/workflows/sync-run-on-jobs.yml'
   workflow_dispatch:
 

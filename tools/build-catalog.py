@@ -524,8 +524,8 @@ def render_readme(recipes):
     return f"""---
 title: Run on Jobs
 emoji: ⚡
-colorFrom: blue
-colorTo: gray
+colorFrom: pink
+colorTo: yellow
 sdk: static
 pinned: false
 short_description: Batch-run this model on your own data with HF Jobs
@@ -646,6 +646,7 @@ def main():
     if OUTPUT_DIR.exists():
         shutil.rmtree(OUTPUT_DIR)
     shutil.copytree(ROOT / "tools" / "run-on-jobs-assets", OUTPUT_DIR / "assets")
+    shutil.copy(ROOT / "assets" / "uv-scripts-logo.svg", OUTPUT_DIR / "assets" / "logo.svg")
     recipes = load_recipes()
     hub_info = fetch_models(recipes)
     hub = {model: info for model, (info, _) in hub_info.items()}
