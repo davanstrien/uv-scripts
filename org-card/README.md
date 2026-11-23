@@ -1,11 +1,13 @@
 ---
 title: README
 emoji: 📚
-colorFrom: red
-colorTo: indigo
+colorFrom: pink
+colorTo: yellow
 sdk: static
 pinned: false
 ---
+
+<img src="https://huggingface.co/spaces/uv-scripts/run-on-jobs/resolve/main/assets/logo.svg" alt="uv-scripts logo" width="96" align="right">
 
 # UV Scripts
 
