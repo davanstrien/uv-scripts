@@ -5,6 +5,7 @@
 <base target="_blank">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Run on Jobs</title>
+<link rel="icon" type="image/svg+xml" href="assets/logo.svg">
 <meta name="description" content="Run Hugging Face models over your own data on HF Jobs, with one command.">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono&display=swap">
 <style>
@@ -17,6 +18,7 @@ body{background:var(--bg);color:var(--fg);font:16px/1.5 var(--text);padding-left
 main{max-width:860px;margin-inline:auto}
 a{color:var(--link)}
 h1{font-size:clamp(26px,5vw,34px);font-weight:600;line-height:1.15;margin:0 0 8px;text-wrap:balance}
+.brand{display:flex;align-items:center;gap:14px;margin:0 0 8px}.brand h1{margin:0}.brand img{width:56px;height:56px;flex:none}
 h2{font-size:16px;font-weight:600;margin:32px 0 4px}
 p{margin:0 0 10px}
 .muted{color:var(--muted)}
@@ -94,7 +96,7 @@ ul.models>li{scroll-margin-top:12px}
 </head>
 <body>
 <main>
-<h1>Use Hub models on your own data</h1>
+<div class="brand"><img src="assets/logo.svg" alt="uv-scripts logo"><h1>Use Hub models on your own data</h1></div>
 <p>Run a model over your whole dataset, or fine-tune it on your own examples. Each command starts a job on Hugging Face Jobs and saves the results to the Hub. There is nothing to clone.</p>
 <p class="small muted">Each recipe is a <a href="https://huggingface.co/docs/hub/jobs-configuration#uv-jobs">uv script</a>: one Python file that lists its own dependencies, so it runs straight from its URL.</p>
 <p class="entry"><a href="#find" target="_self">Find your model</a> · New to Jobs? Try an example below, or read the <a href="https://huggingface.co/docs/hub/jobs-quickstart">quickstart</a> · <a href="https://huggingface.co/uv-scripts">Follow uv-scripts</a> for new recipes</p>

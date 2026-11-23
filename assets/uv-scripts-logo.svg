@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 200 200" role="img" aria-label="uv-scripts logo"><g transform="translate(8,8) scale(0.9)"><g transform="rotate(-8 100 100)">
+<rect x="38" y="28" width="132" height="156" rx="18" fill="#111"/>
+<rect x="28" y="18" width="132" height="156" rx="18" fill="#ff8fc8" stroke="#111" stroke-width="10"/>
+<g fill="none" stroke="#111" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"></g><circle cx="44" cy="117" r="8.5" fill="#111"/><g fill="none" stroke="#111" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"><path d="M64,70 V124 M64,82 a14,14 0 1 1 0,0.1"/><path d="M64,70 m0,12 a14,13 0 1 0 28,0 a14,13 0 1 0 -28,0"/><polyline points="104,70 118,104"/><line x1="134" y1="70" x2="112" y2="126"/></g>
+<circle cx="152" cy="162" r="34" fill="#111"/><circle cx="146" cy="156" r="34" fill="#111" stroke="#111" stroke-width="10"/><polygon points="136,139 136,173 165,156" fill="#ff8fc8" stroke="#ff8fc8" stroke-width="8" stroke-linejoin="round"/></g></g></svg>
