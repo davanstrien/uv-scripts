@@ -9,8 +9,6 @@
 
 Each **recipe** is one Python file with its dependencies declared inside it, so it runs straight from its URL: no clone, no virtualenv, no `pip install`. Most recipes read a [Hub](https://huggingface.co/datasets) dataset and write a new one, so one recipe's output can be the next one's input.
 
-![Demo: OCR a whole image dataset with one command — no clone, no environment, straight from a Hub URL](ocr/demo.gif)
-
 ## Quickstart
 
 First [install the `hf` CLI](https://huggingface.co/docs/huggingface_hub/en/guides/cli#getting-started). **See the recipe families** (no GPU, no account):
