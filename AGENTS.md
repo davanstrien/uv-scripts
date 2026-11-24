@@ -65,7 +65,7 @@ image, add a dependency to an image-mode recipe, or retire a recipe. The procedu
 
   ```python
   on_jobs = os.environ.get("JOB_ID") is not None          # set by HF Jobs in-container
-  hw = jobs_flavor()                                      # e.g. "a10g-small"; "" on CPU
+  hw = jobs_flavor()                                      # e.g. "a10g-small"; "" if unknown
   origin = (
       f"Produced on [Hugging Face Jobs](https://huggingface.co/docs/huggingface_hub/guides/jobs)"
       + (f" (`{hw}`)" if hw else "")

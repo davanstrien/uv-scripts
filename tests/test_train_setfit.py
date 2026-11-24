@@ -176,6 +176,7 @@ def _offline_jobs_hardware(monkeypatch):
     monkeypatch.setattr("huggingface_hub.HfApi.list_jobs_hardware", lambda self, token=None: JOBS_HARDWARE)
     monkeypatch.delenv("CPU_CORES", raising=False)
     monkeypatch.delenv("MEMORY", raising=False)
+    monkeypatch.delenv("HF_JOB_FLAVOR", raising=False)  # set when the tests themselves run inside a Job
 
 
 @pytest.mark.parametrize(
@@ -232,16 +233,17 @@ def test_reproduction_falls_back_when_hardware_lookup_fails(monkeypatch):
     assert command.startswith("hf jobs uv run --flavor t4-small --secrets HF_TOKEN")
 
 
-def test_jobs_flavor_reads_hf_job_flavor(monkeypatch):
+@pytest.mark.parametrize(("flavor", "accelerator"), [("a10g-large", "gpu"), ("cpu-upgrade", "cpu")])
+def test_jobs_flavor_reads_hf_job_flavor(monkeypatch, flavor, accelerator):
     """Jobs sets HF_JOB_FLAVOR to the flavor name: use it, with no hardware lookup."""
 
     def no_lookup(self, token=None):
         raise AssertionError("the hardware list must not be read")
 
     monkeypatch.setattr("huggingface_hub.HfApi.list_jobs_hardware", no_lookup)
-    monkeypatch.setenv("HF_JOB_FLAVOR", "a10g-large")
-    monkeypatch.setenv("ACCELERATOR", "gpu")
-    assert recipe.jobs_flavor() == "a10g-large"
+    monkeypatch.setenv("HF_JOB_FLAVOR", flavor)
+    monkeypatch.setenv("ACCELERATOR", accelerator)
+    assert recipe.jobs_flavor() == flavor
 
 
 @pytest.mark.parametrize(("nvidia_smi", "expected"), [("NVIDIA L4\n", "l4x1"), (None, "")])
