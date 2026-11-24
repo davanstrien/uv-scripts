@@ -85,7 +85,8 @@ image, add a dependency to an image-mode recipe, or retire a recipe. The procedu
   **Do not stamp the raw `ACCELERATOR` value.** On Jobs it holds only `cpu` / `gpu` (verified on t4-small,
   a10g-small, l4x1, a10g-largex2 and l4x4, 2026-09/10), not the flavor the hub docs describe, so a raw stamp
   prints "(`gpu`)" and a reproduce command built from it says `--flavor gpu`. Copy the `jobs_flavor()`
-  helper from `ocr/glm-ocr.py`: it looks the flavor up in the public Jobs hardware list
+  helper from `ocr/glm-ocr.py`: it returns `HF_JOB_FLAVOR` when Jobs sets it (live since 2026-11-24),
+  and otherwise looks the flavor up in the public Jobs hardware list
   (`HfApi().list_jobs_hardware()`, no token needed) by GPU model and count, then by the `CPU_CORES` /
   `MEMORY` values Jobs sets, so it also tells `a10g-small` from `a10g-large` and names CPU flavors. It
   returns "" on any failure. Use `jobs_flavor() or "<default>"` for the reproduce command's `--flavor`.

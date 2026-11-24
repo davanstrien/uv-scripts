@@ -385,11 +385,14 @@ def run_files(args):
 def jobs_flavor() -> str:
     """Return the HF Jobs hardware flavor this run is on, or "" when it cannot be told.
 
-    HF Jobs sets ACCELERATOR to "cpu" or "gpu", not the flavor name, so the flavor is looked up
+    HF Jobs sets HF_JOB_FLAVOR to the flavor name. Without it (ACCELERATOR holds only
+    "cpu" or "gpu", not the flavor name), the flavor is looked up
     in the public Jobs hardware list: first by GPU model and count, then by the CPU_CORES and
     MEMORY values that Jobs sets in the container (to tell a10g-small from a10g-large, or
     cpu-basic from cpu-upgrade). Any failure (no network, older huggingface_hub) returns "".
     """
+    if os.environ.get("HF_JOB_FLAVOR"):
+        return os.environ["HF_JOB_FLAVOR"]
     hardware = os.environ.get("ACCELERATOR") or ""
     if "-" in hardware or any(character.isdigit() for character in hardware):
         return hardware  # already a flavor name

@@ -232,6 +232,18 @@ def test_reproduction_falls_back_when_hardware_lookup_fails(monkeypatch):
     assert command.startswith("hf jobs uv run --flavor t4-small --secrets HF_TOKEN")
 
 
+def test_jobs_flavor_reads_hf_job_flavor(monkeypatch):
+    """Jobs sets HF_JOB_FLAVOR to the flavor name: use it, with no hardware lookup."""
+
+    def no_lookup(self, token=None):
+        raise AssertionError("the hardware list must not be read")
+
+    monkeypatch.setattr("huggingface_hub.HfApi.list_jobs_hardware", no_lookup)
+    monkeypatch.setenv("HF_JOB_FLAVOR", "a10g-large")
+    monkeypatch.setenv("ACCELERATOR", "gpu")
+    assert recipe.jobs_flavor() == "a10g-large"
+
+
 @pytest.mark.parametrize(("nvidia_smi", "expected"), [("NVIDIA L4\n", "l4x1"), (None, "")])
 def test_jobs_flavor_without_torch(monkeypatch, nvidia_smi, expected):
     """Torch-free drivers (the -server recipes) read the GPU from nvidia-smi; a GPU run
