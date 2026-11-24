@@ -20,6 +20,7 @@ _Sorted by strength of evidence, then coverage:_
 | [Qianfan-OCR](https://huggingface.co/baidu/Qianfan-OCR) | 192 languages | Headline claim; no list or per-language numbers |
 | [PaddleOCR-VL](https://huggingface.co/PaddlePaddle/PaddleOCR-VL) / [1.5](https://huggingface.co/PaddlePaddle/PaddleOCR-VL-1.5) / [1.6](https://huggingface.co/PaddlePaddle/PaddleOCR-VL-1.6) | 109 languages; 1.5 adds Tibetan + Bengali | Names scripts (Cyrillic, Arabic, Devanagari, Thai) and claims handwriting + historical documents; no per-language numbers |
 | [PP-OCRv6](https://huggingface.co/collections/PaddlePaddle/pp-ocrv6) | 48 languages | Official card claim |
+| [OCRia-nano-1](https://huggingface.co/llamaindex/OCRia-nano-1) | Latin, CJK, right-to-left (Arabic, Hebrew) and about 17 more scripts | Card names the scripts its four recognizers cover; no language list or per-language numbers |
 | [MiniCPM-OCR 1.0](https://huggingface.co/openbmb/MiniCPM-OCR-1.0) | Chinese and English ("primary languages") | Card names two; no per-language numbers. Examples include historical scans |
 | [HPD-Parsing](https://huggingface.co/PaddlePaddle/HPD-Parsing) | 2 (en, zh) | Card metadata only. On degraded French scans our smoke runs (July and November 2026) produced stray Chinese characters mid-word, so treat languages other than en/zh as unsupported |
 | [Nanonets-OCR2-3B](https://huggingface.co/nanonets/Nanonets-OCR2-3B) | 11 named + "many more" (incl. Arabic + CJK) | Illustrative list, no benchmark — but the only card claiming multilingual **handwriting** |

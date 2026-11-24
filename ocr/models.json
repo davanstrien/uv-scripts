@@ -1,7 +1,7 @@
 {
   "_meta": {
     "description": "Machine-readable catalog of the OCR recipes in this directory: script -> model, params, backend, support level, the tested Jobs launch config (the script's [tool.hf-jobs] header), and what the model's own card claims about language coverage. Human-readable language notes: LANGUAGES.md. Language evidence levels, strongest first: per-language-benchmark | count-claim | named-list | multilingual-unspecified | english-only | not-stated | not-applicable. Claims come from model cards (compiled 2026-07-15) - treat as claims, not guarantees.",
-    "updated": "2026-11-18",
+    "updated": "2026-11-24",
     "run_pattern": "hf jobs uv run https://huggingface.co/datasets/uv-scripts/ocr/raw/main/<script> <input-dataset> <output-dataset>  (hf CLI >= 1.32 reads image/flavor/secrets from the script's [tool.hf-jobs] header; add --timeout for long runs. Scripts without a `jobs` entry need --flavor/-s HF_TOKEN (and any --image in their docstring).)",
     "support_levels": {
       "core": "Maintained. Smoke-tested flagless on HF Jobs on 2026-09-23/24 with the pinned launch config in `jobs`.",
@@ -26,6 +26,27 @@
       "notes": "Broadest named coverage; script models (Latin, Cyrillic, Devanagari, ...) cover languages without a dedicated pack. Legacy baseline quality."
     },
     "support": "core",
+    "jobs": {
+      "flavor": "cpu-upgrade",
+      "secrets": [
+        "HF_TOKEN"
+      ]
+    }
+  },
+  "ocria-nano.py": {
+    "model_id": "llamaindex/OCRia-nano-1",
+    "params": "8.1M",
+    "backend": "liteparse (CPU, ONNX Runtime)",
+    "task": "ocr",
+    "output": "markdown (headings, lists, tables; page headers and footers removed)",
+    "license": "ocria-nano-1-license (modified OpenRAIL-M)",
+    "notes": "Detector + script router + four recognizers + a table and layout model, run through LiteParse (>=2.21.0); no standalone inference script and no GPU path. Weights licence: free for research, evaluation and personal use, and for organisations under $2M in revenue and funding; no use in a product that competes with LlamaParse.",
+    "languages": {
+      "evidence": "multilingual-unspecified",
+      "notes": "Card names four recognizers: Latin (791 characters), CJK, right-to-left (Arabic, Hebrew) and a world-script model for about 17 more scripts; no language list or per-language numbers."
+    },
+    "support": "experimental",
+    "support_note": "New on 2026-11-24 and depends on a LiteParse release from the same week. tesseract-ocr.py is the stable CPU recipe.",
     "jobs": {
       "flavor": "cpu-upgrade",
       "secrets": [
