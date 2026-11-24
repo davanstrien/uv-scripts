@@ -87,3 +87,5 @@ Most recipes tag the dataset card they push with `uv-script`, and many add a *Re
 ## Browse
 
 Every recipe is in the list below: OCR, detection and segmentation, audio transcription, NER and classification, embeddings and atlas maps, batch LLM/VLM inference, synthetic data and dataset creation. Or browse on **[GitHub](https://github.com/davanstrien/uv-scripts)**. Run `hf jobs hardware` for GPU flavors and prices.
+
+For tasks with several steps, such as training a model or reproducing a paper, see [jobs-recipes](https://github.com/davanstrien/jobs-recipes): tested recipes with costs and an `AGENTS.md` for each.

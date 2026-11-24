@@ -85,6 +85,8 @@ To teach your agent the rest of the `hf` CLI, install Hugging Face's [`hf` CLI s
 
 **What fits here:** any self-contained UV script for data or ML work on the Hub. OCR and dataset work are the current focus, but inference, evaluation, RAG indexing, and **training** (fine-tuning with TRL / `transformers`, producing a model) are all in scope. If it's one self-contained script that reads from or writes to the Hub, it belongs.
 
+For work with several steps, such as training a model or reproducing a paper, see [jobs-recipes](https://github.com/davanstrien/jobs-recipes): tested recipes with costs and an `AGENTS.md` for each.
+
 ## Compose a pipeline
 
 Because recipes hand off through the Hub, you can chain them — each step's output dataset is the next step's input. A document-collection pipeline, end to end:
