@@ -116,6 +116,7 @@ Legend: ✅ production-ready · ⚠️ works only with a required pinned image �
 | `falcon-ocr.py`, `falcon-ocr-bucket.py` | ✅ | falcon-perception | a10g-small | **v1, revision-pinned** (root repo became v1.5 in place); `falcon-ocr.py` frozen — see gotcha |
 | `falcon-ocr-1.5.py` | ✅ | falcon-perception | a10g-small | v1.5 release head, revision-pinned; active — see gotcha |
 | `pp-ocrv6.py`, `pp-doclayout.py` | ✅ | PaddleOCR / PaddleX | l4x1 | classical det+rec; dataset **or** bucket I/O |
+| `ocria-nano.py` | 🧪 | LiteParse (CPU) | cpu-upgrade | 8.1M-param det+rec+layout pipeline; no GPU path; modified OpenRAIL-M weights |
 
 **License note:** Surya and `lift` ship code as Apache-2.0 but **weights under a modified OpenRAIL-M**
 (research/personal/<$5M, no competitive use vs Datalab's API) — surfaced in each docstring + card.
@@ -411,6 +412,18 @@ ARM wheels) — if a nightly-recipe install fails on resolution, wait and retry 
 ---
 
 ## Change log
+
+- **2026-11-24** — added `ocria-nano.py` (experimental) for `llamaindex/OCRia-nano-1` (8.1M params,
+  CPU only, OCRia-nano-1 Model License = modified OpenRAIL-M). The model has no standalone inference
+  script: it runs inside LiteParse (`liteparse>=2.21.0`, the first release with `liteparse.models`), one
+  temp PNG per page, Markdown out. LiteParse hard-codes the CPU execution provider for this model, so
+  there is no GPU variant. `requires-python` is capped at `<3.14` because uv otherwise picks a
+  free-threaded 3.14 build that the abi3 wheel does not load on. Pages run in a thread pool (LiteParse
+  releases the GIL in `parse`); the default worker count comes from `CPU_CORES`, not `os.cpu_count()`.
+  Smoke-tested flagless on HF Jobs (`cpu-upgrade`, LiteParse 2.21.1): `uv-scripts/ocr-demo` 7/7 pages,
+  0 empty or error rows; 300 pages of `NationalLibraryOfScotland/Britain-and-UK-Handbooks-Dataset`
+  (about 600 px wide) at 2.1 pages/s with 1 worker and 3.9 to 8.1 pages/s with 8 (three runs).
+  Quality was only checked by eye on a few pages: readable text with regular character slips; no CER run yet.
 
 - **2026-11-18** — Falcon OCR split by version identity (PR #110): `falcon-ocr.py` and
   `falcon-ocr-bucket.py` pin the last v1 commit; new `falcon-ocr-1.5.py` pins the v1.5 release head. All

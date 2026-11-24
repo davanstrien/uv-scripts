@@ -81,6 +81,7 @@ These are the maintained recipes. Each one has a tested `[tool.hf-jobs]` header,
 | Script | Model | Size | Good at | Licence | GPU |
 |--------|-------|------|---------|---------|-----|
 | [`tesseract-ocr.py`](https://huggingface.co/datasets/uv-scripts/ocr/blob/main/tesseract-ocr.py) | [Tesseract 5](https://github.com/tesseract-ocr/tesseract) | classical | Baseline plain text, no GPU, 100+ language packs (`--lang`) | Apache-2.0 | `cpu-upgrade` |
+| [`ocria-nano.py`](https://huggingface.co/datasets/uv-scripts/ocr/blob/main/ocria-nano.py) | [OCRia-nano-1](https://huggingface.co/llamaindex/OCRia-nano-1) | 8.1M | Markdown with headings and tables on CPU, no GPU; runs through [LiteParse](https://github.com/run-llama/liteparse); a cheap first pass, with more character errors than the VLM recipes | [OCRia-nano-1 Model License](https://huggingface.co/llamaindex/OCRia-nano-1/blob/main/LICENSE) (modified OpenRAIL-M) | `cpu-upgrade` |
 | [`pp-ocrv6.py`](https://huggingface.co/datasets/uv-scripts/ocr/blob/main/pp-ocrv6.py) | [PP-OCRv6](https://huggingface.co/collections/PaddlePaddle/pp-ocrv6) | 1.5M–34.5M | Small detection + recognition pipeline, plain text, 48 languages | Apache-2.0 | `t4-small` |
 | [`falcon-ocr-1.5.py`](https://huggingface.co/datasets/uv-scripts/ocr/blob/main/falcon-ocr-1.5.py) | [Falcon-OCR 1.5](https://huggingface.co/tiiuae/Falcon-OCR) | 0.3B | Smallest VLM here; plain text, LaTeX formulas and HTML tables; pinned to the v1.5 release | Apache-2.0 | `a10g-small` |
 | [`falcon-ocr.py`](https://huggingface.co/datasets/uv-scripts/ocr/blob/main/falcon-ocr.py) | [Falcon-OCR v1](https://huggingface.co/tiiuae/Falcon-OCR/tree/42ec56b72a23984ac059e7c8a6d397a8529423fe) | 0.3B | The v1 weights, pinned by commit, for comparison with earlier runs; frozen, use `falcon-ocr-1.5.py` for new runs | Apache-2.0 | `a10g-small` |
@@ -104,7 +105,7 @@ These are the maintained recipes. Each one has a tested `[tool.hf-jobs]` header,
 | [`olmocr2-vllm.py`](https://huggingface.co/datasets/uv-scripts/ocr/blob/main/olmocr2-vllm.py) | [olmOCR-2-7B](https://huggingface.co/allenai/olmOCR-2-7B-1025-FP8) | 7B (FP8) | 82.4 olmOCR-Bench | Apache-2.0 | `a10g-small` |
 | [`lift-extract.py`](https://huggingface.co/datasets/uv-scripts/ocr/blob/main/lift-extract.py) | [lift](https://huggingface.co/datalab-to/lift) | 9B | JSON from a schema, from images or multi-page PDFs | modified OpenRAIL-M | `a100-large` |
 
-Start with a model under 2B. Use a larger model only if the output of a small one is not good enough. Check the licence before you use a model: Surya and lift use a modified OpenRAIL-M licence (free for research, personal use and startups under $5M; no competitive use against Datalab's API), and the Hunyuan licence excludes the EU, the UK and South Korea.
+Start with a model under 2B. Use a larger model only if the output of a small one is not good enough. Check the licence before you use a model: Surya and lift use a modified OpenRAIL-M licence (free for research, personal use and startups under $5M; no competitive use against Datalab's API), and the Hunyuan licence excludes the EU, the UK and South Korea, and OCRia-nano-1 uses its own modified OpenRAIL-M licence (free for research and personal use, and for commercial use by organisations under $2M in revenue and under $2M in funding; above that, and for any use in a document parsing or OCR service that competes with LlamaParse or LlamaCloud, you need a commercial licence from LlamaIndex).
 
 **Variants and tools:** `glm-ocr-bucket.py`, `surya-ocr-bucket.py`, `lighton-ocr3-bucket.py` and `falcon-ocr-bucket.py` read images and PDFs from a Bucket and write one `.md` per page. `falcon-ocr-bucket.py` runs Falcon-OCR v1 by default; add `--revision fe757d59ecd79d4d68760162306a70a015761ad9` for v1.5. `lighton-ocr3-bucket.py` also takes `hf://buckets/...` URLs for input and output directly, so it reads large buckets in batches through the Hub API without mounting them. It reads `.jp2`, skips pages that already have output (so a re-run resumes), and in `--mode grounding` writes a `.json` sidecar with the layout blocks. `surya-ocr-bucket.py` also writes a `.json` sidecar with the layout blocks, resumes from existing JSON, and can mount or copy its input (`--io-mode mount|copy`); the dataset version, `surya-ocr.py`, keeps the blocks in a `surya_blocks` column. `lighton-ocr3-saturate.py`, `lighton-ocr2-saturate.py`, `ovis-ocr2-saturate.py` and `xiaomi-ocr-0-saturate.py` are for large runs, and `ocr-vllm-judge.py` compares outputs ([Scaling up](#scaling-up)). `pp-doclayout.py` and `lfm2-extract.py` are described in [Structured extraction and layout](#structured-extraction-and-layout).
 
@@ -148,7 +149,7 @@ Every dataset recipe takes `INPUT_DATASET OUTPUT_DATASET` as positional argument
 | `--output-column` | Output column (default `markdown`; `extraction` for lift and LFM2 extract) | Not the `-saturate.py` recipes or `pp-doclayout.py` (fixed `layout` column) |
 | `--overwrite` | Replace the output column if the input already has it. Without it the script stops | Not the `-saturate.py` recipes |
 | `--private` | Make the output dataset private | Not the `-saturate.py` recipes |
-| `--batch-size` | Images per batch (default 8 or 16 for the OCR recipes) | Not `tesseract-ocr.py`, `pp-ocrv6.py` or the `-saturate.py` recipes |
+| `--batch-size` | Images per batch (default 8 or 16 for the OCR recipes) | Not `tesseract-ocr.py`, `ocria-nano.py`, `pp-ocrv6.py` or the `-saturate.py` recipes |
 | `--max-model-len`, `--max-tokens`, `--gpu-memory-utilization` | vLLM engine limits | Most vLLM recipes |
 | `--config NAME`, `--create-pr` | Push the output as a named config, as a pull request | Most dataset recipes. Used to compare models in one repo ([Scaling up](#scaling-up)). In `-saturate.py`, `--config` selects the input config |
 | `--verbose` | Log resolved package versions | Most recipes |
@@ -169,6 +170,7 @@ Most dataset recipes also record the model and settings in an `inference_info` c
 | Script | Flags |
 |--------|-------|
 | `tesseract-ocr.py` | `--lang` (for example `eng+fra`), `--psm`, `--oem` |
+| `ocria-nano.py` | `--num-workers` (pages in parallel; default is every CPU core of the Job) |
 | `pp-ocrv6.py` | `--model-tier tiny\|small\|medium` |
 | `surya-ocr.py` | `--task ocr\|layout\|table`, `--table-mode full\|simple`, `--pdf-column`, `--page-range` |
 | `glm-ocr.py` | `--task ocr\|formula\|table` |
