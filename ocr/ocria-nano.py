@@ -32,8 +32,10 @@ or a CPU baseline, and compare a few outputs with their pages before you scale u
 
 LICENCE: the weights are under the OCRia-nano-1 Model License (a modified
 OpenRAIL-M), not an open-source licence. Research, evaluation and personal use are
-free. Organisations above $2M in revenue or funding need a commercial licence for
-other uses, and so does any use in a product that competes with LlamaParse. Read
+free, and so is commercial use by organisations under $2M in revenue and under $2M
+in funding. Above those thresholds you need a commercial licence from LlamaIndex,
+and so does any use in a document parsing or OCR service that competes with
+LlamaParse or LlamaCloud, whatever your size. Read
 https://huggingface.co/llamaindex/OCRia-nano-1/blob/main/LICENSE before you use it.
 LiteParse itself is Apache-2.0.
 
@@ -127,18 +129,36 @@ def to_pil(image: Image.Image | dict[str, Any] | str) -> Image.Image:
     return pil_img.convert("RGB")
 
 
+def load_image(dataset, index: int, image_column: str) -> Any:
+    """Read one image cell, or None if it cannot be decoded.
+
+    `datasets` decodes the image when the row is read, so a corrupt file raises
+    here. Returning None lets that page get the error sentinel like any other
+    failed page, without losing the pages already done.
+    """
+    try:
+        return dataset[index][image_column]
+    except Exception as e:  # noqa: BLE001 — one bad page shouldn't sink the run
+        logger.error(f"Error reading image at row {index}: {e}")
+        return None
+
+
 def ocr_image(parser, image: Any, tmp_dir: Path) -> str:
     """Run LiteParse on one image, returning Markdown (or the error sentinel).
 
     LiteParse takes a file path, so the page is written to a PNG first. Each
     thread writes its own file name, so parallel pages do not overwrite each other.
     """
+    if image is None:
+        return OCR_ERROR
     page_path = tmp_dir / f"page-{threading.get_ident()}.png"
     try:
         # Light PNG compression: the file is read once and deleted, so speed matters more than size.
         to_pil(image).save(page_path, compress_level=1)
         result = parser.parse(page_path)
-        return "\n\n".join(page.markdown or page.text for page in result.pages).strip()
+        # Markdown only: `page.text` still holds the page headers and footers that
+        # LiteParse removes from the Markdown, so it is not a fallback.
+        return "\n\n".join(page.markdown for page in result.pages).strip()
     except Exception as e:  # noqa: BLE001 — one bad page shouldn't sink the run
         logger.error(f"Error OCR'ing image: {e}")
         return OCR_ERROR
@@ -163,13 +183,90 @@ def run_ocr(parser, dataset, image_column: str, num_workers: int) -> list[str]:
         with ThreadPoolExecutor(max_workers=num_workers) as pool:
             for start in range(0, n, chunk):
                 stop = min(start + chunk, n)
-                images = [dataset[i][image_column] for i in range(start, stop)]
+                images = [
+                    load_image(dataset, i, image_column) for i in range(start, stop)
+                ]
                 for text in pool.map(
                     lambda img: ocr_image(parser, img, tmp_dir), images
                 ):
                     results.append(text)
                     pbar.update(1)
     return results
+
+
+def jobs_flavor() -> str:
+    """Return the HF Jobs hardware flavor this run is on, or "" when it cannot be told.
+
+    HF Jobs sets ACCELERATOR to "cpu" or "gpu", not the flavor name, so the flavor is looked up
+    in the public Jobs hardware list: first by GPU model and count, then by the CPU_CORES and
+    MEMORY values that Jobs sets in the container (to tell a10g-small from a10g-large, or
+    cpu-basic from cpu-upgrade). Any failure (no network, older huggingface_hub) returns "".
+    """
+    hardware = os.environ.get("ACCELERATOR") or ""
+    if "-" in hardware or any(character.isdigit() for character in hardware):
+        return hardware  # already a flavor name
+    try:
+        from huggingface_hub import HfApi
+
+        gpu_name, gpu_count = "", 0
+        try:
+            import torch
+
+            if torch.cuda.is_available():
+                gpu_name = torch.cuda.get_device_name(0)
+                gpu_count = torch.cuda.device_count()
+        except ImportError:
+            # Torch-free drivers (e.g. the -server recipes): ask nvidia-smi instead.
+            import subprocess
+
+            try:
+                listed = subprocess.run(
+                    ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                    check=True,
+                ).stdout
+                names = [line.strip() for line in listed.splitlines() if line.strip()]
+                if names:
+                    gpu_name, gpu_count = names[0], len(names)
+            except (OSError, subprocess.SubprocessError):
+                pass
+        if gpu_count == 0 and hardware == "gpu":
+            return ""  # a GPU run whose GPU cannot be identified: do not guess a CPU flavor
+
+        # Whole-word match, so "L4" does not match "NVIDIA L40S" ("NVIDIA A100-SXM4-80GB" -> A100).
+        gpu_words = gpu_name.upper().replace("-", " ").split()
+        candidates = []
+        for flavor in HfApi(token=False).list_jobs_hardware():
+            accelerator = flavor.accelerator
+            if gpu_count == 0 and accelerator is None:
+                candidates.append(flavor)
+            elif (
+                gpu_count > 0
+                and accelerator is not None
+                and accelerator.model.upper() in gpu_words
+                and int(accelerator.quantity) == gpu_count
+            ):
+                candidates.append(flavor)
+        if not candidates:
+            return ""
+
+        cores = float(os.environ.get("CPU_CORES") or 0)
+        memory_gb = float((os.environ.get("MEMORY") or "0").upper().rstrip("GIB ") or 0)
+
+        def distance(flavor) -> float:
+            # Relative gap to the listed vCPUs and RAM; Jobs reports slightly different numbers.
+            listed_cores = float(flavor.cpu.split()[0])
+            listed_memory = float(flavor.ram.split()[0])
+            return (
+                abs(listed_cores - cores) / listed_cores
+                + abs(listed_memory - memory_gb) / listed_memory
+            )
+
+        return min(candidates, key=distance).name
+    except Exception:
+        return ""
 
 
 def create_dataset_card(
@@ -184,7 +281,7 @@ def create_dataset_card(
 ) -> str:
     """Create a dataset card documenting the OCRia-nano-1 run."""
     on_jobs = os.environ.get("JOB_ID") is not None  # set by HF Jobs in-container
-    hw = os.environ.get("ACCELERATOR") or ""  # e.g. "a10g-small"; empty on CPU
+    hw = jobs_flavor()  # flavor name, e.g. "cpu-upgrade"; "" when it cannot be told
     origin = (
         (
             "Produced on [Hugging Face Jobs](https://huggingface.co/docs/huggingface_hub/guides/jobs)"
@@ -396,7 +493,7 @@ def main(
             if attempt > 1:
                 logger.warning("Disabling XET (fallback to HTTP upload)")
                 os.environ["HF_HUB_DISABLE_XET"] = "1"
-            dataset.push_to_hub(
+            commit_info = dataset.push_to_hub(
                 output_dataset,
                 private=private,
                 token=HF_TOKEN,
@@ -430,7 +527,10 @@ def main(
         split=split,
     )
     card = DatasetCard(card_content)
-    card.push_to_hub(output_dataset, token=HF_TOKEN)
+    # With --create-pr the data went to a pull request, so the card goes to the same
+    # one. Pushing it to main would change the repo before the PR is merged.
+    card_revision = getattr(commit_info, "pr_revision", None) if create_pr else None
+    card.push_to_hub(output_dataset, token=HF_TOKEN, revision=card_revision)
 
     logger.info(f"Done! {MODEL_NAME} OCR processing complete.")
     logger.info(

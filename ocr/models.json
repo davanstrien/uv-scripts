@@ -40,7 +40,7 @@
     "task": "ocr",
     "output": "markdown (headings, lists, tables; page headers and footers removed)",
     "license": "ocria-nano-1-license (modified OpenRAIL-M)",
-    "notes": "Detector + script router + four recognizers + a table and layout model, run through LiteParse (>=2.21.0); no standalone inference script and no GPU path. Weights licence: free for research, evaluation and personal use, and for organisations under $2M in revenue and funding; no use in a product that competes with LlamaParse.",
+    "notes": "Detector + script router + four recognizers + a table and layout model, run through LiteParse (>=2.21.0); no standalone inference script and no GPU path. Weights licence: free for research and personal use, and for commercial use by organisations under $2M in revenue and under $2M in funding; above that, and for any use in a document parsing or OCR service that competes with LlamaParse or LlamaCloud, you need a commercial licence from LlamaIndex.",
     "languages": {
       "evidence": "multilingual-unspecified",
       "notes": "Card names four recognizers: Latin (791 characters), CJK, right-to-left (Arabic, Hebrew) and a world-script model for about 17 more scripts; no language list or per-language numbers."
