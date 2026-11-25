@@ -191,10 +191,10 @@ def main():
 
     script_url = "https://huggingface.co/datasets/uv-scripts/embeddings/raw/main/generate-embeddings.py"
     launcher_url = "https://huggingface.co/datasets/uv-scripts/embeddings/raw/main/launch-embedding-fleet.py"
-    on_jobs = os.environ.get("JOB_ID") is not None
+    on_jobs = os.environ.get("HF_JOB_ID") is not None
     origin = ("Produced on [Hugging Face Jobs](https://huggingface.co/docs/huggingface_hub/guides/jobs)"
               if on_jobs else "Generated")
-    jobs_tag = "\n- hf-jobs" if on_jobs else ""
+    jobs_tag = "\n- hf_jobs" if on_jobs else ""
     mode = "streaming file-shards" if run.get("streaming") else "row shards"
     rev_line = f"- Input revision: `{run['revision']}`\n" if run.get("revision") else ""
     job_list = "".join(f"  - shard {i}: `{jid}`\n" for i, jid in enumerate(run.get("job_ids", [])))

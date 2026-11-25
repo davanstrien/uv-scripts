@@ -6,7 +6,7 @@ tags:
   - ner
   - zero-shot
   - gliner
-  - hf-jobs
+  - hf_jobs
 ---
 
 <a href="https://huggingface.co/uv-scripts"><img src="https://huggingface.co/spaces/uv-scripts/README/resolve/main/lockup.svg" alt="uv scripts" width="180"></a>

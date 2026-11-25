@@ -5,7 +5,7 @@ tags:
   - dataset-statistics
   - polars
   - temporal-analysis
-  - hf-jobs
+  - hf_jobs
 license: apache-2.0
 ---
 

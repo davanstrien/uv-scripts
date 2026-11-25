@@ -455,14 +455,14 @@ def jobs_flavor() -> str:
 
 
 def create_dataset_card(args, num_samples: int, counts: dict, processing_time: str) -> str:
-    # Canonical provenance stamp (see AGENTS.md): Jobs claim gated on JOB_ID, set by HF Jobs in-container.
-    on_jobs = os.environ.get("JOB_ID") is not None
+    # Canonical provenance stamp (see AGENTS.md): Jobs claim gated on HF_JOB_ID, set by HF Jobs in-container.
+    on_jobs = os.environ.get("HF_JOB_ID") is not None
     hw = jobs_flavor()
     origin = (
         "Produced on [Hugging Face Jobs](https://huggingface.co/docs/huggingface_hub/guides/jobs)"
         + (f" (`{hw}`)" if hw else "")
     ) if on_jobs else "Generated"
-    jobs_tag = "\n- hf-jobs" if on_jobs else ""
+    jobs_tag = "\n- hf_jobs" if on_jobs else ""
     status_col = f"{args.output_column}_status"
     flags = [f"--flavor {hw or 'a10g-large'}"]
     for flag, value, default in (("--split", args.split, "train"), ("--image-column", args.image_column, "image"),

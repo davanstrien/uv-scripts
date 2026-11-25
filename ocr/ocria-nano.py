@@ -280,7 +280,7 @@ def create_dataset_card(
     split: str = "train",
 ) -> str:
     """Create a dataset card documenting the OCRia-nano-1 run."""
-    on_jobs = os.environ.get("JOB_ID") is not None  # set by HF Jobs in-container
+    on_jobs = os.environ.get("HF_JOB_ID") is not None  # set by HF Jobs in-container
     hw = jobs_flavor()  # flavor name, e.g. "cpu-upgrade"; "" when it cannot be told
     origin = (
         (
@@ -290,7 +290,7 @@ def create_dataset_card(
         if on_jobs
         else "Generated"
     )
-    jobs_tag = "\n- hf-jobs" if on_jobs else ""
+    jobs_tag = "\n- hf_jobs" if on_jobs else ""
     return f"""---
 tags:
 - ocr

@@ -300,7 +300,7 @@ def build_reproduce_command(args) -> str:
 
 def build_card(args, tasks, counts_by_task, total, seconds, zero_shot: bool) -> str:
     """Dataset card with the canonical uv-scripts provenance stamp."""
-    on_jobs = os.environ.get("JOB_ID") is not None
+    on_jobs = os.environ.get("HF_JOB_ID") is not None
     hardware = jobs_flavor()
     if on_jobs:
         origin = "Produced on [Hugging Face Jobs](https://huggingface.co/docs/huggingface_hub/guides/jobs)"
@@ -311,7 +311,7 @@ def build_card(args, tasks, counts_by_task, total, seconds, zero_shot: bool) -> 
 
     tags = ["uv-script", "gliner2", "text-classification"]
     if on_jobs:
-        tags.append("hf-jobs")
+        tags.append("hf_jobs")
     tag_lines = "\n".join(f"- {tag}" for tag in tags)
 
     if zero_shot:

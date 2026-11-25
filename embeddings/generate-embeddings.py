@@ -270,7 +270,7 @@ class StatusReporter:
             "rows_per_sec": round(self.rows_done / elapsed, 1),
             "started_at": self.started_at,
             "updated_at": now,
-            "job_id": os.environ.get("JOB_ID"),
+            "job_id": os.environ.get("HF_JOB_ID"),
         }
         dest = f"runs/{self.run_id}/status/{self.rank:05d}.json"
         try:
@@ -693,15 +693,15 @@ def main():
     effective = prompt_str if prompt_str is not None else next(
         (v for k in side_keys if (v := (getattr(model, "prompts", {}) or {}).get(k))), "")
     prompt_line = f"`{effective}`" if effective else "(none)"
-    # Canonical provenance stamp (see AGENTS.md): Jobs claim gated on JOB_ID, set by HF Jobs in-container.
+    # Canonical provenance stamp (see AGENTS.md): Jobs claim gated on HF_JOB_ID, set by HF Jobs in-container.
     script_url = "https://huggingface.co/datasets/uv-scripts/embeddings/raw/main/generate-embeddings.py"
-    on_jobs = os.environ.get("JOB_ID") is not None
+    on_jobs = os.environ.get("HF_JOB_ID") is not None
     hw = jobs_flavor()  # flavor name, e.g. "a10g-small"; "" on CPU
     origin = (
         "Produced on [Hugging Face Jobs](https://huggingface.co/docs/huggingface_hub/guides/jobs)"
         + (f" (`{hw}`)" if hw else "")
     ) if on_jobs else "Generated"
-    jobs_tag = "\n- hf-jobs" if on_jobs else ""
+    jobs_tag = "\n- hf_jobs" if on_jobs else ""
     card = DatasetCard(
         f"---\ntags:\n- embeddings\n- uv-script\n- generated{jobs_tag}\n---\n\n"
         f"# {args.output_dataset}\n\n"

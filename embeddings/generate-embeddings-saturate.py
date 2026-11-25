@@ -240,13 +240,13 @@ def write_card(args, prefix, prefix_source, dimension, max_tokens, stats):
     """Write the dataset card, with the canonical uv-scripts reproduction section."""
     from huggingface_hub import HfApi
 
-    on_jobs = os.environ.get("JOB_ID") is not None
+    on_jobs = os.environ.get("HF_JOB_ID") is not None
     flavor = jobs_flavor()
     origin = (
         "Produced on [Hugging Face Jobs](https://huggingface.co/docs/huggingface_hub/guides/jobs)"
         + (f" (`{flavor}`)" if flavor else "")
     ) if on_jobs else "Generated"
-    jobs_tag = "\n- hf-jobs" if on_jobs else ""
+    jobs_tag = "\n- hf_jobs" if on_jobs else ""
     side = "query" if args.query_mode else "document"
     prefix_line = f"`{prefix}` ({prefix_source})" if prefix else "(none)"
     # A resumed run processes only the rows that were missing, so the card gives both counts.

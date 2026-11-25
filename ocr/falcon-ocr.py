@@ -241,14 +241,14 @@ def create_dataset_card(
 ) -> str:
     task_description = TASK_MODES[task_mode]
     commit_note = f" (resolved to `{model_commit}`)"
-    # Canonical provenance stamp (see AGENTS.md): Jobs claim gated on JOB_ID, set by HF Jobs in-container.
-    on_jobs = os.environ.get("JOB_ID") is not None
+    # Canonical provenance stamp (see AGENTS.md): Jobs claim gated on HF_JOB_ID, set by HF Jobs in-container.
+    on_jobs = os.environ.get("HF_JOB_ID") is not None
     hw = jobs_flavor()  # flavor name, e.g. "a10g-small"; "" on CPU
     origin = (
         "Produced on [Hugging Face Jobs](https://huggingface.co/docs/huggingface_hub/guides/jobs)"
         + (f" (`{hw}`)" if hw else "")
     ) if on_jobs else "Generated"
-    jobs_tag = "\n- hf-jobs" if on_jobs else ""
+    jobs_tag = "\n- hf_jobs" if on_jobs else ""
     if model_commit == DEFAULT_REVISION:
         card_name, version_tag, version_note = 'Falcon OCR v1', 'falcon-ocr-v1', ''
     else:

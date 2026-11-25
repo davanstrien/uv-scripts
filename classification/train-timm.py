@@ -810,7 +810,7 @@ def usage_snippet(repo_id, task, threshold, in_chans):
 
 def build_model_card(args, plan, metrics, best_epoch, argv):
     base_hub_id, license_name = base_model_license(args.model)
-    on_jobs = os.environ.get("JOB_ID") is not None
+    on_jobs = os.environ.get("HF_JOB_ID") is not None
     hw = jobs_flavor()
     origin = (
         (
@@ -825,7 +825,7 @@ def build_model_card(args, plan, metrics, best_epoch, argv):
     if plan["task"] == "multilabel":
         tags.append("multi-label-classification")
     if on_jobs:
-        tags.append("hf-jobs")
+        tags.append("hf_jobs")
 
     frontmatter = ["---", "library_name: timm", "pipeline_tag: image-classification"]
     if license_name:

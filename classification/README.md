@@ -1,6 +1,6 @@
 ---
 viewer: false
-tags: [uv-script, classification, fine-tuning, few-shot, zero-shot, decision-model, setfit, gliner2, kev, vllm, structured-outputs, image-classification, timm, hf-jobs]
+tags: [uv-script, classification, fine-tuning, few-shot, zero-shot, decision-model, setfit, gliner2, kev, vllm, structured-outputs, image-classification, timm, hf_jobs]
 ---
 
 <a href="https://huggingface.co/uv-scripts"><img src="https://huggingface.co/spaces/uv-scripts/README/resolve/main/lockup.svg" alt="uv scripts" width="180"></a>

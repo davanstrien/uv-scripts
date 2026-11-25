@@ -306,13 +306,13 @@ def push_card(repo_id, query, counters):
     """Dataset card with the repo's canonical provenance stamp (see AGENTS.md)."""
     from huggingface_hub import DatasetCard
 
-    on_jobs = os.environ.get("JOB_ID") is not None  # set by HF Jobs in-container
+    on_jobs = os.environ.get("HF_JOB_ID") is not None  # set by HF Jobs in-container
     hw = jobs_flavor()  # flavor name, e.g. "a10g-small"; "" on CPU
     origin = (
         "Produced on [Hugging Face Jobs](https://huggingface.co/docs/huggingface_hub/guides/jobs)"
         + (f" (`{hw}`)" if hw else "")
     ) if on_jobs else "Generated"
-    tags = "\n".join(f"- {t}" for t in (["uv-script", "hf-jobs"] if on_jobs else ["uv-script"]))
+    tags = "\n".join(f"- {t}" for t in (["uv-script", "hf_jobs"] if on_jobs else ["uv-script"]))
     args_summary = " ".join(sys.argv[1:])
     card = DatasetCard(f"""---
 tags:

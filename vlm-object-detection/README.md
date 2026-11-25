@@ -4,7 +4,7 @@ tags:
   - uv-script
   - object-detection
   - vlm
-  - hf-jobs
+  - hf_jobs
   - dataset-labelling
 license: apache-2.0
 ---

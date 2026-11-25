@@ -282,14 +282,14 @@ def create_dataset_card(
     """Create a dataset card documenting the OCR process."""
     model_name = model.split("/")[-1]
 
-    # Canonical provenance stamp (see AGENTS.md): Jobs claim gated on JOB_ID, set by HF Jobs in-container.
-    on_jobs = os.environ.get("JOB_ID") is not None
+    # Canonical provenance stamp (see AGENTS.md): Jobs claim gated on HF_JOB_ID, set by HF Jobs in-container.
+    on_jobs = os.environ.get("HF_JOB_ID") is not None
     hw = jobs_flavor()  # flavor name, e.g. "a10g-small"; "" on CPU
     origin = (
         "Produced on [Hugging Face Jobs](https://huggingface.co/docs/huggingface_hub/guides/jobs)"
         + (f" (`{hw}`)" if hw else "")
     ) if on_jobs else "Generated"
-    jobs_tag = "\n- hf-jobs" if on_jobs else ""
+    jobs_tag = "\n- hf_jobs" if on_jobs else ""
 
     return f"""---
 tags:
