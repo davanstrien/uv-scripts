@@ -458,7 +458,7 @@ def serve_command(vllm: str, max_model_len: int) -> list[str]:
 
 def write_card(args):
     """Push a minimal card: the uv-script / hf_jobs tags and the command that made this dataset."""
-    from huggingface_hub import HfApi
+    from huggingface_hub import DatasetCard, DatasetCardData
 
     on_jobs = os.environ.get("HF_JOB_ID") is not None
     flavor = os.environ.get("HF_JOB_FLAVOR")
@@ -467,16 +467,18 @@ def write_card(args):
         + (f" (`{flavor}`)" if flavor else "")
     ) if on_jobs else "Generated"
     command = shlex.join("<output-dataset>" if a == args.output_dataset else a for a in sys.argv[1:])
-    card = (
-        "---\ntags:\n- ocr\n- document-processing\n- hpd-parsing\n- uv-script\n- generated\n" + ("- hf_jobs\n" if on_jobs else "") + "---\n\n"
+    data = DatasetCardData(
+        tags=["ocr", "document-processing", "hpd-parsing", "uv-script", "generated"] + (["hf_jobs"] if on_jobs else []),
+        task_categories=["image-to-text"], source_datasets=[args.input_dataset],
+    )
+    card = DatasetCard(
+        f"---\n{data.to_yaml()}\n---\n\n"
         f"# {args.output_dataset}\n\n"
         f"{origin} with the [`hpd-parsing-saturate.py`]({SCRIPT_URL}) recipe "
         f"from [uv-scripts](https://huggingface.co/uv-scripts). Run it yourself:\n\n"
         + f"```bash\nhf jobs uv run{' --flavor ' + flavor if flavor else ''} {SCRIPT_URL} {command}\n```\n"
     )
-    HfApi().upload_file(
-        path_or_fileobj=card.encode(), path_in_repo="README.md", repo_id=args.output_dataset, repo_type="dataset",
-    )
+    card.push_to_hub(args.output_dataset)
 
 
 def main():

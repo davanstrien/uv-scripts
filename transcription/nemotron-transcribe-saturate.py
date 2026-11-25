@@ -195,7 +195,7 @@ def install_sglang_omni() -> Path:
 
 def write_card(args):
     """Push a minimal card: the uv-script / hf_jobs tags and the command that made this dataset."""
-    from huggingface_hub import HfApi
+    from huggingface_hub import DatasetCard, DatasetCardData
 
     on_jobs = os.environ.get("HF_JOB_ID") is not None
     flavor = os.environ.get("HF_JOB_FLAVOR")
@@ -204,8 +204,12 @@ def write_card(args):
         + (f" (`{flavor}`)" if flavor else "")
     ) if on_jobs else "Generated"
     command = shlex.join("<output-dataset>" if a == args.output else a for a in sys.argv[1:])
-    card = (
-        "---\ntags:\n- automatic-speech-recognition\n- transcription\n- nemotron-transcribe\n- uv-script\n- generated\n" + ("- hf_jobs\n" if on_jobs else "") + "---\n\n"
+    data = DatasetCardData(
+        tags=["automatic-speech-recognition", "transcription", "nemotron-transcribe", "uv-script", "generated"] + (["hf_jobs"] if on_jobs else []),
+        task_categories=["automatic-speech-recognition"],
+    )
+    card = DatasetCard(
+        f"---\n{data.to_yaml()}\n---\n\n"
         f"# {args.output}\n\n"
         f"{origin} with the [`nemotron-transcribe-saturate.py`]({SCRIPT_URL}) recipe "
         f"from [uv-scripts](https://huggingface.co/uv-scripts). Run it yourself:\n\n"
@@ -213,9 +217,7 @@ def write_card(args):
            if not args.input.startswith("hf://") else "")
         + f"```bash\nhf jobs uv run{' --flavor ' + flavor if flavor else ''} {SCRIPT_URL} {command}\n```\n"
     )
-    HfApi().upload_file(
-        path_or_fileobj=card.encode(), path_in_repo="README.md", repo_id=args.output, repo_type="dataset",
-    )
+    card.push_to_hub(args.output)
 
 
 def main():
