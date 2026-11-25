@@ -70,11 +70,14 @@ import argparse
 import io
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
 import time
 from pathlib import Path
+
+SCRIPT_URL = "https://huggingface.co/datasets/uv-scripts/transcription/raw/main/nemotron-transcribe-saturate.py"
 
 # Serving starting values for Nemotron 3.5 Transcribe on SGLang-Omni. Provenance:
 # - package / serve_args / served_name: the model card's SGLang-Omni section,
@@ -190,6 +193,131 @@ def install_sglang_omni() -> Path:
     return sgl_omni
 
 
+def jobs_flavor() -> str:
+    """Return the HF Jobs hardware flavor this run is on, or "" when it cannot be told.
+
+    HF Jobs sets HF_JOB_FLAVOR to the flavor name. Without it (ACCELERATOR holds only
+    "cpu" or "gpu", not the flavor name), the flavor is looked up
+    in the public Jobs hardware list: first by GPU model and count, then by the CPU_CORES and
+    MEMORY values that Jobs sets in the container (to tell a10g-small from a10g-large, or
+    cpu-basic from cpu-upgrade). Any failure (no network, older huggingface_hub) returns "".
+    """
+    if os.environ.get("HF_JOB_FLAVOR"):
+        return os.environ["HF_JOB_FLAVOR"]
+    hardware = os.environ.get("ACCELERATOR") or ""
+    if "-" in hardware or any(character.isdigit() for character in hardware):
+        return hardware  # already a flavor name
+    try:
+        from huggingface_hub import HfApi
+
+        gpu_name, gpu_count = "", 0
+        try:
+            import torch
+
+            if torch.cuda.is_available():
+                gpu_name = torch.cuda.get_device_name(0)
+                gpu_count = torch.cuda.device_count()
+        except ImportError:
+            # Torch-free drivers (e.g. the -server recipes): ask nvidia-smi instead.
+            import subprocess
+
+            try:
+                listed = subprocess.run(
+                    ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
+                    capture_output=True, text=True, timeout=10, check=True,
+                ).stdout
+                names = [line.strip() for line in listed.splitlines() if line.strip()]
+                if names:
+                    gpu_name, gpu_count = names[0], len(names)
+            except (OSError, subprocess.SubprocessError):
+                pass
+        if gpu_count == 0 and hardware == "gpu":
+            return ""  # a GPU run whose GPU cannot be identified: do not guess a CPU flavor
+
+        # Whole-word match, so "L4" does not match "NVIDIA L40S" ("NVIDIA A100-SXM4-80GB" -> A100).
+        gpu_words = gpu_name.upper().replace("-", " ").split()
+        candidates = []
+        for flavor in HfApi(token=False).list_jobs_hardware():
+            accelerator = flavor.accelerator
+            if gpu_count == 0 and accelerator is None:
+                candidates.append(flavor)
+            elif (
+                gpu_count > 0
+                and accelerator is not None
+                and accelerator.model.upper() in gpu_words
+                and int(accelerator.quantity) == gpu_count
+            ):
+                candidates.append(flavor)
+        if not candidates:
+            return ""
+
+        cores = float(os.environ.get("CPU_CORES") or 0)
+        memory_gb = float((os.environ.get("MEMORY") or "0").upper().rstrip("GIB ") or 0)
+
+        def distance(flavor) -> float:
+            # Relative gap to the listed vCPUs and RAM; Jobs reports slightly different numbers.
+            listed_cores = float(flavor.cpu.split()[0])
+            listed_memory = float(flavor.ram.split()[0])
+            return abs(listed_cores - cores) / listed_cores + abs(listed_memory - memory_gb) / listed_memory
+
+        return min(candidates, key=distance).name
+    except Exception:
+        return ""
+
+
+def reproduce_options(args):
+    """Return the options that give this dataset again, as a shell-quoted string."""
+    options = []
+    if args.style != "verbatim":
+        options += ["--style", args.style]
+    if args.prompt is not None:
+        options += ["--prompt", args.prompt]
+    if args.max_files:
+        options += ["--max-files", str(args.max_files)]
+    if args.concurrency != 32:
+        options += ["--concurrency", str(args.concurrency)]
+    return "".join(" " + shlex.quote(option) for option in options)
+
+
+def write_card(args, stats, prompt, audio_hours):
+    """Write the dataset card, with the canonical uv-scripts reproduction section."""
+    from huggingface_hub import HfApi
+
+    on_jobs = os.environ.get("HF_JOB_ID") is not None
+    # With --endpoint the GPU is the server's, not this Job's, so the flavor is not stamped.
+    flavor = "" if args.endpoint else jobs_flavor()
+    origin = (
+        "Produced on [Hugging Face Jobs](https://huggingface.co/docs/huggingface_hub/guides/jobs)"
+        + (f" (`{flavor}`)" if flavor else "")
+    ) if on_jobs else "Generated"
+    jobs_tag = "\n- hf_jobs" if on_jobs else ""
+    model = SERVING["model"]
+    # A resumed run processes only the files that were missing, so the card gives both counts.
+    earlier = f", {stats.rows_done_prior} already written by an earlier run" if stats.rows_done_prior else ""
+    card = (
+        f"---\ntags:\n- automatic-speech-recognition\n- transcription\n- nemotron-transcribe\n- uv-script\n"
+        f"- generated{jobs_tag}\n---\n\n"
+        f"# Audio transcription using {model.split('/')[-1]}\n\n"
+        f"Transcripts of the audio files in `{args.input}`, made with "
+        f"[`{model}`](https://huggingface.co/{model}) on an SGLang-Omni server driven by `saturate`.\n\n"
+        f"- Prompt: {prompt}\n"
+        f"- Audio files in the last run: {stats.rows_processed} done ({audio_hours:.2f} h of audio), "
+        f"{stats.rows_failed} failed{earlier}. A failed file has a message in `error`.\n"
+        f"- Files: `data/part-*.parquet`, one record per audio file: `id` (the path relative to the "
+        f"input folder), `text`, `finish_reason`, `duration_s`, `model`, `prompt`, `error`. "
+        f"`finish_reason` = \"length\" marks a transcript that hit the token budget.\n\n"
+        f"## Reproduction\n\n"
+        f"{origin} with the [`nemotron-transcribe-saturate.py`]({SCRIPT_URL}) recipe "
+        f"from [uv-scripts](https://huggingface.co/uv-scripts). Run it yourself:\n\n"
+        f"```bash\nhf jobs uv run --flavor {flavor or 'rtx-pro-6000'} {SCRIPT_URL} \\\n"
+        f"    {shlex.quote(args.input)} <output-dataset>{reproduce_options(args)}\n```\n"
+    )
+    HfApi().upload_file(
+        path_or_fileobj=card.encode(), path_in_repo="README.md",
+        repo_id=args.output, repo_type="dataset",
+    )
+
+
 def main():
     ap = argparse.ArgumentParser(
         description="Nemotron 3.5 Transcribe batch transcription on SGLang-Omni via saturate"
@@ -280,6 +408,8 @@ def main():
               f"{total_audio[0] / 3600:.2f} h of audio in {elapsed / 60:.1f} min{rtfx}",
               file=sys.stderr)  # fmt: skip
         print("NEMOTRON_TRANSCRIBE_SATURATE " + stats.to_json(), flush=True)
+        if is_repo_id:  # a card only for a dataset repo, not for a bucket or folder output
+            write_card(args, stats, prompt, total_audio[0] / 3600)
 
     if args.endpoint:
         from urllib.parse import urlparse

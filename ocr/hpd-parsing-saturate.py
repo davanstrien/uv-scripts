@@ -99,10 +99,13 @@ import json
 import math
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
 import zlib
+
+SCRIPT_URL = "https://huggingface.co/datasets/uv-scripts/ocr/raw/main/hpd-parsing-saturate.py"
 
 # Serving starting values for PaddlePaddle/HPD-Parsing. Per-value provenance:
 # - serve_args: the vendor image's own /home/hpd/entrypoint.sh, verbatim, except
@@ -453,6 +456,143 @@ def serve_command(vllm: str, max_model_len: int) -> list[str]:
     ]  # fmt: skip
 
 
+def jobs_flavor() -> str:
+    """Return the HF Jobs hardware flavor this run is on, or "" when it cannot be told.
+
+    HF Jobs sets HF_JOB_FLAVOR to the flavor name. Without it (ACCELERATOR holds only
+    "cpu" or "gpu", not the flavor name), the flavor is looked up
+    in the public Jobs hardware list: first by GPU model and count, then by the CPU_CORES and
+    MEMORY values that Jobs sets in the container (to tell a10g-small from a10g-large, or
+    cpu-basic from cpu-upgrade). Any failure (no network, older huggingface_hub) returns "".
+    """
+    if os.environ.get("HF_JOB_FLAVOR"):
+        return os.environ["HF_JOB_FLAVOR"]
+    hardware = os.environ.get("ACCELERATOR") or ""
+    if "-" in hardware or any(character.isdigit() for character in hardware):
+        return hardware  # already a flavor name
+    try:
+        from huggingface_hub import HfApi
+
+        gpu_name, gpu_count = "", 0
+        try:
+            import torch
+
+            if torch.cuda.is_available():
+                gpu_name = torch.cuda.get_device_name(0)
+                gpu_count = torch.cuda.device_count()
+        except ImportError:
+            # Torch-free drivers (e.g. the -server recipes): ask nvidia-smi instead.
+            import subprocess
+
+            try:
+                listed = subprocess.run(
+                    ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
+                    capture_output=True, text=True, timeout=10, check=True,
+                ).stdout
+                names = [line.strip() for line in listed.splitlines() if line.strip()]
+                if names:
+                    gpu_name, gpu_count = names[0], len(names)
+            except (OSError, subprocess.SubprocessError):
+                pass
+        if gpu_count == 0 and hardware == "gpu":
+            return ""  # a GPU run whose GPU cannot be identified: do not guess a CPU flavor
+
+        # Whole-word match, so "L4" does not match "NVIDIA L40S" ("NVIDIA A100-SXM4-80GB" -> A100).
+        gpu_words = gpu_name.upper().replace("-", " ").split()
+        candidates = []
+        for flavor in HfApi(token=False).list_jobs_hardware():
+            accelerator = flavor.accelerator
+            if gpu_count == 0 and accelerator is None:
+                candidates.append(flavor)
+            elif (
+                gpu_count > 0
+                and accelerator is not None
+                and accelerator.model.upper() in gpu_words
+                and int(accelerator.quantity) == gpu_count
+            ):
+                candidates.append(flavor)
+        if not candidates:
+            return ""
+
+        cores = float(os.environ.get("CPU_CORES") or 0)
+        memory_gb = float((os.environ.get("MEMORY") or "0").upper().rstrip("GIB ") or 0)
+
+        def distance(flavor) -> float:
+            # Relative gap to the listed vCPUs and RAM; Jobs reports slightly different numbers.
+            listed_cores = float(flavor.cpu.split()[0])
+            listed_memory = float(flavor.ram.split()[0])
+            return abs(listed_cores - cores) / listed_cores + abs(listed_memory - memory_gb) / listed_memory
+
+        return min(candidates, key=distance).name
+    except Exception:
+        return ""
+
+
+def reproduce_options(args):
+    """Return the options that give this dataset again, as a shell-quoted string."""
+    options = []
+    if args.image_column != "image":
+        options += ["--image-column", args.image_column]
+    if args.config:
+        options += ["--config", args.config]
+    if args.split != "train":
+        options += ["--split", args.split]
+    if args.id_column:
+        options += ["--id-column", args.id_column]
+    if args.limit:
+        options += ["--max-samples", str(args.limit)]
+    if args.max_tokens != SERVING["max_tokens"]:
+        options += ["--max-tokens", str(args.max_tokens)]
+    if args.max_pixels != SERVING["max_pixels"]:
+        options += ["--max-pixels", str(args.max_pixels)]
+    if args.no_fork:
+        options += ["--no-fork"]
+    return "".join(" " + shlex.quote(option) for option in options)
+
+
+def write_card(args, stats):
+    """Write the dataset card, with the canonical uv-scripts reproduction section."""
+    from huggingface_hub import HfApi
+
+    on_jobs = os.environ.get("HF_JOB_ID") is not None
+    flavor = jobs_flavor()
+    origin = (
+        "Produced on [Hugging Face Jobs](https://huggingface.co/docs/huggingface_hub/guides/jobs)"
+        + (f" (`{flavor}`)" if flavor else "")
+    ) if on_jobs else "Generated"
+    jobs_tag = "\n- hf_jobs" if on_jobs else ""
+    model = SERVING["model"]
+    decoding = "single-trajectory (`--no-fork`)" if args.no_fork else "hierarchical parallel decoding (fork)"
+    # A resumed run processes only the rows that were missing, so the card gives both counts.
+    earlier = f", {stats.rows_done_prior} already written by an earlier run" if stats.rows_done_prior else ""
+    card = (
+        f"---\ntags:\n- ocr\n- document-processing\n- hpd-parsing\n- markdown\n- uv-script\n- generated{jobs_tag}\n---\n\n"
+        f"# Document parsing using {model.split('/')[-1]}\n\n"
+        f"Parsed pages for the `{args.image_column}` column of "
+        f"[`{args.input_dataset}`](https://huggingface.co/datasets/{args.input_dataset}) (split `{args.split}`), "
+        f"made with [`{model}`](https://huggingface.co/{model}) on Paddle's vLLM fork, driven by `saturate`.\n\n"
+        f"- Decoding: {decoding}\n"
+        f"- Rows in the last run: {stats.rows_processed} done, {stats.rows_failed} failed{earlier}. "
+        f"A failed row has a message in `error`.\n"
+        f"- Files: `data/part-*.parquet`, one record per input row: `id`, `markdown`, `hpd_blocks`, `raw`, "
+        f"`looped_blocks`, `finish_reason`, `model`, `prompt_tokens`, `completion_tokens`, `error`. "
+        f"Join back to the input on `id`.\n"
+        f"- `hpd_blocks` is a JSON list of regions in reading order (`type`, `bbox`, `text`); "
+        f"each bbox is normalized to 0-1000, not pixels.\n"
+        f"- `looped_blocks` counts blocks whose text is a repetition loop. Filter on `looped_blocks == 0` "
+        f"for clean pages.\n\n"
+        f"## Reproduction\n\n"
+        f"{origin} with the [`hpd-parsing-saturate.py`]({SCRIPT_URL}) recipe "
+        f"from [uv-scripts](https://huggingface.co/uv-scripts). Run it yourself:\n\n"
+        f"```bash\nhf jobs uv run --flavor {flavor or 'l4x1'} {SCRIPT_URL} \\\n"
+        f"    {args.input_dataset} <output-dataset>{reproduce_options(args)}\n```\n"
+    )
+    HfApi().upload_file(
+        path_or_fileobj=card.encode(), path_in_repo="README.md",
+        repo_id=args.output_dataset, repo_type="dataset",
+    )
+
+
 def main():
     ap = argparse.ArgumentParser(
         description="HPD-Parsing document parsing via saturate (vendor vLLM fork image only)"
@@ -549,6 +689,7 @@ def main():
                      prepare_workers=int(float(os.environ.get("CPU_CORES") or "4")),
                      retry_errors=args.retry_errors, schema=schema)
 
+    write_card(args, stats)
     print(f"https://huggingface.co/datasets/{args.output_dataset} "
           f"({stats.rows_processed} ok, {stats.rows_failed} error rows)", file=sys.stderr)
     print("HPD_PARSING_SATURATE " + stats.to_json(), flush=True)
