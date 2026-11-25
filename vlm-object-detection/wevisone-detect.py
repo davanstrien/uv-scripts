@@ -308,7 +308,7 @@ def push_card(
     The README that push_to_hub wrote is loaded first so its dataset_info/configs metadata
     is kept; only the tags are extended and the body replaced.
     """
-    on_jobs = os.environ.get("JOB_ID") is not None  # set by HF Jobs in-container
+    on_jobs = os.environ.get("HF_JOB_ID") is not None  # set by HF Jobs in-container
     hw = jobs_flavor()  # flavor name, e.g. "l4x1"; "" on CPU
     origin = (
         (
@@ -319,7 +319,7 @@ def push_card(
         else "Generated"
     )
     tags = (
-        ["uv-script", "hf-jobs", "object-detection"]
+        ["uv-script", "hf_jobs", "object-detection"]
         if on_jobs
         else ["uv-script", "object-detection"]
     )

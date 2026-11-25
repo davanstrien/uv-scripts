@@ -142,7 +142,7 @@ def test_help_renders_slice_example(monkeypatch, capsys):
 )
 def test_reproduction_preserves_jobs_gpu_flavor(monkeypatch, job_id, accelerator, cuda, expected):
     monkeypatch.setattr("sys.argv", [str(SCRIPT), "fixture", "user/model"])
-    monkeypatch.setenv("JOB_ID", job_id)
+    monkeypatch.setenv("HF_JOB_ID", job_id)
     monkeypatch.setenv("ACCELERATOR", accelerator)
     monkeypatch.setattr(recipe.torch.cuda, "is_available", lambda: cuda)
     command = recipe.build_reproduce_command(recipe.parse_args())
@@ -198,7 +198,7 @@ def test_reproduction_names_flavor_when_accelerator_is_bare_gpu(
 ):
     """On Jobs, ACCELERATOR is "gpu", not the flavor: the flavor comes from the hardware list."""
     monkeypatch.setattr("sys.argv", [str(SCRIPT), "fixture", "user/model"])
-    monkeypatch.setenv("JOB_ID", "job-123")
+    monkeypatch.setenv("HF_JOB_ID", "job-123")
     monkeypatch.setenv("ACCELERATOR", "gpu")
     monkeypatch.setenv("CPU_CORES", cpu_cores)
     monkeypatch.setenv("MEMORY", memory)
@@ -211,7 +211,7 @@ def test_reproduction_names_flavor_when_accelerator_is_bare_gpu(
 
 def test_reproduction_names_cpu_flavor(monkeypatch):
     monkeypatch.setattr("sys.argv", [str(SCRIPT), "fixture", "user/model"])
-    monkeypatch.setenv("JOB_ID", "job-123")
+    monkeypatch.setenv("HF_JOB_ID", "job-123")
     monkeypatch.setenv("ACCELERATOR", "cpu")
     monkeypatch.setenv("CPU_CORES", "8")
     monkeypatch.setenv("MEMORY", "32.0G")
@@ -226,7 +226,7 @@ def test_reproduction_falls_back_when_hardware_lookup_fails(monkeypatch):
 
     monkeypatch.setattr("huggingface_hub.HfApi.list_jobs_hardware", offline)
     monkeypatch.setattr("sys.argv", [str(SCRIPT), "fixture", "user/model"])
-    monkeypatch.setenv("JOB_ID", "job-123")
+    monkeypatch.setenv("HF_JOB_ID", "job-123")
     monkeypatch.setenv("ACCELERATOR", "gpu")
     monkeypatch.setattr(recipe.torch.cuda, "is_available", lambda: True)
     command = recipe.build_reproduce_command(recipe.parse_args())

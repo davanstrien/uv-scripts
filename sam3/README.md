@@ -1,6 +1,6 @@
 ---
 viewer: false
-tags: [uv-script, computer-vision, object-detection, image-segmentation, sam3, image-processing, hf-jobs]
+tags: [uv-script, computer-vision, object-detection, image-segmentation, sam3, image-processing, hf_jobs]
 license: apache-2.0
 ---
 

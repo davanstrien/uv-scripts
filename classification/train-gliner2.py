@@ -566,7 +566,7 @@ def build_manifest(args, sampling_config: SamplingConfig, precision: str) -> dic
         "sampling_config": dataclasses.asdict(sampling_config),
         "precision": precision,
         "device": torch.cuda.get_device_name(0) if torch.cuda.is_available() else "cpu",
-        "job_id": os.environ.get("JOB_ID"),
+        "job_id": os.environ.get("HF_JOB_ID"),
         "versions": package_versions(),
     }
 
@@ -912,8 +912,8 @@ def results_table(tasks: list, zero_shot, fine_tuned) -> str:
 
 
 def build_card(args, tasks, zero_shot, fine_tuned, train_size, train_seconds, carved_out, oom_steps) -> str:
-    """Model card following the uv-scripts conventions (org credit, Jobs claim gated on JOB_ID)."""
-    on_jobs = os.environ.get("JOB_ID") is not None
+    """Model card following the uv-scripts conventions (org credit, Jobs claim gated on HF_JOB_ID)."""
+    on_jobs = os.environ.get("HF_JOB_ID") is not None
     hardware = jobs_flavor()
     if on_jobs:
         provenance = "Produced on [Hugging Face Jobs](https://huggingface.co/docs/huggingface_hub/guides/jobs)"
@@ -925,7 +925,7 @@ def build_card(args, tasks, zero_shot, fine_tuned, train_size, train_seconds, ca
 
     tags = ["gliner2", "text-classification", "uv-script"]
     if on_jobs:
-        tags.append("hf-jobs")
+        tags.append("hf_jobs")
     tag_lines = "\n".join(f"- {tag}" for tag in tags)
 
     caveats = []

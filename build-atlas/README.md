@@ -1,6 +1,6 @@
 ---
 viewer: false
-tags: [uv-script, hf-jobs, hf-buckets]
+tags: [uv-script, hf_jobs, hf-buckets]
 ---
 
 <a href="https://huggingface.co/uv-scripts"><img src="https://huggingface.co/spaces/uv-scripts/README/resolve/main/lockup.svg" alt="uv scripts" width="180"></a>

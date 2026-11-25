@@ -142,7 +142,7 @@ def mount_of(path, mounts_file=Path("/proc/self/mounts")):
 
 def prepare_output(output_dir):
     """Fail before any GPU time is spent if the results would be lost or mixed with an old run."""
-    if os.environ.get("JOB_ID"):
+    if os.environ.get("HF_JOB_ID"):
         # on Jobs, only a mounted bucket outlives the container (it shows as device "hf-mount")
         mount_point, fstype, device = mount_of(output_dir)
         if device != "hf-mount":

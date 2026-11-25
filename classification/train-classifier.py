@@ -505,7 +505,7 @@ def build_card(
     input_dataset, output_repo, model_id, problem_type, label_names, metrics,
     thresholds, path_kind, args_summary,
 ) -> str:
-    on_jobs = os.environ.get("JOB_ID") is not None  # set by HF Jobs in-container
+    on_jobs = os.environ.get("HF_JOB_ID") is not None  # set by HF Jobs in-container
     hw = jobs_flavor()  # flavor name, e.g. "a10g-small"; "" on CPU
     origin = (
         "Produced on [Hugging Face Jobs](https://huggingface.co/docs/huggingface_hub/guides/jobs)"
@@ -514,7 +514,7 @@ def build_card(
 
     tags = ["uv-script", "text-classification"]
     if on_jobs:
-        tags.append("hf-jobs")
+        tags.append("hf_jobs")
     tag_lines = "\n".join(f"- {t}" for t in tags)
 
     metric_rows = "\n".join(f"| {k} | {v:.4f} |" for k, v in metrics.items())

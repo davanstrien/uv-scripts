@@ -2,7 +2,7 @@
 viewer: false
 tags:
   - uv-script
-  - hf-jobs
+  - hf_jobs
   - audio
   - transcription
   - automatic-speech-recognition

@@ -559,7 +559,7 @@ def build_reproduce_command(args) -> str:
     Outside Jobs, the hardware flavor is a suggested default rather than an exact record.
     """
     flavor = "t4-small" if torch.cuda.is_available() else "cpu-basic"
-    if os.environ.get("JOB_ID"):
+    if os.environ.get("HF_JOB_ID"):
         flavor = jobs_flavor() or flavor
     parts = [
         f"hf jobs uv run --flavor {flavor} --secrets HF_TOKEN \\",
@@ -618,8 +618,8 @@ def build_reproduce_command(args) -> str:
 
 
 def build_card(args, label_names, metrics, per_class, train_seconds, eval_split) -> str:
-    """Model card following the uv-scripts conventions (org credit, Jobs claim gated on JOB_ID)."""
-    on_jobs = os.environ.get("JOB_ID") is not None
+    """Model card following the uv-scripts conventions (org credit, Jobs claim gated on HF_JOB_ID)."""
+    on_jobs = os.environ.get("HF_JOB_ID") is not None
     provenance = (
         "Produced on [Hugging Face Jobs](https://huggingface.co/docs/huggingface_hub/guides/jobs) "
         "with [`uv-scripts/classification`](https://huggingface.co/datasets/uv-scripts/classification)."
@@ -629,7 +629,7 @@ def build_card(args, label_names, metrics, per_class, train_seconds, eval_split)
 
     tags = ["setfit", "text-classification", "few-shot", "uv-script"]
     if on_jobs:
-        tags.append("hf-jobs")
+        tags.append("hf_jobs")
     tag_lines = "\n".join(f"- {tag}" for tag in tags)
 
     metric_lines = "\n".join(f"| {name} | {value} |" for name, value in metrics.items())

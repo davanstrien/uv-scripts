@@ -383,7 +383,7 @@ def serve(server: str, workdir: Path, nemo_ref: str, precision: str):
     try:
         wait_for_server(server, process)
         port = urlparse(server).port
-        job_id = os.environ.get("JOB_ID")
+        job_id = os.environ.get("HF_JOB_ID")
         if job_id:
             logger.info(
                 f"Serving {MODEL} at https://{job_id}--{port}.hf.jobs "

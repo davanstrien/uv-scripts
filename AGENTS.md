@@ -64,7 +64,7 @@ image, add a dependency to an image-mode recipe, or retire a recipe. The procedu
   no shared helper):
 
   ```python
-  on_jobs = os.environ.get("JOB_ID") is not None          # set by HF Jobs in-container
+  on_jobs = os.environ.get("HF_JOB_ID") is not None       # set by HF Jobs in-container
   hw = jobs_flavor()                                      # e.g. "a10g-small"; "" if unknown
   origin = (
       f"Produced on [Hugging Face Jobs](https://huggingface.co/docs/huggingface_hub/guides/jobs)"
@@ -92,10 +92,11 @@ image, add a dependency to an image-mode recipe, or retire a recipe. The procedu
   returns "" on any failure. Use `jobs_flavor() or "<default>"` for the reproduce command's `--flavor`.
 
   Rules: the reproduce command is **`hf jobs uv run`** (never bare `uv run` — the card is the Jobs
-  advertisement); the "Produced on HF Jobs" claim is **gated on `JOB_ID`** (a local run must not claim it);
+  advertisement); the "Produced on HF Jobs" claim is **gated on `HF_JOB_ID`** (a local run must not claim it);
   credit goes to the **org**, never a personal name; no badges. Card frontmatter tags: always `uv-script`,
-  plus **`hf-jobs` when `JOB_ID` is set** — these are the adoption meters
-  (`list_datasets(tags="uv-script")` / `tags="hf-jobs"` count stamped public outputs).
+  plus **`hf_jobs` when `HF_JOB_ID` is set** — these are the adoption meters
+  (`list_datasets(tags="uv-script")` / `tags="hf_jobs"` count stamped public outputs). `hf_jobs` is the tag
+  TRL and the Transformers Trainer also write, so one filter counts all of them.
 - GPU scripts check `torch.cuda.is_available()` and exit with a clear message. Write outputs to the Hub
   (`push_to_hub`) or a bucket (`-v hf://…`), never bare local paths (Jobs disk is ephemeral; local *input*
   dirs can be mounted with `-v ./dir:/mnt`, which syncs them to a bucket). Name by task, not tool.

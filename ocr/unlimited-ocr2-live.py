@@ -481,8 +481,8 @@ class LiveView:
         threading.Thread(target=server.serve_forever, daemon=True).start()
         threading.Thread(target=self.tick, daemon=True).start()
         # An exposed Job port is served at https://<job id>--<port>.hf.jobs.
-        where = (f"https://{os.environ['JOB_ID']}--{port}.hf.jobs (needs --expose-public {port})"
-                 if os.environ.get("JOB_ID") else f"http://localhost:{port}")
+        where = (f"https://{os.environ['HF_JOB_ID']}--{port}.hf.jobs (needs --expose-public {port})"
+                 if os.environ.get("HF_JOB_ID") else f"http://localhost:{port}")
         print(f"Live view: {where}", file=sys.stderr, flush=True)
 
     def offer(self, path: str, b64: str):

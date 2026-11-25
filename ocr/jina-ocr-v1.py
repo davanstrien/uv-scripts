@@ -228,7 +228,7 @@ def create_dataset_card(
     split: str,
     image_count_per_sec: float,
 ) -> str:
-    on_jobs = os.environ.get("JOB_ID") is not None
+    on_jobs = os.environ.get("HF_JOB_ID") is not None
     hw = jobs_flavor()  # flavor name, e.g. "a10g-small"; "" on CPU
     origin = (
         "Produced on [Hugging Face Jobs](https://huggingface.co/docs/huggingface_hub/guides/jobs)"
@@ -236,7 +236,7 @@ def create_dataset_card(
     ) if on_jobs else "Generated"
     tags = ["ocr", "document-processing", "jina-ocr", "markdown", "uv-script", "generated"]
     if on_jobs:
-        tags.append("hf-jobs")
+        tags.append("hf_jobs")
     tag_lines = "\n".join(f"- {t}" for t in tags)
 
     return f"""---
