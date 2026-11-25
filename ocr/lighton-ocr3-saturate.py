@@ -402,7 +402,7 @@ def reproduce_options(args):
     if args.prepare_workers is not None:
         options += ["--prepare-workers", str(args.prepare_workers)]
     if args.serve_args:
-        options += ["--serve-args", args.serve_args]
+        options += [f"--serve-args={args.serve_args}"]  # one token: a value like "--x" would read as a flag
     return "".join(" " + shlex.quote(option) for option in options)
 
 

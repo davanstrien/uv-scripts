@@ -518,7 +518,9 @@ def write_card(args, stats, repair_stats):
         f"## Reproduction\n\n"
         f"{origin} with the [`unlimited-ocr2-saturate.py`]({SCRIPT_URL}) recipe "
         f"from [uv-scripts](https://huggingface.co/uv-scripts). Run it yourself:\n\n"
-        f"```bash\nhf jobs uv run --flavor {flavor or 'rtx-pro-6000'} {SCRIPT_URL} \\\n"
+        + (f"The input `{args.input}` was a local or mounted path: add the `-v` mount that provides it.\n\n"
+           if not args.input.startswith("hf://") else "")
+        + f"```bash\nhf jobs uv run --flavor {flavor or 'rtx-pro-6000'} {SCRIPT_URL} \\\n"
         f"    {shlex.quote(args.input)} <output-dataset>{reproduce_options(args)}\n```\n"
     )
     HfApi().upload_file(
