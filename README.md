@@ -56,7 +56,7 @@ List the uv-scripts recipe families and tell me which fit my task:
   hf datasets ls --author uv-scripts
 List a family's scripts with:
   hf download uv-scripts/<family> --repo-type dataset --include "*.py" --dry-run
-Read the matching family's README on the Hub. Before running a script, read its header and docstring for the arguments and hardware.
+Read the matching family's README on the Hub. Before running a script, read the whole file: the header sets the hardware, the docstring has an example command, and the argument definitions near the end list every flag.
 Use my username from `hf auth whoami` for output datasets, and always set --timeout.
 ```
 

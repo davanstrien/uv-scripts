@@ -24,7 +24,7 @@ it fetches each file):
 import argparse
 import sys
 
-from huggingface_hub import HfApi, hf_hub_url
+from huggingface_hub import HfApi
 
 ORG = "uv-scripts"
 
@@ -67,7 +67,7 @@ def main(describe: bool = False) -> None:
 
         print(f"\n## {repo_id}   →   https://huggingface.co/datasets/{repo_id}")
         for script in scripts:
-            url = hf_hub_url(repo_id, script, repo_type="dataset")
+            url = f"https://huggingface.co/datasets/{repo_id}/raw/main/{script}"
             if describe:
                 desc = first_docstring_line(api, repo_id, script)
                 print(f"  {script:<28} {url}")
@@ -77,7 +77,9 @@ def main(describe: bool = False) -> None:
                 print(f"  {script:<28} {url}")
             total += 1
 
-    print(f"\n{total} recipes across {ORG}. Run any with:  uv run <url>  (or  hf jobs uv run <url>  for a GPU)")
+    print(f"\n{total} recipes across {ORG}. Read a recipe before you run it:  curl -fsSL <url>")
+    print("Its docstring has an example command and its argument definitions list every flag.")
+    print("Run it with:  uv run <url>  (or  hf jobs uv run <url>  for a GPU)")
 
 
 if __name__ == "__main__":
