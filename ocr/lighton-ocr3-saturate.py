@@ -115,9 +115,12 @@ import hashlib
 import io
 import json
 import os
+import re
 import shlex
 import sys
 import tempfile
+
+SCRIPT_URL = "https://huggingface.co/datasets/uv-scripts/ocr/raw/main/lighton-ocr3-saturate.py"
 
 # Serving starting values for LightOnOCR-3 (0.8B and 4B). Per-value provenance:
 # - image: vLLM 0.30.0, the version LightOn's client pins and tests (0.27.1 makes the
@@ -294,6 +297,33 @@ def postprocess(raw: str, mode: str, fix_dollars: bool):
     return to_markdown(blocks), json.dumps([b.to_dict() for b in blocks], ensure_ascii=False)
 
 
+def write_card(args):
+    """Push a minimal card: the uv-script / hf_jobs tags and the command that made this dataset."""
+    from huggingface_hub import DatasetCard, DatasetCardData
+
+    on_jobs = os.environ.get("HF_JOB_ID") is not None
+    flavor = os.environ.get("HF_JOB_FLAVOR")
+    origin = (
+        "Produced on [Hugging Face Jobs](https://huggingface.co/docs/huggingface_hub/guides/jobs)"
+        + (f" (`{flavor}`)" if flavor else "")
+    ) if on_jobs else "Generated"
+    argv = sys.argv[1:]
+    argv[argv.index(args.output_dataset, argv.index(args.input_dataset) + 1)] = "<output-dataset>"  # the output positional only
+    command = re.sub(r"hf_[A-Za-z0-9]{20,}", "hf_***", shlex.join(argv))  # never publish a token
+    data = DatasetCardData(
+        tags=["ocr", "document-processing", "lighton-ocr-3", "uv-script", "generated"] + (["hf_jobs"] if on_jobs else []),
+        task_categories=["image-to-text"], source_datasets=[args.input_dataset],
+    )
+    card = DatasetCard(
+        f"---\n{data.to_yaml()}\n---\n\n"
+        f"# {args.output_dataset}\n\n"
+        f"{origin} with the [`lighton-ocr3-saturate.py`]({SCRIPT_URL}) recipe "
+        f"from [uv-scripts](https://huggingface.co/uv-scripts). Run it yourself:\n\n"
+        + f"```bash\nhf jobs uv run{' --flavor ' + flavor if flavor else ''} {SCRIPT_URL} {command}\n```\n"
+    )
+    card.push_to_hub(args.output_dataset)
+
+
 def main():
     ap = argparse.ArgumentParser(description="LightOnOCR-3 batch OCR via saturate")
     ap.add_argument("input_dataset", help="Input dataset repo id (rows with an image column)")
@@ -442,6 +472,7 @@ def main():
         print(f"server: --api-server-count {SERVING['api_servers']} ({cores} CPU cores)", file=sys.stderr)
 
     output = f"hf://datasets/{args.output_dataset}/data"
+    repair_stats = None
     with Engine(args.model, engine="vllm", extra_args=extra) as endpoint:
         stats = pump(with_ids(rows) if repair_dir else rows, to_request, make_parse(bool(repair_dir)),
                      endpoint, output, window=window, prepare_workers=workers,
@@ -466,6 +497,7 @@ def main():
                                 retry_errors=args.retry_errors, schema=schema)
             print("LIGHTON_OCR3_SATURATE_REPAIR " + repair_stats.to_json(), flush=True)
 
+    write_card(args)
     print(f"https://huggingface.co/datasets/{args.output_dataset} "
           f"({stats.rows_processed} ok, {stats.rows_failed} error rows, "
           f"{len(truncated) if repair_dir else 'n/a'} truncated pages re-sent to repair/)", file=sys.stderr)

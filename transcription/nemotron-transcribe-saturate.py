@@ -70,11 +70,14 @@ import argparse
 import io
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
 import time
 from pathlib import Path
+
+SCRIPT_URL = "https://huggingface.co/datasets/uv-scripts/transcription/raw/main/nemotron-transcribe-saturate.py"
 
 # Serving starting values for Nemotron 3.5 Transcribe on SGLang-Omni. Provenance:
 # - package / serve_args / served_name: the model card's SGLang-Omni section,
@@ -190,6 +193,35 @@ def install_sglang_omni() -> Path:
     return sgl_omni
 
 
+def write_card(args):
+    """Push a minimal card: the uv-script / hf_jobs tags and the command that made this dataset."""
+    from huggingface_hub import DatasetCard, DatasetCardData
+
+    on_jobs = os.environ.get("HF_JOB_ID") is not None
+    flavor = os.environ.get("HF_JOB_FLAVOR")
+    origin = (
+        "Produced on [Hugging Face Jobs](https://huggingface.co/docs/huggingface_hub/guides/jobs)"
+        + (f" (`{flavor}`)" if flavor else "")
+    ) if on_jobs else "Generated"
+    argv = sys.argv[1:]
+    argv[argv.index(args.output, argv.index(args.input) + 1)] = "<output-dataset>"  # the output positional only
+    command = re.sub(r"hf_[A-Za-z0-9]{20,}", "hf_***", shlex.join(argv))  # never publish a token
+    data = DatasetCardData(
+        tags=["automatic-speech-recognition", "transcription", "nemotron-transcribe", "uv-script", "generated"] + (["hf_jobs"] if on_jobs else []),
+        task_categories=["automatic-speech-recognition"],
+    )
+    card = DatasetCard(
+        f"---\n{data.to_yaml()}\n---\n\n"
+        f"# {args.output}\n\n"
+        f"{origin} with the [`nemotron-transcribe-saturate.py`]({SCRIPT_URL}) recipe "
+        f"from [uv-scripts](https://huggingface.co/uv-scripts). Run it yourself:\n\n"
+        + (f"The input `{args.input}` was a local or mounted path: add the `-v` mount that provides it.\n\n"
+           if not args.input.startswith("hf://") else "")
+        + f"```bash\nhf jobs uv run{' --flavor ' + flavor if flavor else ''} {SCRIPT_URL} {command}\n```\n"
+    )
+    card.push_to_hub(args.output)
+
+
 def main():
     ap = argparse.ArgumentParser(
         description="Nemotron 3.5 Transcribe batch transcription on SGLang-Omni via saturate"
@@ -280,6 +312,8 @@ def main():
               f"{total_audio[0] / 3600:.2f} h of audio in {elapsed / 60:.1f} min{rtfx}",
               file=sys.stderr)  # fmt: skip
         print("NEMOTRON_TRANSCRIBE_SATURATE " + stats.to_json(), flush=True)
+        if is_repo_id:  # a card only for a dataset repo, not for a bucket or folder output
+            write_card(args)
 
     if args.endpoint:
         from urllib.parse import urlparse

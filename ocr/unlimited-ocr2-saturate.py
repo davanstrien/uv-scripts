@@ -82,12 +82,15 @@ import json
 import os
 import pickle
 import re
+import shlex
 import shutil
 import subprocess
 import sys
 import threading
 import types
 import zlib
+
+SCRIPT_URL = "https://huggingface.co/datasets/uv-scripts/ocr/raw/main/unlimited-ocr2-saturate.py"
 
 # Per-value provenance:
 # - image lmsysorg/sglang:v0.5.20-cu130: the SGLang release whose pins match
@@ -375,6 +378,35 @@ def find_server_python(candidates) -> str:
     )
 
 
+def write_card(args):
+    """Push a minimal card: the uv-script / hf_jobs tags and the command that made this dataset."""
+    from huggingface_hub import DatasetCard, DatasetCardData
+
+    on_jobs = os.environ.get("HF_JOB_ID") is not None
+    flavor = os.environ.get("HF_JOB_FLAVOR")
+    origin = (
+        "Produced on [Hugging Face Jobs](https://huggingface.co/docs/huggingface_hub/guides/jobs)"
+        + (f" (`{flavor}`)" if flavor else "")
+    ) if on_jobs else "Generated"
+    argv = sys.argv[1:]
+    argv[argv.index(args.output, argv.index(args.input) + 1)] = "<output-dataset>"  # the output positional only
+    command = re.sub(r"hf_[A-Za-z0-9]{20,}", "hf_***", shlex.join(argv))  # never publish a token
+    data = DatasetCardData(
+        tags=["ocr", "document-processing", "unlimited-ocr-2", "uv-script", "generated"] + (["hf_jobs"] if on_jobs else []),
+        task_categories=["image-to-text"],
+    )
+    card = DatasetCard(
+        f"---\n{data.to_yaml()}\n---\n\n"
+        f"# {args.output}\n\n"
+        f"{origin} with the [`unlimited-ocr2-saturate.py`]({SCRIPT_URL}) recipe "
+        f"from [uv-scripts](https://huggingface.co/uv-scripts). Run it yourself:\n\n"
+        + (f"The input `{args.input}` was a local or mounted path: add the `-v` mount that provides it.\n\n"
+           if not args.input.startswith("hf://") else "")
+        + f"```bash\nhf jobs uv run{' --flavor ' + flavor if flavor else ''} {SCRIPT_URL} {command}\n```\n"
+    )
+    card.push_to_hub(args.output)
+
+
 def main():
     ap = argparse.ArgumentParser(description="Unlimited-OCR-2 document OCR via saturate")
     ap.add_argument("input", help="Folder/glob of page images or PDFs: hf://buckets/..., a mounted dir, ...")
@@ -532,18 +564,21 @@ def main():
     def run_passes(endpoint, headers=None):
         common = {"retry_errors": args.retry_errors, "headers": headers,
                   "prepare_workers": args.prepare_workers, "read_timeout": 3600}
+        stats = rstats = None
         if not args.repair_only:
             stats = pump(rows, to_request, parse, endpoint, output, window=window, flush_every=4, **common)
             print(f"{output} ({stats.rows_processed} ok, {stats.rows_failed} error rows)", file=sys.stderr)
             print("UNLIMITED_OCR2_SATURATE " + stats.to_json(), flush=True)
-        if args.no_repair:
-            return
-        targets = list(repair_rows(rows, output))
-        print(f"repair pass: {len(targets)} pages to re-OCR alone (gundam) -> {repairs_out}", file=sys.stderr)
-        if targets:
-            rstats = pump(targets, to_request, parse_repair, endpoint, repairs_out,
-                          window=Auto(initial=32, max_limit=64), flush_every=16, **common)
-            print("UNLIMITED_OCR2_REPAIR " + rstats.to_json(), flush=True)
+        if not args.no_repair:
+            targets = list(repair_rows(rows, output))
+            print(f"repair pass: {len(targets)} pages to re-OCR alone (gundam) -> {repairs_out}", file=sys.stderr)
+            if targets:
+                rstats = pump(targets, to_request, parse_repair, endpoint, repairs_out,
+                              window=Auto(initial=32, max_limit=64), flush_every=16, **common)
+                print("UNLIMITED_OCR2_REPAIR " + rstats.to_json(), flush=True)
+        # A card only for a dataset repo, and not from --repair-only (the main run wrote it).
+        if is_repo_id and stats is not None:
+            write_card(args)
 
     if args.endpoint:
         run_passes(args.endpoint, {"Authorization": f"Bearer {os.environ['HF_TOKEN']}"}

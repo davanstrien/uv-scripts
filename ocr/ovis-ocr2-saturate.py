@@ -67,7 +67,12 @@ import argparse
 import base64
 import io
 import math
+import os
+import re
+import shlex
 import sys
+
+SCRIPT_URL = "https://huggingface.co/datasets/uv-scripts/ocr/raw/main/ovis-ocr2-saturate.py"
 
 # Serving starting values for ATH-MaaS/OvisOCR2. Per-value provenance:
 # - The card documents OFFLINE inference only — no `vllm serve` command exists
@@ -179,6 +184,33 @@ def filter_image_tags(text: str) -> str:
     )
 
 
+def write_card(args):
+    """Push a minimal card: the uv-script / hf_jobs tags and the command that made this dataset."""
+    from huggingface_hub import DatasetCard, DatasetCardData
+
+    on_jobs = os.environ.get("HF_JOB_ID") is not None
+    flavor = os.environ.get("HF_JOB_FLAVOR")
+    origin = (
+        "Produced on [Hugging Face Jobs](https://huggingface.co/docs/huggingface_hub/guides/jobs)"
+        + (f" (`{flavor}`)" if flavor else "")
+    ) if on_jobs else "Generated"
+    argv = sys.argv[1:]
+    argv[argv.index(args.output_dataset, argv.index(args.input_dataset) + 1)] = "<output-dataset>"  # the output positional only
+    command = re.sub(r"hf_[A-Za-z0-9]{20,}", "hf_***", shlex.join(argv))  # never publish a token
+    data = DatasetCardData(
+        tags=["ocr", "document-processing", "ovis-ocr2", "uv-script", "generated"] + (["hf_jobs"] if on_jobs else []),
+        task_categories=["image-to-text"], source_datasets=[args.input_dataset],
+    )
+    card = DatasetCard(
+        f"---\n{data.to_yaml()}\n---\n\n"
+        f"# {args.output_dataset}\n\n"
+        f"{origin} with the [`ovis-ocr2-saturate.py`]({SCRIPT_URL}) recipe "
+        f"from [uv-scripts](https://huggingface.co/uv-scripts). Run it yourself:\n\n"
+        + f"```bash\nhf jobs uv run{' --flavor ' + flavor if flavor else ''} {SCRIPT_URL} {command}\n```\n"
+    )
+    card.push_to_hub(args.output_dataset)
+
+
 def main():
     ap = argparse.ArgumentParser(description="OvisOCR2 batch OCR via saturate")
     ap.add_argument("input_dataset", help="Input dataset repo id (rows with an image column)")
@@ -245,6 +277,7 @@ def main():
                      window=Auto(initial=8, max_limit=48),
                      retry_errors=args.retry_errors, schema=schema)
 
+    write_card(args)
     print(f"https://huggingface.co/datasets/{args.output_dataset} "
           f"({stats.rows_processed} ok, {stats.rows_failed} error rows)", file=sys.stderr)
     print("OVIS_OCR2_SATURATE " + stats.to_json(), flush=True)
