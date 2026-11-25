@@ -748,81 +748,9 @@ def evaluate(model_path: str, eval_sets: dict, tasks: list, batch_size: int, exp
     return metrics_by_split
 
 
-def jobs_flavor() -> str:
-    """Return the HF Jobs hardware flavor this run is on, or "" when it cannot be told.
-
-    HF Jobs sets HF_JOB_FLAVOR to the flavor name. Without it (ACCELERATOR holds only
-    "cpu" or "gpu", not the flavor name), the flavor is looked up
-    in the public Jobs hardware list: first by GPU model and count, then by the CPU_CORES and
-    MEMORY values that Jobs sets in the container (to tell a10g-small from a10g-large, or
-    cpu-basic from cpu-upgrade). Any failure (no network, older huggingface_hub) returns "".
-    """
-    if os.environ.get("HF_JOB_FLAVOR"):
-        return os.environ["HF_JOB_FLAVOR"]
-    hardware = os.environ.get("ACCELERATOR") or ""
-    if "-" in hardware or any(character.isdigit() for character in hardware):
-        return hardware  # already a flavor name
-    try:
-        from huggingface_hub import HfApi
-
-        gpu_name, gpu_count = "", 0
-        try:
-            import torch
-
-            if torch.cuda.is_available():
-                gpu_name = torch.cuda.get_device_name(0)
-                gpu_count = torch.cuda.device_count()
-        except ImportError:
-            # Torch-free drivers (e.g. the -server recipes): ask nvidia-smi instead.
-            import subprocess
-
-            try:
-                listed = subprocess.run(
-                    ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
-                    capture_output=True, text=True, timeout=10, check=True,
-                ).stdout
-                names = [line.strip() for line in listed.splitlines() if line.strip()]
-                if names:
-                    gpu_name, gpu_count = names[0], len(names)
-            except (OSError, subprocess.SubprocessError):
-                pass
-        if gpu_count == 0 and hardware == "gpu":
-            return ""  # a GPU run whose GPU cannot be identified: do not guess a CPU flavor
-
-        # Whole-word match, so "L4" does not match "NVIDIA L40S" ("NVIDIA A100-SXM4-80GB" -> A100).
-        gpu_words = gpu_name.upper().replace("-", " ").split()
-        candidates = []
-        for flavor in HfApi(token=False).list_jobs_hardware():
-            accelerator = flavor.accelerator
-            if gpu_count == 0 and accelerator is None:
-                candidates.append(flavor)
-            elif (
-                gpu_count > 0
-                and accelerator is not None
-                and accelerator.model.upper() in gpu_words
-                and int(accelerator.quantity) == gpu_count
-            ):
-                candidates.append(flavor)
-        if not candidates:
-            return ""
-
-        cores = float(os.environ.get("CPU_CORES") or 0)
-        memory_gb = float((os.environ.get("MEMORY") or "0").upper().rstrip("GIB ") or 0)
-
-        def distance(flavor) -> float:
-            # Relative gap to the listed vCPUs and RAM; Jobs reports slightly different numbers.
-            listed_cores = float(flavor.cpu.split()[0])
-            listed_memory = float(flavor.ram.split()[0])
-            return abs(listed_cores - cores) / listed_cores + abs(listed_memory - memory_gb) / listed_memory
-
-        return min(candidates, key=distance).name
-    except Exception:
-        return ""
-
-
 def build_reproduce_command(args) -> str:
     """Rebuild the exact invocation, so the card's command produces the card's model."""
-    flavor = jobs_flavor() or "t4-small"
+    flavor = os.environ.get("HF_JOB_FLAVOR", "") or "t4-small"
     # The timeout is the [tool.hf-jobs] default, spelled out because older CLIs ignore the header.
     parts = [f"hf jobs uv run --flavor {flavor} --timeout 1h --secrets HF_TOKEN \\"]
     if args.train_file:
@@ -914,7 +842,7 @@ def results_table(tasks: list, zero_shot, fine_tuned) -> str:
 def build_card(args, tasks, zero_shot, fine_tuned, train_size, train_seconds, carved_out, oom_steps) -> str:
     """Model card following the uv-scripts conventions (org credit, Jobs claim gated on HF_JOB_ID)."""
     on_jobs = os.environ.get("HF_JOB_ID") is not None
-    hardware = jobs_flavor()
+    hardware = os.environ.get("HF_JOB_FLAVOR", "")
     if on_jobs:
         provenance = "Produced on [Hugging Face Jobs](https://huggingface.co/docs/huggingface_hub/guides/jobs)"
         if hardware:

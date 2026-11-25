@@ -6,7 +6,6 @@ Run with the recipe dependencies and pytest installed:
 
 import importlib.util
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
@@ -130,140 +129,27 @@ def test_help_renders_slice_example(monkeypatch, capsys):
     assert "train[:10%]" in capsys.readouterr().out
 
 
-@pytest.mark.parametrize(
-    ("job_id", "accelerator", "cuda", "expected"),
-    [
-        ("job-123", "l40sx1", True, "l40sx1"),
-        ("job-123", "a100-large", True, "a100-large"),
-        ("job-123", "none", False, "cpu-basic"),
-        ("job-123", "", False, "cpu-basic"),
-        ("", "l40sx1", True, "t4-small"),
-    ],
-)
-def test_reproduction_preserves_jobs_gpu_flavor(monkeypatch, job_id, accelerator, cuda, expected):
-    monkeypatch.setattr("sys.argv", [str(SCRIPT), "fixture", "user/model"])
-    monkeypatch.setenv("HF_JOB_ID", job_id)
-    monkeypatch.setenv("ACCELERATOR", accelerator)
-    monkeypatch.setattr(recipe.torch.cuda, "is_available", lambda: cuda)
-    command = recipe.build_reproduce_command(recipe.parse_args())
-    assert command.startswith(f"hf jobs uv run --flavor {expected} --secrets HF_TOKEN")
-
-
-def _flavor(name, cpu, ram, model=None, quantity=None):
-    accelerator = None if model is None else SimpleNamespace(model=model, quantity=str(quantity))
-    return SimpleNamespace(name=name, cpu=f"{cpu} vCPU", ram=f"{ram} GB", accelerator=accelerator)
-
-
-# A subset of HfApi().list_jobs_hardware(), as listed on 2026-10-02.
-JOBS_HARDWARE = [
-    _flavor("cpu-basic", 2, 16),
-    _flavor("cpu-upgrade", 8, 32),
-    _flavor("t4-small", 4, 15, "T4", 1),
-    _flavor("t4-medium", 8, 30, "T4", 1),
-    _flavor("a10g-small", 4, 15, "A10G", 1),
-    _flavor("a10g-large", 12, 46, "A10G", 1),
-    _flavor("a10g-largex2", 24, 92, "A10G", 2),
-    _flavor("l4x1", 8, 30, "L4", 1),
-    _flavor("l4x4", 48, 186, "L4", 4),
-    _flavor("l40sx1", 8, 62, "L40S", 1),
-    _flavor("h200x8", 184, 2048, "H200", 8),
-]
-
-
 @pytest.fixture(autouse=True)
-def _offline_jobs_hardware(monkeypatch):
-    """jobs_flavor() reads the public Jobs hardware list; tests use a recorded subset instead."""
-    monkeypatch.setattr("huggingface_hub.HfApi.list_jobs_hardware", lambda self, token=None: JOBS_HARDWARE)
-    monkeypatch.delenv("CPU_CORES", raising=False)
-    monkeypatch.delenv("MEMORY", raising=False)
+def _clear_jobs_flavor(monkeypatch):
     monkeypatch.delenv("HF_JOB_FLAVOR", raising=False)  # set when the tests themselves run inside a Job
 
 
 @pytest.mark.parametrize(
-    ("gpu_name", "gpu_count", "cpu_cores", "memory", "expected"),
+    ("job_id", "flavor", "cuda", "expected"),
     [
-        ("Tesla T4", 1, "4", "15.0G", "t4-small"),
-        ("NVIDIA A10G", 1, "3", "15.0G", "a10g-small"),  # Jobs reports 3 cores on a10g-small
-        ("NVIDIA A10G", 1, "12", "46.0G", "a10g-large"),
-        ("NVIDIA A10G", 2, "24", "99.0G", "a10g-largex2"),  # Jobs reports 99G, the listing says 92
-        ("NVIDIA L40S", 1, "8", "62.0G", "l40sx1"),
-        ("NVIDIA L40S", 1, "", "", "l40sx1"),  # local run: no CPU_CORES/MEMORY; L4 must not match
-        ("NVIDIA L4", 1, "", "", "l4x1"),
-        ("NVIDIA L4", 4, "48", "185.0G", "l4x4"),
-        ("NVIDIA H200", 8, "184", "2048.0G", "h200x8"),
+        ("job-123", "l40sx1", True, "l40sx1"),
+        ("job-123", "cpu-upgrade", False, "cpu-upgrade"),
+        ("job-123", "", True, "t4-small"),  # HF_JOB_FLAVOR unset: the suggested default
+        ("", "l40sx1", True, "t4-small"),  # local run: never claims a Jobs flavor
     ],
 )
-def test_reproduction_names_flavor_when_accelerator_is_bare_gpu(
-    monkeypatch, gpu_name, gpu_count, cpu_cores, memory, expected
-):
-    """On Jobs, ACCELERATOR is "gpu", not the flavor: the flavor comes from the hardware list."""
+def test_reproduction_uses_hf_job_flavor(monkeypatch, job_id, flavor, cuda, expected):
     monkeypatch.setattr("sys.argv", [str(SCRIPT), "fixture", "user/model"])
-    monkeypatch.setenv("HF_JOB_ID", "job-123")
-    monkeypatch.setenv("ACCELERATOR", "gpu")
-    monkeypatch.setenv("CPU_CORES", cpu_cores)
-    monkeypatch.setenv("MEMORY", memory)
-    monkeypatch.setattr(recipe.torch.cuda, "is_available", lambda: True)
-    monkeypatch.setattr(recipe.torch.cuda, "get_device_name", lambda index=0: gpu_name)
-    monkeypatch.setattr(recipe.torch.cuda, "device_count", lambda: gpu_count)
+    monkeypatch.setenv("HF_JOB_ID", job_id)
+    monkeypatch.setenv("HF_JOB_FLAVOR", flavor)
+    monkeypatch.setattr(recipe.torch.cuda, "is_available", lambda: cuda)
     command = recipe.build_reproduce_command(recipe.parse_args())
     assert command.startswith(f"hf jobs uv run --flavor {expected} --secrets HF_TOKEN")
-
-
-def test_reproduction_names_cpu_flavor(monkeypatch):
-    monkeypatch.setattr("sys.argv", [str(SCRIPT), "fixture", "user/model"])
-    monkeypatch.setenv("HF_JOB_ID", "job-123")
-    monkeypatch.setenv("ACCELERATOR", "cpu")
-    monkeypatch.setenv("CPU_CORES", "8")
-    monkeypatch.setenv("MEMORY", "32.0G")
-    monkeypatch.setattr(recipe.torch.cuda, "is_available", lambda: False)
-    command = recipe.build_reproduce_command(recipe.parse_args())
-    assert command.startswith("hf jobs uv run --flavor cpu-upgrade --secrets HF_TOKEN")
-
-
-def test_reproduction_falls_back_when_hardware_lookup_fails(monkeypatch):
-    def offline(self, token=None):
-        raise OSError("no network")
-
-    monkeypatch.setattr("huggingface_hub.HfApi.list_jobs_hardware", offline)
-    monkeypatch.setattr("sys.argv", [str(SCRIPT), "fixture", "user/model"])
-    monkeypatch.setenv("HF_JOB_ID", "job-123")
-    monkeypatch.setenv("ACCELERATOR", "gpu")
-    monkeypatch.setattr(recipe.torch.cuda, "is_available", lambda: True)
-    command = recipe.build_reproduce_command(recipe.parse_args())
-    assert command.startswith("hf jobs uv run --flavor t4-small --secrets HF_TOKEN")
-
-
-@pytest.mark.parametrize(("flavor", "accelerator"), [("a10g-large", "gpu"), ("cpu-upgrade", "cpu")])
-def test_jobs_flavor_reads_hf_job_flavor(monkeypatch, flavor, accelerator):
-    """Jobs sets HF_JOB_FLAVOR to the flavor name: use it, with no hardware lookup."""
-
-    def no_lookup(self, token=None):
-        raise AssertionError("the hardware list must not be read")
-
-    monkeypatch.setattr("huggingface_hub.HfApi.list_jobs_hardware", no_lookup)
-    monkeypatch.setenv("HF_JOB_FLAVOR", flavor)
-    monkeypatch.setenv("ACCELERATOR", accelerator)
-    assert recipe.jobs_flavor() == flavor
-
-
-@pytest.mark.parametrize(("nvidia_smi", "expected"), [("NVIDIA L4\n", "l4x1"), (None, "")])
-def test_jobs_flavor_without_torch(monkeypatch, nvidia_smi, expected):
-    """Torch-free drivers (the -server recipes) read the GPU from nvidia-smi; a GPU run
-    whose GPU cannot be identified gets "", never a CPU flavor."""
-    import subprocess
-    import sys
-
-    def fake_run(*args, **kwargs):
-        if nvidia_smi is None:
-            raise FileNotFoundError("nvidia-smi")
-        return SimpleNamespace(stdout=nvidia_smi)
-
-    monkeypatch.setitem(sys.modules, "torch", None)  # makes `import torch` raise ImportError
-    monkeypatch.setattr(subprocess, "run", fake_run)
-    monkeypatch.setenv("ACCELERATOR", "gpu")
-    monkeypatch.setenv("CPU_CORES", "8")
-    monkeypatch.setenv("MEMORY", "30.0G")
-    assert recipe.jobs_flavor() == expected
 
 
 @pytest.mark.parametrize("is_private", [False, True])
