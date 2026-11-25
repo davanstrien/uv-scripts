@@ -413,6 +413,11 @@ ARM wheels) — if a nightly-recipe install fails on resolution, wait and retry 
 
 ## Change log
 
+- **2026-11-25** — `ocria-nano.py`: the text changes with the CPU type in our testing (2,165 pages;
+  fewer character errors on `t4-small`, Intel with AVX-512 VNNI, than on the AMD-based `cpu-upgrade`
+  and `cpu-xl`; only those three flavors tested). The recipe now logs the CPU model, warns when the
+  CPU has no VNNI, and writes `cpu_model` / `cpu_vnni` to `inference_info` and the card. The default
+  flavor stays `cpu-upgrade` (the cheap one).
 - **2026-11-24** — added `ocria-nano.py` (experimental) for `llamaindex/OCRia-nano-1` (8.1M params,
   CPU only, OCRia-nano-1 Model License = modified OpenRAIL-M). The model has no standalone inference
   script: it runs inside LiteParse (`liteparse>=2.21.0`, the first release with `liteparse.models`), one

@@ -26,6 +26,12 @@ per page.
 CPU-ONLY: no GPU is used and LiteParse has no GPU path for this model. Run it on a
 `cpu-upgrade` flavor. `--num-workers` runs pages in parallel across cores.
 
+CPU TYPE: in our testing the text changed with the CPU type. On one set of 2,165
+pages, a flavor with an Intel CPU that has AVX-512 VNNI (`t4-small`) gave fewer
+character errors than the AMD-based `cpu-upgrade` and `cpu-xl`, at a higher price per
+page. We tested only those three flavors. The recipe writes the CPU model to the logs,
+to `inference_info` and to the dataset card. Keep to one flavor when you compare runs.
+
 Where it sits: far cheaper per page than the VLM recipes in this folder, with more
 character errors and weaker structure on hard layouts. Use it as a cheap first pass
 or a CPU baseline, and compare a few outputs with their pages before you scale up.
@@ -194,6 +200,22 @@ def run_ocr(parser, dataset, image_column: str, num_workers: int) -> list[str]:
     return results
 
 
+def cpu_info() -> tuple[str, bool | None]:
+    """Return the CPU model name and whether it has VNNI (None if unknown, e.g. not Linux)."""
+    try:
+        text = Path("/proc/cpuinfo").read_text()
+    except OSError:
+        return "unknown", None
+    model, flags = "unknown", set()
+    for line in text.splitlines():
+        key, _, value = line.partition(":")
+        if key.strip() == "model name" and model == "unknown":
+            model = value.strip()
+        elif key.strip() == "flags" and not flags:
+            flags = set(value.split())
+    return model, bool(flags & {"avx512_vnni", "avx_vnni"})
+
+
 def create_dataset_card(
     source_dataset: str,
     num_samples: int,
@@ -201,6 +223,7 @@ def create_dataset_card(
     liteparse_version: str,
     num_workers: int,
     output_column: str,
+    cpu_model: str,
     image_column: str = "image",
     split: str = "train",
 ) -> str:
@@ -236,6 +259,7 @@ This dataset contains Markdown OCR results from images in [{source_dataset}](htt
 - **Source Dataset**: [{source_dataset}](https://huggingface.co/datasets/{source_dataset})
 - **Model**: [{MODEL_ID}](https://huggingface.co/{MODEL_ID})
 - **Runtime**: LiteParse `{liteparse_version}` (CPU)
+- **CPU**: {cpu_model} (in our testing the text changed with the CPU type)
 - **Number of Samples**: {num_samples:,}
 - **Processing Time**: {processing_time}
 - **Processing Date**: {datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")}
@@ -307,6 +331,13 @@ def main(
     liteparse_version = importlib.metadata.version("liteparse")
     logger.info(f"Using {MODEL_NAME} via LiteParse {liteparse_version}")
     logger.info(f"CPU-only run with {num_workers} worker(s)")
+    cpu_model, cpu_vnni = cpu_info()
+    logger.info(f"CPU: {cpu_model} (VNNI: {cpu_vnni})")
+    if cpu_vnni is False:
+        logger.warning(
+            "This CPU has no VNNI. In our testing, CPUs without it gave more character "
+            "errors with this model than an Intel CPU with AVX-512 VNNI (`t4-small`)."
+        )
     logger.info(f"The weights are under the OCRia-nano-1 Model License: {LICENSE_URL}")
 
     HF_TOKEN = hf_token or os.environ.get("HF_TOKEN")
@@ -378,6 +409,8 @@ def main(
         "engine": "liteparse",
         "liteparse_version": liteparse_version,
         "num_workers": num_workers,
+        "cpu_model": cpu_model,
+        "cpu_vnni": cpu_vnni,
     }
 
     if "inference_info" in dataset.column_names:
@@ -448,6 +481,7 @@ def main(
         liteparse_version=liteparse_version,
         num_workers=num_workers,
         output_column=output_column,
+        cpu_model=cpu_model,
         image_column=image_column,
         split=split,
     )
