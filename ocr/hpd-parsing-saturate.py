@@ -466,7 +466,9 @@ def write_card(args):
         "Produced on [Hugging Face Jobs](https://huggingface.co/docs/huggingface_hub/guides/jobs)"
         + (f" (`{flavor}`)" if flavor else "")
     ) if on_jobs else "Generated"
-    command = shlex.join("<output-dataset>" if a == args.output_dataset else a for a in sys.argv[1:])
+    argv = sys.argv[1:]
+    argv[argv.index(args.output_dataset, argv.index(args.input_dataset) + 1)] = "<output-dataset>"  # the output positional only
+    command = re.sub(r"hf_[A-Za-z0-9]{20,}", "hf_***", shlex.join(argv))  # never publish a token
     data = DatasetCardData(
         tags=["ocr", "document-processing", "hpd-parsing", "uv-script", "generated"] + (["hf_jobs"] if on_jobs else []),
         task_categories=["image-to-text"], source_datasets=[args.input_dataset],
