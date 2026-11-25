@@ -296,160 +296,26 @@ def postprocess(raw: str, mode: str, fix_dollars: bool):
     return to_markdown(blocks), json.dumps([b.to_dict() for b in blocks], ensure_ascii=False)
 
 
-def jobs_flavor() -> str:
-    """Return the HF Jobs hardware flavor this run is on, or "" when it cannot be told.
-
-    HF Jobs sets HF_JOB_FLAVOR to the flavor name. Without it (ACCELERATOR holds only
-    "cpu" or "gpu", not the flavor name), the flavor is looked up
-    in the public Jobs hardware list: first by GPU model and count, then by the CPU_CORES and
-    MEMORY values that Jobs sets in the container (to tell a10g-small from a10g-large, or
-    cpu-basic from cpu-upgrade). Any failure (no network, older huggingface_hub) returns "".
-    """
-    if os.environ.get("HF_JOB_FLAVOR"):
-        return os.environ["HF_JOB_FLAVOR"]
-    hardware = os.environ.get("ACCELERATOR") or ""
-    if "-" in hardware or any(character.isdigit() for character in hardware):
-        return hardware  # already a flavor name
-    try:
-        from huggingface_hub import HfApi
-
-        gpu_name, gpu_count = "", 0
-        try:
-            import torch
-
-            if torch.cuda.is_available():
-                gpu_name = torch.cuda.get_device_name(0)
-                gpu_count = torch.cuda.device_count()
-        except ImportError:
-            # Torch-free drivers (e.g. the -server recipes): ask nvidia-smi instead.
-            import subprocess
-
-            try:
-                listed = subprocess.run(
-                    ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
-                    capture_output=True, text=True, timeout=10, check=True,
-                ).stdout
-                names = [line.strip() for line in listed.splitlines() if line.strip()]
-                if names:
-                    gpu_name, gpu_count = names[0], len(names)
-            except (OSError, subprocess.SubprocessError):
-                pass
-        if gpu_count == 0 and hardware == "gpu":
-            return ""  # a GPU run whose GPU cannot be identified: do not guess a CPU flavor
-
-        # Whole-word match, so "L4" does not match "NVIDIA L40S" ("NVIDIA A100-SXM4-80GB" -> A100).
-        gpu_words = gpu_name.upper().replace("-", " ").split()
-        candidates = []
-        for flavor in HfApi(token=False).list_jobs_hardware():
-            accelerator = flavor.accelerator
-            if gpu_count == 0 and accelerator is None:
-                candidates.append(flavor)
-            elif (
-                gpu_count > 0
-                and accelerator is not None
-                and accelerator.model.upper() in gpu_words
-                and int(accelerator.quantity) == gpu_count
-            ):
-                candidates.append(flavor)
-        if not candidates:
-            return ""
-
-        cores = float(os.environ.get("CPU_CORES") or 0)
-        memory_gb = float((os.environ.get("MEMORY") or "0").upper().rstrip("GIB ") or 0)
-
-        def distance(flavor) -> float:
-            # Relative gap to the listed vCPUs and RAM; Jobs reports slightly different numbers.
-            listed_cores = float(flavor.cpu.split()[0])
-            listed_memory = float(flavor.ram.split()[0])
-            return abs(listed_cores - cores) / listed_cores + abs(listed_memory - memory_gb) / listed_memory
-
-        return min(candidates, key=distance).name
-    except Exception:
-        return ""
-
-
-def reproduce_options(args):
-    """Return the options that give this dataset again, as a shell-quoted string."""
-    options = []
-    if args.model != SERVING["models"][0]:
-        options += ["--model", args.model]
-    if args.mode != "plain":
-        options += ["--mode", args.mode]
-    if args.image_column != "image":
-        options += ["--image-column", args.image_column]
-    if args.config:
-        options += ["--config", args.config]
-    if args.split != "train":
-        options += ["--split", args.split]
-    if args.id_column:
-        options += ["--id-column", args.id_column]
-    if args.limit:
-        options += ["--max-samples", str(args.limit)]
-    if args.max_tokens != SERVING["max_tokens"]:
-        options += ["--max-tokens", str(args.max_tokens)]
-    if args.temperature != SERVING["temperature"]:
-        options += ["--temperature", str(args.temperature)]
-    if args.top_p != SERVING["top_p"]:
-        options += ["--top-p", str(args.top_p)]
-    if args.longest_edge != SERVING["longest_edge"]:
-        options += ["--longest-edge", str(args.longest_edge)]
-    if args.no_fix_dollars:
-        options += ["--no-fix-dollars"]
-    if args.repair_max_tokens:
-        options += ["--repair-max-tokens", str(args.repair_max_tokens)]
-    if args.window != "auto":
-        options += ["--window", args.window]
-    if args.prepare_workers is not None:
-        options += ["--prepare-workers", str(args.prepare_workers)]
-    if args.serve_args:
-        options += [f"--serve-args={args.serve_args}"]  # one token: a value like "--x" would read as a flag
-    return "".join(" " + shlex.quote(option) for option in options)
-
-
-def write_card(args, stats, repair_stats):
-    """Write the dataset card, with the canonical uv-scripts reproduction section."""
+def write_card(args):
+    """Push a minimal card: the uv-script / hf_jobs tags and the command that made this dataset."""
     from huggingface_hub import HfApi
 
     on_jobs = os.environ.get("HF_JOB_ID") is not None
-    flavor = jobs_flavor()
+    flavor = os.environ.get("HF_JOB_FLAVOR")
     origin = (
         "Produced on [Hugging Face Jobs](https://huggingface.co/docs/huggingface_hub/guides/jobs)"
         + (f" (`{flavor}`)" if flavor else "")
     ) if on_jobs else "Generated"
-    jobs_tag = "\n- hf_jobs" if on_jobs else ""
-    # A resumed run processes only the rows that were missing, so the card gives both counts.
-    earlier = f", {stats.rows_done_prior} already written by an earlier run" if stats.rows_done_prior else ""
-    blocks = (
-        "- `layout_blocks`: JSON list of layout blocks (`label`, `bbox` as x1,y1,x2,y2 normalised "
-        "to 0-1000, `text`, `continues`).\n" if args.mode == "grounding" else ""
-    )
-    repair = (
-        f"- Pages that hit `--max-tokens` and were sent again with a cap of {args.repair_max_tokens}: "
-        f"{repair_stats.rows_processed} done, {repair_stats.rows_failed} failed, in `repair/`. "
-        f"Prefer the `repair/` row for an id where its `finish_reason` is \"stop\".\n" if repair_stats else ""
-    )
+    command = shlex.join("<output-dataset>" if a == args.output_dataset else a for a in sys.argv[1:])
     card = (
-        f"---\ntags:\n- ocr\n- document-processing\n- lighton-ocr-3\n- markdown\n- uv-script\n- generated{jobs_tag}\n---\n\n"
-        f"# Document OCR using {args.model.split('/')[-1]}\n\n"
-        f"OCR results for the `{args.image_column}` column of "
-        f"[`{args.input_dataset}`](https://huggingface.co/datasets/{args.input_dataset}) (split `{args.split}`), "
-        f"made with [`{args.model}`](https://huggingface.co/{args.model}) in **{args.mode}** mode "
-        f"on a vLLM server driven by `saturate`.\n\n"
-        f"- Rows in the last run: {stats.rows_processed} done, {stats.rows_failed} failed{earlier}. "
-        f"A failed row has a message in `error`.\n"
-        f"- Files: `data/part-*.parquet`, one record per input row: `id`, `markdown`, `raw`, `finish_reason`, "
-        f"`layout_blocks`, `model`, `prompt_tokens`, `completion_tokens`, `error`. Join back to the input on `id`. "
-        f"`finish_reason` = \"length\" marks a page that hit the {args.max_tokens}-token cap.\n"
-        f"{blocks}{repair}\n"
-        f"## Reproduction\n\n"
+        "---\ntags:\n- ocr\n- document-processing\n- lighton-ocr-3\n- uv-script\n- generated\n" + ("- hf_jobs\n" if on_jobs else "") + "---\n\n"
+        f"# {args.output_dataset}\n\n"
         f"{origin} with the [`lighton-ocr3-saturate.py`]({SCRIPT_URL}) recipe "
         f"from [uv-scripts](https://huggingface.co/uv-scripts). Run it yourself:\n\n"
-        f"```bash\nhf jobs uv run --flavor {flavor or 'a10g-small'} {SCRIPT_URL} \\\n"
-        f"    {args.input_dataset} <output-dataset>{reproduce_options(args)}\n```\n"
+        + f"```bash\nhf jobs uv run{' --flavor ' + flavor if flavor else ''} {SCRIPT_URL} {command}\n```\n"
     )
     HfApi().upload_file(
-        path_or_fileobj=card.encode(), path_in_repo="README.md",
-        repo_id=args.output_dataset, repo_type="dataset",
+        path_or_fileobj=card.encode(), path_in_repo="README.md", repo_id=args.output_dataset, repo_type="dataset",
     )
 
 
@@ -626,7 +492,7 @@ def main():
                                 retry_errors=args.retry_errors, schema=schema)
             print("LIGHTON_OCR3_SATURATE_REPAIR " + repair_stats.to_json(), flush=True)
 
-    write_card(args, stats, repair_stats)
+    write_card(args)
     print(f"https://huggingface.co/datasets/{args.output_dataset} "
           f"({stats.rows_processed} ok, {stats.rows_failed} error rows, "
           f"{len(truncated) if repair_dir else 'n/a'} truncated pages re-sent to repair/)", file=sys.stderr)
