@@ -43,13 +43,14 @@ for the full API. This is more reliable than any markdown table that might drift
 
 ## Getting help from a specific script
 
-Each script has a docstring at the top with a description and usage examples. To read it
-without downloading:
+Each script has a docstring at the top with a description and usage examples, and its
+argument definitions near the end. Read the whole file before you run it; the first 100
+lines usually stop before the arguments. To read it without installing anything:
 
-    curl -s https://huggingface.co/datasets/uv-scripts/ocr/raw/main/<script>.py | head -100
+    curl -s https://huggingface.co/datasets/uv-scripts/ocr/raw/main/<script>.py
 
 Or open the URL in a browser. Running `uv run <url> --help` locally may fail if the
-script has GPU-only dependencies — reading the docstring is more reliable.
+script has GPU-only dependencies — reading the file is more reliable.
 
 ## The main pattern: dataset → dataset
 
