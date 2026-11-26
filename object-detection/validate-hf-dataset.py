@@ -46,7 +46,7 @@ from datetime import datetime
 from typing import Any
 
 from datasets import load_dataset
-from huggingface_hub import DatasetCard, login
+from huggingface_hub import login
 from tqdm.auto import tqdm
 
 logging.basicConfig(level=logging.INFO)

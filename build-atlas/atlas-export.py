@@ -435,7 +435,7 @@ def main():
         if hf_token:
             login(token=hf_token)
             logger.info("✅ Authenticated with Hugging Face")
-        elif is_interactive := sys.stdin.isatty():
+        elif sys.stdin.isatty():
             logger.warning(
                 "No HF token provided. You may not be able to push to the Hub."
             )
@@ -500,7 +500,7 @@ def main():
             )
 
             logger.info(f"\n🎉 Success! Your atlas is live at: {space_url}")
-            logger.info(f"The visualization will be available in a few moments.")
+            logger.info("The visualization will be available in a few moments.")
 
         # Clean up the ZIP file
         if Path(export_path).exists():

@@ -684,7 +684,7 @@ def main(
         every=upload_every,
         private=private,
         token=HF_TOKEN,
-    ) as _scheduler:  # noqa: F841
+    ) as _scheduler:
         for batch_num, batch_indices in enumerate(
             partition_all(batch_size, range(total_samples))
         ):

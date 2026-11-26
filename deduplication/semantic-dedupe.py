@@ -36,7 +36,6 @@ import argparse
 import os
 import sys
 from datetime import datetime
-from typing import Optional
 
 from datasets import Dataset, load_dataset
 from huggingface_hub import DatasetCard, login
@@ -232,7 +231,7 @@ def main():
     deduped_size = len(result_dataset)
     
     # Print statistics
-    print(f"\nDeduplication complete!")
+    print("\nDeduplication complete!")
     print(f"Original size: {original_size:,}")
     print(f"Deduplicated size: {deduped_size:,}")
     print(f"Removed: {original_size - deduped_size:,} ({((original_size - deduped_size) / original_size) * 100:.1f}%)")
