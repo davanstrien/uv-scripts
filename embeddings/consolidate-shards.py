@@ -111,6 +111,7 @@ def main():
                         "no effect on a repo that already exists)")
     args = p.parse_args()
 
+    import pyarrow.parquet as pq
     from huggingface_hub import (DatasetCard, HfApi, download_bucket_files,
                                  list_bucket_tree, login)
 
