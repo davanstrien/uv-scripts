@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10"
 # dependencies = [
-#     "surya-ocr",
+#     "surya-ocr<0.24",  # 0.24 dropped TableRecPredictor's mode= ('simple'/'full'), which --task table passes
 #     "datasets>=3.1.0,<5.1",  # 5.1 needs huggingface_hub>=1.31; the image ships an older 1.x on PYTHONPATH, which wins
 #     "huggingface-hub",
 #     "pillow",
