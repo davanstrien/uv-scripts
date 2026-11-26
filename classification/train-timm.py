@@ -198,7 +198,7 @@ def parse_args(argv):
     data.add_argument(
         "--label-column", default=None, help="Label column (default: auto-detect)"
     )
-    data.add_argument("--train-split", default="train")
+    data.add_argument("--train-split", default="train", help="Split to train on (default: train)")
     data.add_argument(
         "--val-split",
         default=None,
@@ -224,7 +224,7 @@ def parse_args(argv):
     )
 
     train = parser.add_argument_group("training (passed to train.py)")
-    train.add_argument("--epochs", type=int, default=10)
+    train.add_argument("--epochs", type=int, default=10, help="Training epochs (default: 10)")
     train.add_argument("--batch-size", type=int, default=64, help="Per GPU")
     train.add_argument(
         "--lr",
@@ -235,7 +235,7 @@ def parse_args(argv):
             "with --lr-base-size = --batch-size, so timm scales it for several GPUs."
         ),
     )
-    train.add_argument("--weight-decay", type=float, default=0.05)
+    train.add_argument("--weight-decay", type=float, default=0.05, help="AdamW weight decay (default: 0.05)")
     train.add_argument(
         "--img-size",
         type=int,
@@ -245,7 +245,12 @@ def parse_args(argv):
     train.add_argument(
         "--threshold", type=float, default=0.5, help="Multi-label decision threshold"
     )
-    train.add_argument("--seed", type=int, default=42)
+    train.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="Random seed for the validation carve, row subsampling and timm training (default: 42)",
+    )
     train.add_argument(
         "--num-workers",
         type=int,

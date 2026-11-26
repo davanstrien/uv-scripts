@@ -23,6 +23,11 @@ attempt are removed first.
 
 Usually spawned as a cpu Job by the launcher; can also run locally:
     uv run consolidate-shards.py --bucket you/embedding-runs --run-id 20260709-1200-abc123
+
+To re-run it on Jobs by hand (the launcher's defaults):
+    hf jobs uv run --flavor cpu-upgrade --timeout 2h -s HF_TOKEN \\
+        https://huggingface.co/datasets/uv-scripts/embeddings/raw/main/consolidate-shards.py \\
+        --bucket you/embedding-runs --run-id 20260709-1200-abc123
 """
 import argparse
 import json
@@ -100,8 +105,9 @@ def upload_with_retry(api, local, repo_id, path_in_repo, max_retries=3):
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--bucket", required=True, help="Run bucket, e.g. you/embedding-runs")
-    p.add_argument("--run-id", required=True)
-    p.add_argument("--private", action="store_true")
+    p.add_argument("--run-id", required=True, help="Fleet run id; shards are read from runs/<run-id>/ in --bucket")
+    p.add_argument("--private", action="store_true",
+                   help="Make the output dataset private (also set when the run's manifest says private)")
     args = p.parse_args()
 
     import pyarrow.parquet as pq

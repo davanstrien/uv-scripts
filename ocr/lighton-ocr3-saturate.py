@@ -328,19 +328,21 @@ def main():
     ap = argparse.ArgumentParser(description="LightOnOCR-3 batch OCR via saturate")
     ap.add_argument("input_dataset", help="Input dataset repo id (rows with an image column)")
     ap.add_argument("output_dataset", help="Output dataset repo id (created private if missing)")
-    ap.add_argument("--model", default=SERVING["models"][0], choices=SERVING["models"])
+    ap.add_argument("--model", default=SERVING["models"][0], choices=SERVING["models"],
+                    help="Model repo id (default: %(default)s)")
     ap.add_argument("--mode", default="plain", choices=["plain", "grounding"],
                     help="plain = markdown; grounding = labelled layout blocks with 0-1000 boxes")
-    ap.add_argument("--image-column", default="image")
+    ap.add_argument("--image-column", default="image", help="Column that holds the page image (default: image)")
     ap.add_argument("--config", default=None, help="Dataset config name")
-    ap.add_argument("--split", default="train")
+    ap.add_argument("--split", default="train", help="Dataset split to read (default: train)")
     ap.add_argument("--id-column", default=None,
                     help="Column to use as row id (default: split-index ids)")
     ap.add_argument("--max-samples", "--limit", dest="limit", type=int, default=None,
                     help="Process only the first N rows (smoke test)")
     ap.add_argument("--max-tokens", type=int, default=SERVING["max_tokens"],
                     help="Output cap per page (default 4096, the model card's)")
-    ap.add_argument("--temperature", type=float, default=SERVING["temperature"])
+    ap.add_argument("--temperature", type=float, default=SERVING["temperature"],
+                    help="Sampling temperature (default: %(default)s)")
     ap.add_argument("--top-p", type=float, default=SERVING["top_p"],
                     help="Default 0.9, the model card's; LightOn's client uses 1.0")
     ap.add_argument("--longest-edge", type=int, default=SERVING["longest_edge"],

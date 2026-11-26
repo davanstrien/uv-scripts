@@ -27,7 +27,8 @@ nomic → "search_document: "; bge-en/bge-m3 → none). At SEARCH time, embed yo
 matching QUERY prefix (printed at the end of the run) or retrieval quality silently drops.
 Override the document prefix with --prompt '<prefix>' (or --prompt '' for none).
 
-    hf jobs uv run --flavor l4x1 -s HF_TOKEN embed-to-lance.py \\
+    hf jobs uv run --flavor l4x1 -s HF_TOKEN \\
+        https://huggingface.co/datasets/uv-scripts/embeddings/raw/main/embed-to-lance.py \\
         stanfordnlp/imdb your-name/imdb-vecdb --column text --model BAAI/bge-base-en-v1.5 --private
 """
 import argparse
@@ -63,19 +64,22 @@ def known_convention(model_id):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("input_dataset")
-    ap.add_argument("output_repo")
-    ap.add_argument("--column", default="text")
+    ap.add_argument("input_dataset", help="Input dataset repo id")
+    ap.add_argument("output_repo", help="Output dataset repo id; the index is written to vecdb.lance in it (created if missing)")
+    ap.add_argument("--column", default="text", help="Text column to embed (default: text)")
     ap.add_argument("--config", default=None, help="dataset config name (e.g. wikipedia needs one)")
-    ap.add_argument("--split", default="train")
-    ap.add_argument("--model", default="BAAI/bge-base-en-v1.5")
-    ap.add_argument("--max-samples", type=int, default=None)
-    ap.add_argument("--batch-size", type=int, default=64)
-    ap.add_argument("--max-seq-len", type=int, default=512)
+    ap.add_argument("--split", default="train", help="Dataset split to read (default: train)")
+    ap.add_argument("--model", default="BAAI/bge-base-en-v1.5",
+                    help="Sentence-transformers model repo id (default: BAAI/bge-base-en-v1.5)")
+    ap.add_argument("--max-samples", type=int, default=None, help="Embed only the first N rows (for testing)")
+    ap.add_argument("--batch-size", type=int, default=64, help="Encoding batch size (default: 64)")
+    ap.add_argument("--max-seq-len", type=int, default=512,
+                    help="Truncate texts to this many tokens; the model's own limit wins if lower (default: 512)")
     ap.add_argument("--prompt", default=None,
                     help="Document prefix to prepend (default: auto from the known-family table; "
                          "pass '' to force none)")
-    ap.add_argument("--private", action="store_true")
+    ap.add_argument("--private", action="store_true",
+                    help="Create the output repo as private (no effect on a repo that already exists)")
     args = ap.parse_args()
 
     import torch

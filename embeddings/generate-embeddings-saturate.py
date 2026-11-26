@@ -208,9 +208,9 @@ def main():
     parser.add_argument("output_dataset", help="Output dataset ID (created if missing)")
     parser.add_argument("--model", default="Qwen/Qwen3-Embedding-0.6B", help="An embedding model that vLLM serves")
     parser.add_argument("--column", default="text", help="Text column to embed")
-    parser.add_argument("--output-column", default="embeddings")
+    parser.add_argument("--output-column", default="embeddings", help="Name of the embedding column in the output (default: embeddings)")
     parser.add_argument("--config", default=None, help="Dataset config name")
-    parser.add_argument("--split", default="train")
+    parser.add_argument("--split", default="train", help="Dataset split to read (default: train)")
     parser.add_argument("--id-column", default=None, help="Column to use as the row id (default: the row's position)")
     parser.add_argument("--max-samples", type=int, default=None, help="Embed only the first N rows (for testing)")
     parser.add_argument("--max-seq-len", type=int, default=None,
