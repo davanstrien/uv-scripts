@@ -218,8 +218,8 @@ def main():
     parser.add_argument("input_dir", type=Path, help="Folder with train.jsonl and development.jsonl in Kev's format")
     parser.add_argument("output_dir", type=Path, help="New or empty folder for the results, on a mounted bucket")
     parser.add_argument("--init-from", default=INIT_MODEL, help="Released Kev model to start from (repo@revision)")
-    parser.add_argument("--epochs", type=int, default=2)
-    parser.add_argument("--lr", type=float, default=2e-5)
+    parser.add_argument("--epochs", type=int, default=2, help="Training epochs, passed to kev.train (default: 2)")
+    parser.add_argument("--lr", type=float, default=2e-5, help="Learning rate, passed to kev.train (default: 2e-5)")
     parser.add_argument("--max-steps", type=int, default=0, help="Stop after this many optimizer steps, for a smoke test")
     args = parser.parse_args()
     # Kev's commands run from its own checkout, so relative paths must not reach them

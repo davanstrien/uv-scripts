@@ -541,7 +541,7 @@ def main():
     parser.add_argument("--split", default="train", help="Dataset mode: split")
     parser.add_argument("--max-samples", type=int, help="Process only the first N pages (for testing)")
     parser.add_argument("--shuffle", action="store_true", help="Dataset mode: shuffle before --max-samples")
-    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--seed", type=int, default=42, help="Shuffle seed, used with --shuffle (default: 42)")
     parser.add_argument("--batch-size", type=int, default=64,
                         help="Pages handed to the SDK per run (it parallelises regions inside a run)")
     parser.add_argument("--no-dspark", action="store_true", help="Standard decoding, no draft model")

@@ -381,11 +381,11 @@ def main():
     p.add_argument("output_dataset", help="Output dataset ID to create on the Hub")
     p.add_argument("--model", default="sentence-transformers/all-MiniLM-L6-v2",
                    help="sentence-transformers model (text or CLIP image model)")
-    p.add_argument("--modality", choices=["text", "image"], default="text")
+    p.add_argument("--modality", choices=["text", "image"], default="text", help="Embed text or images from --column (default: text)")
     p.add_argument("--column", default="text", help="Input column (text string, or image)")
-    p.add_argument("--output-column", default="embeddings")
+    p.add_argument("--output-column", default="embeddings", help="Name of the embedding column in the output (default: embeddings)")
     p.add_argument("--config", default=None, help="Dataset config name (e.g. wikipedia needs one)")
-    p.add_argument("--split", default="train")
+    p.add_argument("--split", default="train", help="Dataset split to read (default: train)")
     p.add_argument("--max-samples", type=int, default=None, help="Limit rows (for testing)")
     p.add_argument("--batch-size", default="auto",
                    help="'auto' probes for the fastest batch that fits, or pass an int")
@@ -400,8 +400,8 @@ def main():
                    help="Disable the built-in known-family prefix table (still honours registered prompts).")
     p.add_argument("--max-seq-len", type=int, default=512,
                    help="Truncate text to this many tokens (predictable cost; RAG-typical)")
-    p.add_argument("--normalize", action="store_true", default=True)
-    p.add_argument("--no-normalize", dest="normalize", action="store_false")
+    p.add_argument("--normalize", action="store_true", default=True, help="L2-normalize the embeddings (on by default)")
+    p.add_argument("--no-normalize", dest="normalize", action="store_false", help="Skip the extra L2-normalize step; models with their own Normalize module still return normalized embeddings")
     p.add_argument("--private", action="store_true", help="Make the output dataset private")
     # Fan-out mode (see docstring). Env-defaulted so a launcher drives workers purely via env.
     # Defaults stay raw strings; int conversion happens after parse so a malformed env var

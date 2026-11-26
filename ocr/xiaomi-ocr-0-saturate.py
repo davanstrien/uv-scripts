@@ -530,9 +530,9 @@ def main():
     ap.add_argument("output_dataset", help="Output dataset repo id (created if missing)")
     ap.add_argument("--engine", choices=["vllm", "sglang"], default="vllm",
                     help="Serving engine; sglang also needs the SGLang --image (see docstring)")
-    ap.add_argument("--image-column", default="image")
+    ap.add_argument("--image-column", default="image", help="Column that holds the page image (default: image)")
     ap.add_argument("--config", default=None, help="Dataset config name")
-    ap.add_argument("--split", default="train")
+    ap.add_argument("--split", default="train", help="Dataset split to read (default: train)")
     ap.add_argument("--id-column", default=None,
                     help="Column to use as row id (default: split-index ids)")
     ap.add_argument("--max-samples", "--limit", dest="limit", type=int, default=None,

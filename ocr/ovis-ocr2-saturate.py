@@ -215,14 +215,14 @@ def main():
     ap = argparse.ArgumentParser(description="OvisOCR2 batch OCR via saturate")
     ap.add_argument("input_dataset", help="Input dataset repo id (rows with an image column)")
     ap.add_argument("output_dataset", help="Output dataset repo id (created if missing)")
-    ap.add_argument("--image-column", default="image")
+    ap.add_argument("--image-column", default="image", help="Column that holds the page image (default: image)")
     ap.add_argument("--config", default=None, help="Dataset config name")
-    ap.add_argument("--split", default="train")
+    ap.add_argument("--split", default="train", help="Dataset split to read (default: train)")
     ap.add_argument("--id-column", default=None,
                     help="Column to use as row id (default: split-index ids)")
     ap.add_argument("--max-samples", "--limit", dest="limit", type=int, default=None,
                     help="Process only the first N rows (smoke test)")
-    ap.add_argument("--max-tokens", type=int, default=SERVING["max_tokens"])
+    ap.add_argument("--max-tokens", type=int, default=SERVING["max_tokens"], help="Output token cap per page (default: %(default)s)")
     ap.add_argument("--keep-image-tags", action="store_true",
                     help="Keep the bbox <img> placeholder blocks in the output")
     ap.add_argument("--retry-errors", action="store_true",
