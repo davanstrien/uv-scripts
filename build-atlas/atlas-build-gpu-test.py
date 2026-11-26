@@ -14,7 +14,6 @@
 
 import os
 import subprocess
-import sys
 import time
 
 # Enable cuml acceleration before anything imports umap

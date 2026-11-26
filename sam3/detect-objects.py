@@ -57,11 +57,9 @@ import time
 from typing import Any, Dict, List
 
 import torch
-from datasets import ClassLabel, Dataset, Features, Sequence, Value, load_dataset
-from datasets import Image as ImageFeature
-from huggingface_hub import DatasetCard, HfApi, login
+from datasets import ClassLabel, Dataset, Sequence, Value, load_dataset
+from huggingface_hub import DatasetCard, login
 from PIL import Image
-from tqdm.auto import tqdm
 from transformers import Sam3Model, Sam3Processor
 
 os.environ["HF_XET_HIGH_PERFORMANCE"] = "1"

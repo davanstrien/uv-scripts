@@ -41,10 +41,9 @@ import sys
 import time
 from collections import Counter, defaultdict
 from datetime import datetime
-from typing import Any
 
 from datasets import load_dataset
-from huggingface_hub import DatasetCard, login
+from huggingface_hub import login
 from tqdm.auto import tqdm
 
 logging.basicConfig(level=logging.INFO)
@@ -297,12 +296,12 @@ def main(
 
         a = report["bbox_area"]
         if a["count"]:
-            print(f"\n  Bbox Area:")
+            print("\n  Bbox Area:")
             print(f"    min={a['min']}, median={a['median']}, mean={a['mean']}, max={a['max']}")
 
         ar = report["bbox_aspect_ratio"]
         if ar["count"]:
-            print(f"\n  Bbox Aspect Ratio (w/h):")
+            print("\n  Bbox Aspect Ratio (w/h):")
             print(f"    min={ar['min']}, median={ar['median']}, mean={ar['mean']}, max={ar['max']}")
 
         if top_cooccurrences:

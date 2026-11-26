@@ -33,8 +33,6 @@ import json
 import logging
 import math
 import os
-import sys
-from collections import Counter, defaultdict
 from datetime import datetime
 from typing import Any
 
@@ -334,20 +332,20 @@ def main(
         print(json.dumps(report, indent=2))
     else:
         print("\n" + "=" * 60)
-        print(f"Dataset Diff")
+        print("Dataset Diff")
         print(f"  A: {dataset_a}")
         print(f"  B: {dataset_b}")
         print("=" * 60)
 
         img = report["images"]
-        print(f"\n  Images:")
+        print("\n  Images:")
         print(f"    A: {img['in_a']:,}  |  B: {img['in_b']:,}")
         print(f"    Shared: {img['shared']:,}")
         print(f"    Only in A: {img['only_in_a']:,}")
         print(f"    Only in B: {img['only_in_b']:,}")
 
         cat = report["categories"]
-        print(f"\n  Categories:")
+        print("\n  Categories:")
         print(f"    A: {cat['in_a']}  |  B: {cat['in_b']}  |  Shared: {cat['shared']}")
         if cat["only_in_a"]:
             print(f"    Only in A: {', '.join(cat['only_in_a'][:10])}")

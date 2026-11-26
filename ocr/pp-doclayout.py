@@ -861,7 +861,7 @@ Generated with [UV Scripts](https://huggingface.co/uv-scripts).
 def resolve_device(device: str) -> str:
     if device == "gpu":
         try:
-            import paddle  # noqa: F401
+            import paddle
 
             if paddle.device.is_compiled_with_cuda() and paddle.device.cuda.device_count() > 0:
                 logger.info(

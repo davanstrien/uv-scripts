@@ -536,7 +536,7 @@ def main():
             # Count parsing statistics
             parsing_success_count = sum(1 for s in all_parsing_success if s)
             parsing_fail_count = sum(1 for s in all_parsing_success if s is not None and not s)
-            logger.info(f"\nParsing statistics:")
+            logger.info("\nParsing statistics:")
             logger.info(f"  Successful: {parsing_success_count}/{len(valid_indices)} ({parsing_success_count/len(valid_indices)*100:.1f}%)")
             logger.info(f"  Failed: {parsing_fail_count}/{len(valid_indices)} ({parsing_fail_count/len(valid_indices)*100:.1f}%)")
             

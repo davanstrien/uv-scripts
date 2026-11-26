@@ -43,13 +43,12 @@ row's `entities` is a list of dicts:
 
 import argparse
 import logging
-import os
 import sys
 import time
 from typing import Any, Dict, List
 
 import torch
-from datasets import Dataset, Features, Sequence, Value, load_dataset
+from datasets import load_dataset
 from huggingface_hub import DatasetCard
 
 logging.basicConfig(
