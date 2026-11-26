@@ -151,7 +151,7 @@ def parse_reasoning_output(output: str, valid_labels: List[str]) -> tuple[str, s
     """Parse reasoning output to extract label from JSON after </think> tag.
     
     Returns:
-        tuple: (label or None, full reasoning text, parsing_success)
+        tuple: (label or None, the full model output, parsing_success)
     """
     import json
     
@@ -161,17 +161,14 @@ def parse_reasoning_output(output: str, valid_labels: List[str]) -> tuple[str, s
     if think_end != -1:
         # Extract everything after </think>
         json_part = output[think_end + len("</think>"):].strip()
-        reasoning = output[:think_end + len("</think>")]
     else:
         # No think tags, look for JSON in the output
         # Try to find JSON by looking for {
         json_start = output.find("{")
         if json_start != -1:
             json_part = output[json_start:].strip()
-            reasoning = output[:json_start].strip() if json_start > 0 else ""
         else:
             json_part = output
-            reasoning = output
     
     # Try to parse JSON
     try:

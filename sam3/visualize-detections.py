@@ -135,7 +135,6 @@ def visualize_sample(
     for i in range(num_detections):
         bbox = objects["bbox"][i]
         score = objects["score"][i]
-        category = objects["category"][i]
 
         x, y, w, h = bbox
         rect = patches.Rectangle(

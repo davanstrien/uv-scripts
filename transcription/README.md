@@ -224,8 +224,7 @@ The folder scripts take `/input /output` and `--max-files N` for a test run (the
 | `--tokenizer-lang` | derived from `--language` | NLTK Punkt language name for sentence tokenization |
 | `--emit-txt` | off | Also write `.txt` transcripts alongside the JSON alignments |
 | `--emit-srt` | off | Also write `.srt` subtitles derived from alignment segments |
-| `--batch-size-features` | 8 | Feature-extraction batch size |
-| `--batch-size-transcribe` | 16 | ASR batch size (where backend supports it) |
+| `--batch-size-features` | 8 | Batch size for transcription and emission extraction |
 | `--max-files` | all | Limit files to process (for testing) |
 
 </details>

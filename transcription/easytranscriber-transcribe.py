@@ -224,7 +224,6 @@ HF Jobs with bucket volumes:
         help="NLTK Punkt language name (english, swedish, ...). Default derived from --language.",
     )
     parser.add_argument("--batch-size-features", type=int, default=8, help="Batch size for the pipeline's transcription and emission-extraction steps (default: 8)")
-    parser.add_argument("--batch-size-transcribe", type=int, default=16, help="Not used at present: the script does not pass it on; --batch-size-features sets the transcription batch size")
     parser.add_argument("--emit-txt", action="store_true", help="Also write .txt transcript per file")
     parser.add_argument("--emit-srt", action="store_true", help="Also write .srt subtitles per file")
     parser.add_argument("--max-files", type=int, default=None, help="Limit number of files (for testing)")
