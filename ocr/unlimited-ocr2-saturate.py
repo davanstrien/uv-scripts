@@ -424,7 +424,7 @@ def main():
                     help="Long side (px) pages are sent at. Default 1280 in base mode (the model "
                          "resizes every page to one 1024 px view, so more pixels are discarded) and "
                          "2048 with --crop-mode (tiles use the detail)")
-    ap.add_argument("--pdf-dpi", type=int, default=150)
+    ap.add_argument("--pdf-dpi", type=int, default=150, help="Resolution, in dots per inch, at which PDF pages are rendered to images (default: 150)")
     ap.add_argument("--keep-furniture", action="store_true",
                     help="Keep page numbers, running heads and footers in `markdown`")
     ap.add_argument("--ngram-window", type=int, default=1024,

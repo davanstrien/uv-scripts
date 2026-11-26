@@ -342,7 +342,7 @@ def main():
     ap.add_argument("--max-tokens", type=int, default=SERVING["max_tokens"],
                     help="Output cap per page (default 4096, the model card's)")
     ap.add_argument("--temperature", type=float, default=SERVING["temperature"],
-                    help="Sampling temperature (default: %(default)s)")
+                    help="Sampling temperature for the main pass (default: %(default)s; the repair pass uses 0.1)")
     ap.add_argument("--top-p", type=float, default=SERVING["top_p"],
                     help="Default 0.9, the model card's; LightOn's client uses 1.0")
     ap.add_argument("--longest-edge", type=int, default=SERVING["longest_edge"],

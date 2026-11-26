@@ -107,7 +107,8 @@ def main():
     p.add_argument("--bucket", required=True, help="Run bucket, e.g. you/embedding-runs")
     p.add_argument("--run-id", required=True, help="Fleet run id; shards are read from runs/<run-id>/ in --bucket")
     p.add_argument("--private", action="store_true",
-                   help="Make the output dataset private (also set when the run's manifest says private)")
+                   help="Create the output dataset as private (also when the run's manifest says private; "
+                        "no effect on a repo that already exists)")
     args = p.parse_args()
 
     import pyarrow.parquet as pq

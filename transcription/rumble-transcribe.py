@@ -233,7 +233,7 @@ def main():
     parser.add_argument("--overwrite", action="store_true", help="Redo files that already have a transcript")
     parser.add_argument("--max-tokens", type=int, default=1024, help="Max new tokens per chunk (default: 1024)")
     parser.add_argument("--max-model-len", type=int, default=4096, help="vLLM max model length (default: 4096)")
-    parser.add_argument("--gpu-memory-utilization", type=float, default=0.85)
+    parser.add_argument("--gpu-memory-utilization", type=float, default=0.85, help="Fraction of GPU memory vLLM may use (default: 0.85)")
     args = parser.parse_args()
 
     if args.search_seconds >= args.chunk_seconds:
